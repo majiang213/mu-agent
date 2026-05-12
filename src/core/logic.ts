@@ -4,13 +4,25 @@ import { getNextState } from './states.js';
 /**
  * Check if state should exit based on LLM output
  */
+function tryParseJson(output: string): Record<string, unknown> | null {
+  const trimmed = output.trim();
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start === -1 || end === -1) return null;
+  try {
+    return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 export function checkExitCondition(
   state: State,
   iteration: number,
   maxIterations: number,
   llmOutput: string,
 ): ExitCheckResult {
-  // Max iterations reached
+  // Max iterations reached — always exit, move to next state
   if (iteration >= maxIterations) {
     return {
       shouldExit: true,
@@ -19,70 +31,29 @@ export function checkExitCondition(
     };
   }
 
-  // Check for completion markers in output
-  const completionMarkers = [
-    '[COMPLETE]',
-    '[DONE]',
-    'Task completed',
-    'Analysis complete',
-  ];
-
-  const hasCompletionMarker = completionMarkers.some((marker) =>
-    llmOutput.includes(marker),
-  );
-
-  if (hasCompletionMarker) {
+  // Any valid JSON response means the model completed this state's task
+  const parsed = tryParseJson(llmOutput);
+  if (parsed !== null) {
+    const success = !parsed['error'];
     return {
       shouldExit: true,
-      reason: 'Completion marker detected',
+      reason: success ? 'State completed' : 'State completed with error',
+      nextState: getNextState(state, success),
+    };
+  }
+
+  // Non-JSON but non-empty response — treat as completed after first iteration
+  if (llmOutput.trim().length > 0 && iteration >= 1) {
+    return {
+      shouldExit: true,
+      reason: 'Non-JSON response accepted',
       nextState: getNextState(state, true),
     };
   }
 
-  // State-specific checks
+  // State-specific fallback checks (legacy, kept as safety net)
   switch (state) {
-    case State.ANALYZE:
-      // Exit if we have identified files to modify
-      if (llmOutput.includes('Files to modify:') || llmOutput.includes('Files that need')) {
-        return {
-          shouldExit: true,
-          reason: 'Analysis complete - files identified',
-          nextState: State.LOCATE,
-        };
-      }
-      break;
-
-    case State.LOCATE:
-      // Exit if specific locations identified
-      if (llmOutput.includes('Line') && (llmOutput.includes('function') || llmOutput.includes('class'))) {
-        return {
-          shouldExit: true,
-          reason: 'Locations identified',
-          nextState: State.MODIFY,
-        };
-      }
-      break;
-
-    case State.MODIFY:
-      // Exit if changes are complete
-      if (llmOutput.includes('Changes complete') || llmOutput.includes('Modified:')) {
-        return {
-          shouldExit: true,
-          reason: 'Modifications complete',
-          nextState: State.VERIFY,
-        };
-      }
-      break;
-
     case State.VERIFY:
-      // Exit based on verification result
-      if (llmOutput.includes('Verification passed') || llmOutput.includes('All tests pass')) {
-        return {
-          shouldExit: true,
-          reason: 'Verification passed',
-          nextState: State.DONE,
-        };
-      }
       if (llmOutput.includes('Verification failed') || llmOutput.includes('Tests failed')) {
         return {
           shouldExit: true,
