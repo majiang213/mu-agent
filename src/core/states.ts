@@ -125,13 +125,13 @@ IMPORTANT CONSTRAINTS (Small Model Mode):
  * State transition rules
  */
 export function getNextState(currentState: State, success: boolean): State {
-  const transitions: Record<State, { success: State; failure: State }> = {
-    [State.ANALYZE]: { success: State.LOCATE, failure: State.ANALYZE },
-    [State.LOCATE]: { success: State.MODIFY, failure: State.ANALYZE },
-    [State.MODIFY]: { success: State.VERIFY, failure: State.LOCATE },
-    [State.VERIFY]: { success: State.DONE, failure: State.MODIFY },
-    [State.DONE]: { success: State.DONE, failure: State.DONE },
+  const transitions: Record<State, State> = {
+    [State.ANALYZE]: State.LOCATE,
+    [State.LOCATE]: State.MODIFY,
+    [State.MODIFY]: State.VERIFY,
+    [State.VERIFY]: State.DONE,
+    [State.DONE]: State.DONE,
   };
 
-  return success ? transitions[currentState].success : transitions[currentState].failure;
+  return transitions[currentState];
 }

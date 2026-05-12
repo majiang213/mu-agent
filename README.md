@@ -20,28 +20,31 @@ local-agent 针对这五个痛点逐一设计了解法。
 
 ---
 
-## 核心设计：LLM 只做分类和生成，确定性代码做决策
+## 核心设计：受约束的 ReAct 循环
 
 这是本项目最核心的架构原则，来自 Agentless（ICSE 2025）的实验结论：
 
 > **确定性流水线优于让 LLM 自主规划。** 给小模型一个清晰的、受约束的任务，比让它自己决定下一步做什么，成功率高出 40%+。
 
+local-agent 使用 **pi AgentLoop** 驱动真实的 ReAct 循环（LLM → 工具调用 → 结果回传 → LLM），状态机作为**拦截器**介入，约束 LLM 的行为边界：
+
 ```
 传统 ReAct Agent:
-  LLM 决定：下一步做什么？→ 调用哪个工具？→ 结果对吗？→ 下一步...
-  问题：7B 模型在规划层面非常弱，容易陷入循环或走错方向
+  LLM 自主决定：用哪个工具？→ 工具执行 → 结果回传 → 下一步...
+  问题：7B 模型在规划层面非常弱，容易调用错误工具或陷入循环
 
 local-agent:
-  代码决定：当前处于哪个状态？→ 可以用哪些工具？→ 什么条件退出？
-  LLM 只做：在当前状态下，生成具体的工具调用参数或代码
-  优势：LLM 只需在有限的选项里做局部决策，大幅降低出错概率
+  pi AgentLoop：LLM 自主决定工具调用 → 工具真实执行 → 结果回传 → LLM
+  状态机拦截：当前状态不允许的工具 → 自动 block，LLM 换策略
+  状态转换：达到迭代上限 → 注入新 system prompt 引导进入下一阶段
+  优势：LLM 保留自主决策能力，但被约束在合理范围内
 ```
 
 ---
 
 ## 五大优化详解
 
-### 1. 确定性状态机 — 解决「工具调用弱」和「无法处理复杂任务」
+### 1. 状态机约束的 ReAct 循环 — 解决「工具调用弱」和「无法处理复杂任务」
 
 每个任务经过固定的状态流转，每个状态只开放必要的工具：
 
@@ -56,7 +59,7 @@ ANALYZE → LOCATE → MODIFY → VERIFY → DONE
 | MODIFY | edit, write | 生成代码修改 |
 | VERIFY | read, bash | 验证修改是否正确 |
 
-**效果：** LLM 在 MODIFY 状态下不会尝试去 grep 文件（因为工具被禁用），在 ANALYZE 状态下不会直接写代码。行为边界由代码强制约束，而非依赖 LLM 的自律。
+**效果：** LLM 在 MODIFY 状态下尝试 grep 文件时，`beforeToolCall` 会自动 block 并告知原因，LLM 收到提示后换策略。行为边界由代码强制约束，而非依赖 LLM 的自律。
 
 状态机还会根据模型规模动态调整约束强度：
 
@@ -180,7 +183,7 @@ Level 4: 单任务保底（整个 prompt 作为一个任务，100% 不崩溃）
 | 特性 | LangChain/AutoGPT | local-agent |
 |------|-------------------|-------------|
 | 目标模型 | GPT-4/Claude | 本地 7B/8B |
-| 任务规划 | LLM 自主决定 | 确定性状态机 |
+| 任务规划 | LLM 自主决定 | 状态机约束的 ReAct 循环 |
 | 工具选择 | LLM 自主选择 | 按状态限制 |
 | 上下文管理 | 依赖模型窗口 | Token 预算制压缩 |
 | 失败处理 | 报错退出 | 四层降级策略 |
@@ -289,8 +292,8 @@ ANALYZE → LOCATE → MODIFY → VERIFY → DONE
 src/
 ├── cli.ts                  # CLI 入口
 ├── core/                   # Agent 运行时
-│   ├── session.ts          # 状态机
-│   ├── agent.ts            # 任务调度器
+│   ├── session.ts          # 状态机（工具拦截 + 状态转换）
+│   ├── agent.ts            # 任务调度器（pi AgentLoop 驱动真实 ReAct）
 │   ├── decomposer.ts       # 任务分解器（Level 1/2/3）
 │   ├── metrics.ts          # 性能追踪
 │   ├── types.ts            # 核心类型
@@ -302,7 +305,7 @@ src/
 │   ├── llm-service.ts      # 状态感知调用
 │   └── prompt.ts           # Prompt 构建器
 ├── tool/                   # 工具层
-│   ├── executor.ts         # 工具执行器
+│   ├── executor.ts         # 工具执行器（辅助，主执行由 pi codingTools 承担）
 │   ├── locator.ts          # AST 定位器
 │   └── safety/             # 安全修改
 ├── tui/                    # TUI 界面
