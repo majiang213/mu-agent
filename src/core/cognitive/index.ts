@@ -1,7 +1,7 @@
 import type { ToolCall } from '../types.js';
 
 /**
- * Cognitive gate configuration
+ * Stagnation detection configuration
  */
 export interface CognitiveGateConfig {
   maxRepeatedToolCalls: number;
@@ -22,7 +22,7 @@ export interface IneffectiveLoopDetection {
 }
 
 /**
- * Cognitive gate for detecting ineffective loops
+ * Stagnation detection — identifies and stops ineffective agent loops
  */
 export class CognitiveGate {
   private config: CognitiveGateConfig;
@@ -184,7 +184,7 @@ export class CognitiveGate {
 }
 
 /**
- * Create cognitive gate
+ * Create stagnation detector
  */
 export function createCognitiveGate(config?: Partial<CognitiveGateConfig>): CognitiveGate {
   return new CognitiveGate(config);

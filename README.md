@@ -117,9 +117,9 @@ Level 3: 单任务保底（100% 成功率兜底）
 
 ---
 
-### 4. 认知门控 — 解决「错误重复」
+### 4. 停滞检测（Stagnation Detection）— 解决「错误重复」
 
-小模型遇到失败后容易陷入无效循环，local-agent 通过认知门控主动检测并中止：
+小模型遇到失败后容易陷入无效循环，local-agent 通过停滞检测主动识别并中止：
 
 ```
 检测规则（满足任一即触发）:
@@ -185,7 +185,7 @@ Level 4: 单任务保底（整个 prompt 作为一个任务，100% 不崩溃）
 | 上下文管理 | 依赖模型窗口 | Token 预算制压缩 |
 | 失败处理 | 报错退出 | 四层降级策略 |
 | 代码定位 | LLM 搜索 | AST 精确定位 |
-| 循环检测 | 无 | 认知门控 |
+| 停滞检测 | 无 | Stagnation Detection |
 | 隐私 | 数据上云 | 完全本地 |
 
 ---
@@ -295,7 +295,7 @@ src/
 │   ├── metrics.ts          # 性能追踪
 │   ├── types.ts            # 核心类型
 │   ├── compaction/         # 上下文压缩
-│   ├── cognitive/          # 认知门控
+│   ├── cognitive/          # 停滞检测（Stagnation Detection）
 │   └── failure/            # 失败处理
 ├── provider/               # LLM 层
 │   ├── llm.ts              # LLM 连接器（pi-ai + Ollama）
