@@ -46,6 +46,7 @@ export class LLMConnector {
       const response: AssistantMessage = await completeSimple(this.model, context, {
         temperature: 0.7,
         maxTokens: 2000,
+        apiKey: 'ollama',
       });
 
       return this.parseResponse(response);

@@ -73,3 +73,31 @@ export interface ExitCheckResult {
   reason: string;
   nextState: State;
 }
+
+/** Task type for decomposition classification */
+export type TaskType =
+  | 'CODING'
+  | 'BUGFIX'
+  | 'REFACTORING'
+  | 'TESTING'
+  | 'DOCUMENTATION'
+  | 'REVIEW'
+  | 'ANALYSIS'
+  | 'UNKNOWN';
+
+/** Sub-task produced by the decomposer */
+export interface SubTask {
+  id: string;
+  description: string;
+  type: TaskType;
+  dependencies: string[];
+  parallel?: boolean;
+  parallelGroup?: string;
+}
+
+/** Result from the decomposer */
+export interface DecompositionResult {
+  tasks: SubTask[];
+  level: 1 | 2 | 3;
+  confidence: number;
+}

@@ -1,6 +1,7 @@
 import { StateMachineAgent } from './session.js';
 import { State, type StateResult } from './types.js';
 import { LLMService } from '../provider/llm-service.js';
+import { TaskDecomposer } from './decomposer.js';
 
 /**
  * Task scheduler for level 1 decomposition
@@ -18,25 +19,21 @@ export interface Task {
 export class TaskScheduler {
   private tasks: Task[];
   private currentTaskIndex: number;
+  private decomposer: TaskDecomposer;
 
   constructor() {
     this.tasks = [];
     this.currentTaskIndex = 0;
+    this.decomposer = new TaskDecomposer();
   }
 
-  /**
-   * Decompose high-level task into subtasks
-   */
   async decompose(taskDescription: string): Promise<Task[]> {
-    // Level 1: Simple decomposition for now
-    // In production, this would use LLM to decompose
-    this.tasks = [
-      {
-        id: '1',
-        description: taskDescription,
-        state: 'pending',
-      },
-    ];
+    const result = this.decomposer.decompose(taskDescription);
+    this.tasks = result.tasks.map((sub) => ({
+      id: sub.id,
+      description: sub.description,
+      state: 'pending' as const,
+    }));
     return this.tasks;
   }
 
