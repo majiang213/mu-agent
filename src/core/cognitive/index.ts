@@ -3,7 +3,7 @@ import type { ToolCall } from '../types.js';
 /**
  * Stagnation detection configuration
  */
-export interface CognitiveGateConfig {
+export interface StagnationDetectorConfig {
   maxRepeatedToolCalls: number;
   maxRepeatedErrors: number;
   similarityThreshold: number;
@@ -24,12 +24,12 @@ export interface IneffectiveLoopDetection {
 /**
  * Stagnation detection — identifies and stops ineffective agent loops
  */
-export class CognitiveGate {
-  private config: CognitiveGateConfig;
+export class StagnationDetector {
+  private config: StagnationDetectorConfig;
   private toolCallHistory: ToolCall[];
   private errorHistory: string[];
 
-  constructor(config: Partial<CognitiveGateConfig> = {}) {
+  constructor(config: Partial<StagnationDetectorConfig> = {}) {
     this.config = {
       maxRepeatedToolCalls: 3,
       maxRepeatedErrors: 2,
@@ -186,6 +186,6 @@ export class CognitiveGate {
 /**
  * Create stagnation detector
  */
-export function createCognitiveGate(config?: Partial<CognitiveGateConfig>): CognitiveGate {
-  return new CognitiveGate(config);
+export function createStagnationDetector(config?: Partial<StagnationDetectorConfig>): StagnationDetector {
+  return new StagnationDetector(config);
 }

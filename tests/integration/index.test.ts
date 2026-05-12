@@ -3,7 +3,7 @@ import { ConfigManager } from '../../src/config/manager.js';
 import { StateMachineAgent } from '../../src/core/session.js';
 import { TaskScheduler } from '../../src/core/agent.js';
 import { createFailureHandler } from '../../src/core/failure/index.js';
-import { createCognitiveGate } from '../../src/core/cognitive/index.js';
+import { createStagnationDetector } from '../../src/core/cognitive/index.js';
 import { createASTLocator } from '../../src/tool/locator.js';
 import { createSafeModifier } from '../../src/tool/safety/index.js';
 
@@ -28,8 +28,8 @@ describe('Integration Tests', () => {
       const failureHandler = createFailureHandler();
       expect(failureHandler.getCurrentLevel()).toBe(1);
 
-      const cognitiveGate = createCognitiveGate();
-      expect(cognitiveGate.getStats()).toEqual({ toolCalls: 0, errors: 0 });
+      const stagnationDetector = createStagnationDetector();
+      expect(stagnationDetector.getStats()).toEqual({ toolCalls: 0, errors: 0 });
 
       const astLocator = createASTLocator();
       expect(astLocator).toBeDefined();
@@ -74,23 +74,21 @@ describe('Integration Tests', () => {
       expect(stateMachine.getCurrentState()).toBe('DONE');
     });
 
-    it('should handle tool calls with cognitive gate', () => {
-      const cognitiveGate = createCognitiveGate();
+    it('should handle tool calls with stagnation detector', () => {
+      const stagnationDetector = createStagnationDetector();
 
-      // Record some tool calls
-      cognitiveGate.recordToolCall({
+      stagnationDetector.recordToolCall({
         tool: 'read',
         input: { path: 'test.ts' },
         output: {},
         timestamp: Date.now(),
       });
 
-      const check1 = cognitiveGate.check();
+      const check1 = stagnationDetector.check();
       expect(check1.detected).toBe(false);
 
-      // Record more calls to trigger detection
       for (let i = 0; i < 3; i++) {
-        cognitiveGate.recordToolCall({
+        stagnationDetector.recordToolCall({
           tool: 'read',
           input: { path: 'test.ts' },
           output: {},
@@ -98,7 +96,7 @@ describe('Integration Tests', () => {
         });
       }
 
-      const check2 = cognitiveGate.check();
+      const check2 = stagnationDetector.check();
       expect(check2.detected).toBe(true);
       expect(check2.type).toBe('repeated_tool');
     });

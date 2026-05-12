@@ -4,7 +4,7 @@ import { ConfigManager } from './config/manager.js';
 import { TaskScheduler } from './core/agent.js';
 import { StateMachineAgent } from './core/session.js';
 import { createFailureHandler } from './core/failure/index.js';
-import { createCognitiveGate } from './core/cognitive/index.js';
+import { createStagnationDetector } from './core/cognitive/index.js';
 import { createContextCompactor } from './core/compaction/index.js';
 import { createASTLocator } from './tool/locator.js';
 import { createSafeModifier } from './tool/safety/index.js';
@@ -36,7 +36,7 @@ program
       // Initialize components
       const stateMachine = new StateMachineAgent(options.model);
       const failureHandler = createFailureHandler();
-      const cognitiveGate = createCognitiveGate();
+      const stagnationDetector = createStagnationDetector();
       const compactor = createContextCompactor();
       const astLocator = createASTLocator();
       const safeModifier = createSafeModifier();

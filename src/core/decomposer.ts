@@ -1,4 +1,5 @@
 import type { SubTask, TaskType, DecompositionResult } from './types.js';
+import type { LLMConnector } from '../provider/llm.js';
 
 const SEQUENTIAL_PATTERNS = [
   /先(.+?)然后(.+?)(?:再(.+?))?(?:最后(.+?))?$/,
@@ -100,8 +101,23 @@ function level3Fallback(prompt: string): SubTask[] {
   return [{ id: 'task-0', description: prompt.trim(), type: detectTaskType(prompt), dependencies: [] }];
 }
 
+const LEVEL2_SYSTEM_PROMPT = `You are a task decomposition assistant. Break a coding task into 2-3 sequential subtasks.
+Output ONLY valid JSON, no other text.
+Format: {"tasks": [{"id": "l2-0", "description": "...", "type": "CODING|BUGFIX|REFACTORING|TESTING|DOCUMENTATION|REVIEW|ANALYSIS|UNKNOWN"}, ...]}
+Rules: max 3 tasks, each description under 80 chars, sequential order.`;
+
+const LEVEL2_FEW_SHOT = `Example:
+Input: "重构认证系统并添加 OAuth 支持"
+Output: {"tasks": [{"id": "l2-0", "description": "分析现有认证系统结构", "type": "ANALYSIS"}, {"id": "l2-1", "description": "重构认证模块为可扩展架构", "type": "REFACTORING"}, {"id": "l2-2", "description": "实现 OAuth 提供商集成", "type": "CODING"}]}`;
+
 export class TaskDecomposer {
-  decompose(prompt: string): DecompositionResult {
+  private llm: LLMConnector | null;
+
+  constructor(llm?: LLMConnector) {
+    this.llm = llm ?? null;
+  }
+
+  async decompose(prompt: string): Promise<DecompositionResult> {
     const trimmed = prompt.trim();
 
     const mixed = tryMixed(trimmed);
@@ -119,30 +135,40 @@ export class TaskDecomposer {
       return { tasks: par, level: 1, confidence: 0.8 };
     }
 
-    const level2 = this.tryLevel2(trimmed);
-    if (level2) {
-      return { tasks: level2, level: 2, confidence: 0.6 };
+    if (this.llm) {
+      const level2 = await this.tryLevel2LLM(trimmed);
+      if (level2) {
+        return { tasks: level2, level: 2, confidence: 0.6 };
+      }
     }
 
     return { tasks: level3Fallback(trimmed), level: 3, confidence: 1.0 };
   }
 
-  private tryLevel2(prompt: string): SubTask[] | null {
-    const sentences = prompt
-      .split(/[。.!！\n]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 3);
+  private async tryLevel2LLM(prompt: string): Promise<SubTask[] | null> {
+    if (!this.llm) return null;
+    try {
+      const userPrompt = `${LEVEL2_FEW_SHOT}\n\nInput: "${prompt}"\nOutput:`;
+      const { content } = await this.llm.generate(LEVEL2_SYSTEM_PROMPT, userPrompt);
 
-    if (sentences.length < 2 || sentences.length > 3) return null;
+      const start = content.indexOf('{');
+      const end = content.lastIndexOf('}');
+      if (start === -1 || end === -1) return null;
 
-    const tasks: SubTask[] = sentences.map((s, i) => ({
-      id: `l2-${i}`,
-      description: s,
-      type: detectTaskType(s),
-      dependencies: i > 0 ? [`l2-${i - 1}`] : [],
-    }));
+      const parsed = JSON.parse(content.slice(start, end + 1)) as { tasks?: Array<{ id: string; description: string; type: string }> };
+      if (!Array.isArray(parsed.tasks) || parsed.tasks.length < 2 || parsed.tasks.length > 3) return null;
 
-    return validateTasks(tasks) ? tasks : null;
+      const tasks: SubTask[] = parsed.tasks.map((t, i) => ({
+        id: t.id ?? `l2-${i}`,
+        description: t.description?.slice(0, 120) ?? '',
+        type: (t.type as TaskType) ?? 'UNKNOWN',
+        dependencies: i > 0 ? [(parsed.tasks![i - 1]?.id ?? `l2-${i - 1}`)] : [],
+      }));
+
+      return validateTasks(tasks) ? tasks : null;
+    } catch {
+      return null;
+    }
   }
 }
 

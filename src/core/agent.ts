@@ -7,6 +7,11 @@ import { StateMachineAgent } from './session.js';
 import { State, type StateResult } from './types.js';
 import { TaskDecomposer } from './decomposer.js';
 import { PromptBuilder } from '../provider/prompt.js';
+import { StagnationDetector } from './cognitive/index.js';
+import { FailureHandler } from './failure/handler.js';
+import { LLMConnector } from '../provider/llm.js';
+import { ContextCompactor } from './compaction/index.js';
+import { astLocatorTool } from '../tool/locator.js';
 
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
@@ -48,7 +53,7 @@ export class TaskScheduler {
   }
 
   async decompose(taskDescription: string): Promise<Task[]> {
-    const result = this.decomposer.decompose(taskDescription);
+    const result = await this.decomposer.decompose(taskDescription);
     this.tasks = result.tasks.map((sub) => ({
       id: sub.id,
       description: sub.description,
@@ -73,6 +78,9 @@ export class TaskScheduler {
     const stateMachine = new StateMachineAgent(modelName);
     const promptBuilder = new PromptBuilder();
     const model = buildModel(modelName, provider, baseUrl);
+    const stagnationDetector = new StagnationDetector();
+    const contextCompactor = new ContextCompactor({ maxTokens: 24000, preserveFirstN: 2, preserveLastN: 6 });
+    let stagnationDetected = false;
 
     const systemPrompt = promptBuilder.buildSystemPrompt({
       state: State.ANALYZE,
@@ -84,7 +92,7 @@ export class TaskScheduler {
       initialState: {
         systemPrompt,
         model,
-        tools: codingTools,
+        tools: [...codingTools, astLocatorTool],
       },
       streamFn: async (m, ctx, opts) => {
         return streamSimple(m, ctx, { ...opts, apiKey: 'ollama' });
@@ -112,11 +120,60 @@ export class TaskScheduler {
       if (event.type === 'tool_execution_start') {
         onEvent?.({ type: 'tool_call', tool: event.toolName });
         stateMachine.recordToolCall(event.toolName, event.args, null);
+        stagnationDetector.recordToolCall({
+          tool: event.toolName,
+          input: event.args,
+          output: null,
+          timestamp: Date.now(),
+        });
       }
 
       if (event.type === 'turn_end') {
         turnCount++;
         onEvent?.({ type: 'llm_call', promptLen: 0, responseLen: 0 });
+
+        // Stagnation detection — check after each turn
+        const stagnation = stagnationDetector.check();
+        if (stagnation.detected) {
+          stagnationDetected = true;
+          agent.steer({
+            role: 'user',
+            content: [{
+              type: 'text',
+              text: `[STAGNATION DETECTED] ${stagnation.message}. ${stagnation.suggestion}. Stopping current approach.`,
+            }],
+            timestamp: Date.now(),
+          });
+          // Force advance to VERIFY or DONE to break the loop
+          const currentState = stateMachine.getCurrentState();
+          const escapeState = currentState === State.MODIFY || currentState === State.LOCATE
+            ? State.VERIFY
+            : State.DONE;
+          if (escapeState !== currentState) {
+            stateMachine.transitionTo(escapeState);
+            onEvent?.({ type: 'state_change', from: currentState, to: escapeState });
+          }
+          return;
+        }
+
+        // Context compaction — inject summary when approaching context limit
+        const rawMessages = agent.state.messages.map((m) => {
+          const content = 'content' in m
+            ? (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+            : '';
+          return { role: m.role, content };
+        });
+        const compactionResult = contextCompactor.compact(rawMessages);
+        if (compactionResult.compacted && compactionResult.summary) {
+          agent.steer({
+            role: 'user',
+            content: [{
+              type: 'text',
+              text: `[CONTEXT COMPACTED] Earlier context summarized (${compactionResult.removedCount} messages removed): ${compactionResult.summary}`,
+            }],
+            timestamp: Date.now(),
+          });
+        }
 
         const prevState = stateMachine.getCurrentState();
         if (prevState === State.DONE) return;
@@ -151,17 +208,43 @@ export class TaskScheduler {
       }
     });
 
-    await agent.prompt(task.description);
+    const failureHandler = new FailureHandler({ maxRetries: stateMachine.getModelParams().maxRetries });
+    let attempt = 0;
+    let lastError: Error | null = null;
+
+    while (attempt <= stateMachine.getModelParams().maxRetries) {
+      try {
+        await agent.prompt(task.description);
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        const failureCtx = failureHandler.createContext(
+          'llm_error',
+          lastError,
+          stateMachine.getCurrentState(),
+          attempt,
+          { stagnationDetected },
+        );
+        const recovery = await failureHandler.handleFailure(failureCtx);
+        if (!recovery.shouldRetry) break;
+        attempt++;
+        const newTemperature = LLMConnector.DEFAULT_TEMPERATURE + attempt * LLMConnector.RETRY_TEMPERATURE_STEP;
+        const newModel = buildModel(modelName, provider, baseUrl);
+        agent.setModel({ ...newModel } as Parameters<typeof agent.setModel>[0]);
+        stagnationDetector.reset();
+      }
+    }
 
     const finalState = stateMachine.getCurrentState();
     const agentMessages = agent.state.messages;
     const hadToolCalls = agentMessages.some((m) => m.role === 'toolResult');
-    const success = finalState === State.DONE || hadToolCalls || turnCount > 0;
+    const success = (finalState === State.DONE || hadToolCalls || turnCount > 0) && lastError === null;
 
     const result: StateResult = {
       state: finalState,
       success,
-      output: 'Task execution completed',
+      output: lastError ? `Failed: ${lastError.message}` : 'Task execution completed',
       toolCalls: [],
       nextState: State.DONE,
     };

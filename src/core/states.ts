@@ -41,7 +41,7 @@ export function getBaseStateConfigs(): Record<State, StateConfig> {
   return {
     [State.ANALYZE]: {
       name: State.ANALYZE,
-      allowedTools: ['read', 'grep', 'find', 'ls'],
+      allowedTools: ['read'],
       prompt: `Analyze the task and understand what needs to be done.
 Read relevant files to understand the codebase structure.
 Do not write any code yet.
@@ -54,7 +54,7 @@ Output your analysis in this format:
     },
     [State.LOCATE]: {
       name: State.LOCATE,
-      allowedTools: ['read', 'grep', 'find', 'ls'],
+      allowedTools: ['read', 'grep', 'find', 'ls', 'ast_code_locator'],
       prompt: `Locate the exact positions in the code that need to be modified.
 Read the relevant files and identify specific functions, classes, or lines.
 

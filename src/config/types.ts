@@ -72,8 +72,7 @@ export interface RuntimeConfig {
 export interface StateMachineConfig {
   /** Maximum iterations per task */
   maxIterations: number;
-  /** Enable cognitive gate */
-  enableCognitiveGate: boolean;
+  enableStagnationDetector: boolean;
   /** Enable context compaction */
   enableCompaction: boolean;
   /** Compaction threshold (token count) */

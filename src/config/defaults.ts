@@ -58,7 +58,7 @@ function getDefaultRuntimeConfig(hardware: HardwareConstraints): RuntimeConfig {
 function getDefaultStateMachineConfig(): StateMachineConfig {
   return {
     maxIterations: 50,
-    enableCognitiveGate: true,
+    enableStagnationDetector: true,
     enableCompaction: true,
     compactionThreshold: 3000,
   };

@@ -22,7 +22,7 @@ describe('config defaults', () => {
       expect(config.runtime).toHaveProperty('adjustedContextLength');
 
       expect(config.stateMachine).toHaveProperty('maxIterations');
-      expect(config.stateMachine).toHaveProperty('enableCognitiveGate');
+      expect(config.stateMachine).toHaveProperty('enableStagnationDetector');
       expect(config.stateMachine).toHaveProperty('enableCompaction');
       expect(config.stateMachine).toHaveProperty('compactionThreshold');
     });
