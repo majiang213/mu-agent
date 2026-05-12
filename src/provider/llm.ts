@@ -4,13 +4,20 @@ import type { ToolCall } from '../core/types.js';
 
 export class LLMConnector {
   private model: Model<'openai-completions'>;
+  private temperature: number;
 
-  constructor(provider: string, modelName: string, baseUrl?: string) {
+  static readonly DEFAULT_TEMPERATURE = 0.1;
+  static readonly MAX_TEMPERATURE = 0.5;
+  static readonly RETRY_TEMPERATURE_STEP = 0.2;
+
+  constructor(provider: string, modelName: string, baseUrl?: string, temperature?: number) {
+    this.temperature = temperature ?? LLMConnector.DEFAULT_TEMPERATURE;
     // Construct Model object directly for openai-completions compatible APIs (e.g. Ollama)
     const resolvedBaseUrl = baseUrl ?? 'http://localhost:11434';
     const apiBase = resolvedBaseUrl.endsWith('/v1')
       ? resolvedBaseUrl
       : `${resolvedBaseUrl}/v1`;
+
 
     this.model = {
       id: modelName,
@@ -24,6 +31,10 @@ export class LLMConnector {
       contextWindow: 32768,
       maxTokens: 4096,
     };
+  }
+
+  setTemperature(temperature: number): void {
+    this.temperature = Math.min(temperature, LLMConnector.MAX_TEMPERATURE);
   }
 
   async generate(
@@ -44,7 +55,7 @@ export class LLMConnector {
 
     try {
       const response: AssistantMessage = await completeSimple(this.model, context, {
-        temperature: 0.7,
+        temperature: this.temperature,
         maxTokens: 2000,
         apiKey: 'ollama',
       });
@@ -86,6 +97,7 @@ export function createLLMConnector(
   provider: string,
   modelName: string,
   baseUrl?: string,
+  temperature?: number,
 ): LLMConnector {
-  return new LLMConnector(provider, modelName, baseUrl);
+  return new LLMConnector(provider, modelName, baseUrl, temperature);
 }
