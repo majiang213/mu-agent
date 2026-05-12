@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PromptBuilder } from '../../src/decomposition/prompt-builder.js';
-import { State } from '../../src/state-machine/types.js';
-import type { ModelParams } from '../../src/state-machine/types.js';
+import { PromptBuilder } from '../../src/provider/prompt.js';
+import { State } from '../../src/core/types.js';
+import type { ModelParams } from '../../src/core/types.js';
 
 const SMALL_PARAMS: ModelParams = {
   tier: 'SMALL',

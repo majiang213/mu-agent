@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ConfigManager } from '../../src/config/manager.js';
-import { StateMachineAgent } from '../../src/state-machine/agent.js';
-import { TaskScheduler } from '../../src/decomposition/scheduler.js';
-import { createFailureHandler } from '../../src/failure/index.js';
-import { createCognitiveGate } from '../../src/cognitive/index.js';
-import { createASTLocator } from '../../src/ast-locator/index.js';
-import { createSafeModifier } from '../../src/safety/index.js';
+import { StateMachineAgent } from '../../src/core/session.js';
+import { TaskScheduler } from '../../src/core/agent.js';
+import { createFailureHandler } from '../../src/core/failure/index.js';
+import { createCognitiveGate } from '../../src/core/cognitive/index.js';
+import { createASTLocator } from '../../src/tool/locator.js';
+import { createSafeModifier } from '../../src/tool/safety/index.js';
 
 describe('Integration Tests', () => {
   beforeAll(() => {

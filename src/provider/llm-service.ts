@@ -1,7 +1,7 @@
-import type { StateContext } from '../state-machine/types.js';
-import type { ToolCall } from '../state-machine/types.js';
-import { LLMConnector } from '../llm-connector.js';
-import { PromptBuilder } from './prompt-builder.js';
+import type { StateContext } from '../core/types.js';
+import type { ToolCall } from '../core/types.js';
+import { LLMConnector } from './llm.js';
+import { PromptBuilder } from './prompt.js';
 
 export class LLMService {
   private connector: LLMConnector;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createContextCompactor } from '../../src/compaction/index.js';
+import { createContextCompactor } from '../../../src/core/compaction/index.js';
 
 describe('ContextCompactor', () => {
   describe('shouldCompact', () => {

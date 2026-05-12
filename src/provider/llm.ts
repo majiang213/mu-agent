@@ -1,6 +1,6 @@
 import { completeSimple } from '@mariozechner/pi-ai';
 import type { Model, Context, AssistantMessage, TextContent } from '@mariozechner/pi-ai';
-import type { ToolCall } from './state-machine/types.js';
+import type { ToolCall } from '../core/types.js';
 
 export class LLMConnector {
   private model: Model<'openai-completions'>;

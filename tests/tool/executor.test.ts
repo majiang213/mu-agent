@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createToolExecutor, ToolExecutor } from '../../src/tool-executor/index.js';
+import { createToolExecutor, ToolExecutor } from '../../src/tool/executor.js';
 
 describe('ToolExecutor', () => {
   it('should instantiate with default coding tools', () => {

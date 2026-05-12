@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { ASTLocator, createASTLocator } from '../../src/ast-locator/index.js';
+import { ASTLocator, createASTLocator } from '../../../src/tool/locator.js';
 
 const FIXTURE_DIR = resolve(import.meta.dirname ?? __dirname, 'fixtures');
 

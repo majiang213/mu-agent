@@ -10,7 +10,7 @@ import {
 } from './types.js';
 import { detectModelParams, getBaseStateConfigs, generateAdaptivePrompt } from './states.js';
 import { checkExitCondition, createStateContext, formatToolCallsForContext } from './logic.js';
-import { PromptBuilder } from '../decomposition/prompt-builder.js';
+import { PromptBuilder } from '../provider/prompt.js';
 
 /**
  * State machine controlled agent

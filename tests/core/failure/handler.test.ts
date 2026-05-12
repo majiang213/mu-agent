@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { FailureHandler } from '../../src/failure/handler.js';
-import { createFailureHandler } from '../../src/failure/index.js';
+import { FailureHandler } from '../../../src/core/failure/handler.js';
+import { createFailureHandler } from '../../../src/core/failure/index.js';
 
 describe('FailureHandler', () => {
   describe('initialization', () => {

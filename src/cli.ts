@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { ConfigManager } from './config/manager.js';
-import { TaskScheduler } from './decomposition/scheduler.js';
-import { StateMachineAgent } from './state-machine/agent.js';
-import { createFailureHandler } from './failure/index.js';
-import { createCognitiveGate } from './cognitive/index.js';
-import { createContextCompactor } from './compaction/index.js';
-import { createASTLocator } from './ast-locator/index.js';
-import { createSafeModifier } from './safety/index.js';
+import { TaskScheduler } from './core/agent.js';
+import { StateMachineAgent } from './core/session.js';
+import { createFailureHandler } from './core/failure/index.js';
+import { createCognitiveGate } from './core/cognitive/index.js';
+import { createContextCompactor } from './core/compaction/index.js';
+import { createASTLocator } from './tool/locator.js';
+import { createSafeModifier } from './tool/safety/index.js';
 
 const program = new Command();
 

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { State } from '../../src/state-machine/types.js';
-import type { StateContext } from '../../src/state-machine/types.js';
+import { State } from '../../src/core/types.js';
+import type { StateContext } from '../../src/core/types.js';
 
-vi.mock('../../src/llm-connector.js', () => {
+vi.mock('../../src/provider/llm.js', () => {
   return {
     LLMConnector: vi.fn().mockImplementation(() => ({
       generate: vi.fn().mockResolvedValue({ content: '{"summary":"test"}', toolCalls: [] }),
@@ -16,16 +16,16 @@ describe('LLMService', () => {
   });
 
   it('can be instantiated without throwing', async () => {
-    const { LLMService } = await import('../../src/decomposition/llm-service.js');
+    const { LLMService } = await import('../../src/provider/llm-service.js');
     expect(() => new LLMService('ollama', 'qwen2.5:7b')).not.toThrow();
   });
 
   it('calls connector.generate when generate() is invoked', async () => {
-    const { LLMConnector } = await import('../../src/llm-connector.js');
+    const { LLMConnector } = await import('../../src/provider/llm.js');
     const mockGenerate = vi.fn().mockResolvedValue({ content: 'response', toolCalls: [] });
     (LLMConnector as ReturnType<typeof vi.fn>).mockImplementation(() => ({ generate: mockGenerate }));
 
-    const { LLMService } = await import('../../src/decomposition/llm-service.js');
+    const { LLMService } = await import('../../src/provider/llm-service.js');
     const service = new LLMService('ollama', 'qwen2.5:7b');
 
     const context: StateContext = {
@@ -40,12 +40,12 @@ describe('LLMService', () => {
   });
 
   it('returns content and toolCalls from connector response', async () => {
-    const { LLMConnector } = await import('../../src/llm-connector.js');
+    const { LLMConnector } = await import('../../src/provider/llm.js');
     (LLMConnector as ReturnType<typeof vi.fn>).mockImplementation(() => ({
       generate: vi.fn().mockResolvedValue({ content: 'hello', toolCalls: [{ tool: 'read', input: {}, output: null, timestamp: 0 }] }),
     }));
 
-    const { LLMService } = await import('../../src/decomposition/llm-service.js');
+    const { LLMService } = await import('../../src/provider/llm-service.js');
     const service = new LLMService('ollama', 'qwen2.5:7b');
 
     const context: StateContext = {
@@ -61,11 +61,11 @@ describe('LLMService', () => {
   });
 
   it('passes systemPrompt containing state name to connector', async () => {
-    const { LLMConnector } = await import('../../src/llm-connector.js');
+    const { LLMConnector } = await import('../../src/provider/llm.js');
     const mockGenerate = vi.fn().mockResolvedValue({ content: '', toolCalls: [] });
     (LLMConnector as ReturnType<typeof vi.fn>).mockImplementation(() => ({ generate: mockGenerate }));
 
-    const { LLMService } = await import('../../src/decomposition/llm-service.js');
+    const { LLMService } = await import('../../src/provider/llm-service.js');
     const service = new LLMService('ollama', 'qwen2.5:7b');
 
     const context: StateContext = {
@@ -81,17 +81,17 @@ describe('LLMService', () => {
   });
 
   it('accepts optional baseUrl parameter', async () => {
-    const { LLMService } = await import('../../src/decomposition/llm-service.js');
+    const { LLMService } = await import('../../src/provider/llm-service.js');
     expect(() => new LLMService('ollama', 'qwen2.5:7b', 'http://localhost:11434')).not.toThrow();
   });
 
   it('propagates connector errors', async () => {
-    const { LLMConnector } = await import('../../src/llm-connector.js');
+    const { LLMConnector } = await import('../../src/provider/llm.js');
     (LLMConnector as ReturnType<typeof vi.fn>).mockImplementation(() => ({
       generate: vi.fn().mockRejectedValue(new Error('LLM unavailable')),
     }));
 
-    const { LLMService } = await import('../../src/decomposition/llm-service.js');
+    const { LLMService } = await import('../../src/provider/llm-service.js');
     const service = new LLMService('ollama', 'qwen2.5:7b');
 
     const context: StateContext = {

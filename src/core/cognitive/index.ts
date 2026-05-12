@@ -1,4 +1,4 @@
-import type { ToolCall } from '../state-machine/types.js';
+import type { ToolCall } from '../types.js';
 
 /**
  * Cognitive gate configuration

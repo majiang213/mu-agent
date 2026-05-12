@@ -1,4 +1,4 @@
-import { State, type ModelParams, type StateContext } from '../state-machine/types.js';
+import { State, type ModelParams, type StateContext } from '../core/types.js';
 
 export interface PromptOptions {
   state: State;

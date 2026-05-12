@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { StateMachineAgent } from '../../src/state-machine/agent.js';
-import { State } from '../../src/state-machine/types.js';
+import { StateMachineAgent } from '../../src/core/session.js';
+import { State } from '../../src/core/types.js';
 
 describe('StateMachineAgent — generatePrompt', () => {
   it('returns a non-empty string', () => {

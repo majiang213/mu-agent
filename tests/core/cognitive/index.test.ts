@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createCognitiveGate } from '../../src/cognitive/index.js';
+import { createCognitiveGate } from '../../../src/core/cognitive/index.js';
 
 describe('CognitiveGate', () => {
   let gate: ReturnType<typeof createCognitiveGate>;

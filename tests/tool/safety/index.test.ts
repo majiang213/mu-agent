@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SafeModifier } from '../../src/safety/checkpoint.js';
-import { LineLimitChecker } from '../../src/safety/line-limits.js';
-import { syntaxCheckHook, damageCheckHook, runPostChecks } from '../../src/safety/post-check.js';
+import { SafeModifier } from '../../../src/tool/safety/checkpoint.js';
+import { LineLimitChecker } from '../../../src/tool/safety/line-limits.js';
+import { syntaxCheckHook, damageCheckHook, runPostChecks } from '../../../src/tool/safety/post-check.js';
 import { writeFile, readFile, mkdir, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';

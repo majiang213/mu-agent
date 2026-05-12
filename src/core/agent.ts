@@ -1,6 +1,6 @@
-import { StateMachineAgent } from '../state-machine/agent.js';
-import { State, type StateResult } from '../state-machine/types.js';
-import { LLMService } from './llm-service.js';
+import { StateMachineAgent } from './session.js';
+import { State, type StateResult } from './types.js';
+import { LLMService } from '../provider/llm-service.js';
 
 /**
  * Task scheduler for level 1 decomposition
