@@ -19,7 +19,7 @@ packages/*/dist-firefox/
 .vscode/
 .zed/
 .idea/
-../local-agent/.claude/
+.claude/
 *.swp
 *.swo
 *~

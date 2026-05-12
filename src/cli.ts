@@ -93,4 +93,20 @@ program
     }
   });
 
+program
+  .command('tui')
+  .description('Start interactive TUI mode')
+  .option('-m, --model <model>', 'Model name', 'qwen3.5:9b')
+  .option('-p, --provider <provider>', 'Provider', 'ollama')
+  .option('-u, --base-url <url>', 'Base URL', 'http://localhost:11434')
+  .action(async (options) => {
+    const { createTuiApp } = await import('./tui/index.js');
+    const app = createTuiApp({
+      model: options.model,
+      provider: options.provider,
+      baseUrl: options.baseUrl,
+    });
+    app.start();
+  });
+
 program.parse();

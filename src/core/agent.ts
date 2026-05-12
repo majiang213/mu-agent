@@ -3,6 +3,11 @@ import { State, type StateResult } from './types.js';
 import { LLMService } from '../provider/llm-service.js';
 import { TaskDecomposer } from './decomposer.js';
 
+export type ExecutionEvent =
+  | { type: 'state_change'; from: string; to: string }
+  | { type: 'tool_call'; tool: string }
+  | { type: 'llm_call'; promptLen: number; responseLen: number };
+
 /**
  * Task scheduler for level 1 decomposition
  */
@@ -45,6 +50,7 @@ export class TaskScheduler {
     modelName: string,
     provider: string,
     baseUrl: string,
+    onEvent?: (event: ExecutionEvent) => void,
   ): Promise<StateResult> {
     task.state = 'running';
 
@@ -59,20 +65,21 @@ export class TaskScheduler {
       const context = stateMachine.createContext(task.description);
       const prompt = stateMachine.generatePrompt(task.description);
 
-      // Generate LLM response
       const { content, toolCalls } = await llmService.generate(context, prompt);
+      onEvent?.({ type: 'llm_call', promptLen: prompt.length, responseLen: content.length });
 
-      // Record tool calls
       for (const call of toolCalls) {
         stateMachine.recordToolCall(call.tool, call.input, call.output);
+        onEvent?.({ type: 'tool_call', tool: call.tool });
       }
 
-      // Check exit condition
       const exitCheck = stateMachine.checkExit(content);
 
       if (exitCheck.shouldExit) {
+        const prevState = stateMachine.getCurrentState();
         stateMachine.transitionTo(exitCheck.nextState);
         currentState = stateMachine.getCurrentState();
+        onEvent?.({ type: 'state_change', from: prevState, to: currentState });
       } else {
         stateMachine.incrementIteration();
       }
