@@ -7,45 +7,26 @@ export interface SystemPromptOptions {
   context?: StateContext;
 }
 
-const STATE_GOALS: Record<State, string> = {
-  [State.ANALYZE]: 'understand the task and identify files to change',
-  [State.LOCATE]: 'find exact file paths and line numbers to modify',
-  [State.MODIFY]: 'apply minimal, focused code changes',
-  [State.VERIFY]: 'confirm changes are correct and tests pass',
-  [State.DONE]: 'task is complete',
-};
+const BASE_PROMPT = `You are an expert coding assistant. You help users by reading files, executing commands, editing code, and writing new files.
 
-const STATE_OUTPUT_FORMAT: Record<State, string> = {
-  [State.ANALYZE]: `Output format (JSON):
-{"summary": "<one sentence>", "files": ["<path>", ...], "approach": "<how to implement>"}`,
-  [State.LOCATE]: `Output format (JSON):
+You can answer questions, have conversations, and assist with any coding task. Use tools when needed — otherwise reply directly.`;
+
+const STATE_INSTRUCTIONS: Partial<Record<State, string>> = {
+  [State.ANALYZE]: `When given a coding task, identify what needs to change and output a brief plan as JSON:
+{"summary": "<one sentence>", "files": ["<path>", ...], "approach": "<how to implement>"}
+For questions or conversation, reply naturally in plain text.`,
+
+  [State.LOCATE]: `Locate the exact file paths and line numbers that need to be modified. Output JSON:
 {"locations": [{"file": "<path>", "startLine": <n>, "endLine": <n>, "snippet": "<code>"}]}`,
-  [State.MODIFY]: `Output format: use tools directly. After each edit, output:
+
+  [State.MODIFY]: `Apply minimal, focused code changes using the edit or write tools. After each change output:
 {"edited": "<file>", "linesChanged": <n>}`,
-  [State.VERIFY]: `Output format (JSON):
+
+  [State.VERIFY]: `Verify the changes are correct. Run type checks or tests if available. Output JSON:
 {"passed": true|false, "issues": ["<issue>", ...], "summary": "<result>"}`,
-  [State.DONE]: '',
 };
 
-const STATE_EXAMPLES: Partial<Record<State, string>> = {
-  [State.ANALYZE]: `Example:
-User: "Add error handling to the login function"
-Output: {"summary": "Add try/catch to login() in auth.ts", "files": ["src/auth.ts"], "approach": "Wrap the body of login() in try/catch, throw AuthError on failure"}`,
-  [State.LOCATE]: `Example:
-User: "Find the login function"
-Output: {"locations": [{"file": "src/auth.ts", "startLine": 42, "endLine": 58, "snippet": "async function login(user, pass) {"}]}`,
-  [State.MODIFY]: `Example: read the file first, then use edit tool to change only the target lines.`,
-  [State.VERIFY]: `Example:
-After editing src/auth.ts: run bash "npx tsc --noEmit" then check output.
-Output: {"passed": true, "issues": [], "summary": "No type errors"}`,
-};
-
-const SMALL_MODEL_CONSTRAINTS = `
-CONSTRAINTS (small model mode — follow strictly):
-- Respond in under 400 tokens
-- Use only the listed tools
-- Do not speculate — only report what you observe
-- If unsure, output {"error": "<what is unclear>"} and stop`;
+const SMALL_MODEL_CONSTRAINTS = `Keep responses concise (under 400 tokens). Only use the listed tools. Do not speculate.`;
 
 export function buildSystemPrompt(options: SystemPromptOptions): string {
   const { state, task, modelParams, context } = options;
@@ -54,39 +35,32 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
     return 'Task complete.';
   }
 
-  const goal = STATE_GOALS[state];
-  const outputFormat = STATE_OUTPUT_FORMAT[state];
-  const example = STATE_EXAMPLES[state] ?? '';
-
   const toolList = context?.availableTools?.length
-    ? `Available tools: ${context.availableTools.map((t) => t.name).join(', ')}`
+    ? `Available tools:\n${context.availableTools.map((t) => `- ${t.name}`).join('\n')}`
     : '';
 
+  const stateInstruction = STATE_INSTRUCTIONS[state] ?? '';
+
   const lines = [
-    `You are a coding assistant. Current state: ${state}. Goal: ${goal}.`,
-    '',
-    `Task: ${task}`,
-    '',
+    BASE_PROMPT,
     toolList,
-    '',
-    outputFormat,
-    '',
-    example,
+    stateInstruction,
+    `Current task: ${task}`,
   ];
 
   if (modelParams.tier === 'SMALL') {
     lines.push(SMALL_MODEL_CONSTRAINTS);
   }
 
-  return lines.filter((l) => l !== undefined).join('\n').trim();
+  return lines.filter(Boolean).join('\n\n').trim();
 }
 
 export function buildUserPrompt(state: State, task: string): string {
   switch (state) {
     case State.ANALYZE:
-      return `Analyze this task and output your plan as JSON: ${task}`;
+      return task;
     case State.LOCATE:
-      return `Locate the exact code positions for: ${task}`;
+      return `Locate the code positions for: ${task}`;
     case State.MODIFY:
       return `Apply the changes for: ${task}`;
     case State.VERIFY:

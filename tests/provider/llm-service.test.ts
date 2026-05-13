@@ -77,7 +77,7 @@ describe('LLMService', () => {
 
     await service.generate(context, 'edit file');
     const [systemPrompt] = mockGenerate.mock.calls[0] as [string, string];
-    expect(systemPrompt).toContain('MODIFY');
+    expect(systemPrompt.toLowerCase()).toContain('change');
   });
 
   it('accepts optional baseUrl parameter', async () => {

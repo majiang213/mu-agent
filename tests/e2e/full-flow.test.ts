@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { TaskScheduler } from '../../src/core/agent.js';
 import { TaskDecomposer } from '../../src/core/decomposer.js';
 import { MetricsCollector } from '../../src/core/metrics.js';
 import { State } from '../../src/core/types.js';
@@ -30,18 +29,18 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     expect(agent.getCurrentState()).toBe(State.DONE);
   });
 
-  it('TaskScheduler.decompose uses TaskDecomposer for sequential prompt', async () => {
-    const scheduler = new TaskScheduler();
-    const tasks = await scheduler.decompose('先修复登录bug然后写测试');
-    expect(tasks.length).toBeGreaterThanOrEqual(2);
-    expect(tasks[0]!.description).toContain('修复登录bug');
+  it('TaskDecomposer decomposes sequential prompt', async () => {
+    const decomposer = new TaskDecomposer();
+    const result = await decomposer.decompose('先修复登录bug然后写测试');
+    expect(result.tasks.length).toBeGreaterThanOrEqual(2);
+    expect(result.tasks[0]!.description).toContain('修复登录bug');
   });
 
-  it('TaskScheduler.decompose falls back to single task for simple prompt', async () => {
-    const scheduler = new TaskScheduler();
-    const tasks = await scheduler.decompose('帮我看看这个项目');
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]!.description).toBe('帮我看看这个项目');
+  it('TaskDecomposer falls back to single task for simple prompt', async () => {
+    const decomposer = new TaskDecomposer();
+    const result = await decomposer.decompose('帮我看看这个项目');
+    expect(result.tasks).toHaveLength(1);
+    expect(result.tasks[0]!.description).toBe('帮我看看这个项目');
   });
 
   it('MetricsCollector tracks a complete task lifecycle', () => {
@@ -66,7 +65,7 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     const decomposer = new TaskDecomposer();
     const agent = new StateMachineAgent('qwen2.5:7b');
 
-    const result = decomposer.decompose('先修复bug然后写测试');
+    const result = await decomposer.decompose('先修复bug然后写测试');
     expect(result.tasks.length).toBeGreaterThanOrEqual(2);
 
     const taskId = result.tasks[0]!.id;
@@ -74,7 +73,7 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     metrics.recordStateEntry(taskId, 'ANALYZE');
 
     const prompt = agent.generatePrompt(result.tasks[0]!.description);
-    expect(prompt).toContain('ANALYZE');
+    expect(prompt.toLowerCase()).toContain('coding assistant');
 
     metrics.recordLLMCall(taskId, prompt.length, 100);
     metrics.recordStateExit(taskId, 'ANALYZE');

@@ -16,38 +16,38 @@ describe('StateMachineAgent — generatePrompt', () => {
     expect(prompt).toContain('fix the login bug');
   });
 
-  it('includes current state (ANALYZE) in initial prompt', () => {
+  it('includes coding assistant identity in initial prompt', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
     const prompt = agent.generatePrompt('any task');
-    expect(prompt).toContain('ANALYZE');
+    expect(prompt.toLowerCase()).toContain('coding assistant');
   });
 
   it('prompt changes after state transition to LOCATE', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
-    const analyzePropmt = agent.generatePrompt('task');
+    const analyzePrompt = agent.generatePrompt('task');
     agent.transitionTo(State.LOCATE);
     const locatePrompt = agent.generatePrompt('task');
-    expect(locatePrompt).toContain('LOCATE');
-    expect(locatePrompt).not.toBe(analyzePropmt);
+    expect(locatePrompt).not.toBe(analyzePrompt);
+    expect(locatePrompt.toLowerCase()).toContain('locate');
   });
 
   it('prompt changes after state transition to MODIFY', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
     agent.transitionTo(State.MODIFY);
     const prompt = agent.generatePrompt('task');
-    expect(prompt).toContain('MODIFY');
+    expect(prompt.toLowerCase()).toContain('change');
   });
 
   it('prompt changes after state transition to VERIFY', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
     agent.transitionTo(State.VERIFY);
     const prompt = agent.generatePrompt('task');
-    expect(prompt).toContain('VERIFY');
+    expect(prompt.toLowerCase()).toContain('verify');
   });
 
   it('adds small model constraints for 7b model', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
     const prompt = agent.generatePrompt('task');
-    expect(prompt).toContain('CONSTRAINTS');
+    expect(prompt).toContain('400 tokens');
   });
 });

@@ -5,7 +5,6 @@ import type { Model } from '@mariozechner/pi-ai';
 import { codingTools } from '@mariozechner/pi-coding-agent';
 import { StateMachineAgent } from './session.js';
 import { State, type StateResult } from './types.js';
-import { TaskDecomposer } from './decomposer.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
 import { StagnationDetector } from './cognitive/index.js';
 import { FailureHandler } from './failure/handler.js';
@@ -47,27 +46,20 @@ function buildModel(modelName: string, provider: string, baseUrl: string): Model
 }
 
 export class TaskScheduler {
-  private tasks: Task[];
-  private decomposer: TaskDecomposer;
-
-  constructor() {
-    this.tasks = [];
-    const decompositionConfig = ConfigManager.getInstance().getConfig().decomposition;
-    this.decomposer = new TaskDecomposer(undefined, decompositionConfig);
-  }
-
-  async decompose(taskDescription: string): Promise<Task[]> {
-    const result = await this.decomposer.decompose(taskDescription);
-    this.tasks = result.tasks.map((sub) => ({
-      id: sub.id,
-      description: sub.description,
-      state: 'pending' as const,
-    }));
-    return this.tasks;
-  }
-
-  getTasks(): Task[] {
-    return this.tasks;
+  async executeInput(
+    input: string,
+    modelName: string,
+    provider: string,
+    baseUrl: string,
+    onEvent?: (event: ExecutionEvent) => void,
+    initialMessages?: AgentMessage[],
+  ): Promise<StateResult> {
+    const task: Task = {
+      id: `task-${Date.now()}`,
+      description: input,
+      state: 'pending',
+    };
+    return this.executeTask(task, modelName, provider, baseUrl, onEvent, initialMessages);
   }
 
   async executeTask(
@@ -160,9 +152,7 @@ export class TaskScheduler {
       },
     });
 
-    let turnCount = 0;
-    const maxTurnsPerState = smConfig.maxTurnsPerState;
-    const maxTotalTurns = smConfig.maxTotalTurns;
+     let turnCount = 0;
 
     agent.subscribe((event: AgentEvent) => {
       if (event.type === 'tool_execution_start') {
@@ -187,6 +177,10 @@ export class TaskScheduler {
         const filePath = pendingModifyPaths.get(event.toolCallId);
         pendingModifyPaths.delete(event.toolCallId);
 
+        if (event.isError) {
+          stagnationDetector.recordError(`tool_error:${event.toolName}`);
+        }
+
         if (filePath && !event.isError && safetyConfig.enableCheckpoint && safetyConfig.enablePostCheck && safeModifier.hasCheckpoint(filePath)) {
           const checkpoint = safeModifier.getCheckpoint(filePath);
           const originalContent = checkpoint?.originalContent ?? '';
@@ -195,6 +189,8 @@ export class TaskScheduler {
             damageCheckHook.check(filePath, originalContent),
           ]).then(([syntaxOk, damageOk]) => {
             if (!syntaxOk || !damageOk) {
+              const errMsg = `post_check_failed:${filePath}(syntax=${syntaxOk},damage=${damageOk})`;
+              stagnationDetector.recordError(errMsg);
               safeModifier.restore(filePath).then(() => {
                 agent.steer({
                   role: 'user',
@@ -273,8 +269,12 @@ export class TaskScheduler {
 
         stateMachine.incrementIteration();
 
-        const shouldAdvance =
-          stateMachine.getIteration() >= maxTurnsPerState || turnCount >= maxTotalTurns;
+        const llmText = msg && 'content' in msg && Array.isArray(msg.content)
+          ? (msg.content as Array<{ type: string; text?: string }>)
+              .filter((c) => c.type === 'text' && c.text).map((c) => c.text as string).join('\n')
+          : '';
+
+        const shouldAdvance = hasStateCompletionJson(prevState, llmText);
 
         if (shouldAdvance) {
           const nextState = advanceState(prevState);
@@ -355,6 +355,34 @@ export class TaskScheduler {
     task.result = result;
     task.state = success ? 'completed' : 'failed';
     return result;
+  }
+}
+
+function extractJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function hasStateCompletionJson(state: State, text: string): boolean {
+  const json = extractJson(text);
+  if (!json) return false;
+  switch (state) {
+    case State.ANALYZE:
+      return typeof json['summary'] === 'string' && Array.isArray(json['files']);
+    case State.LOCATE:
+      return Array.isArray(json['locations']);
+    case State.MODIFY:
+      return typeof json['edited'] === 'string';
+    case State.VERIFY:
+      return typeof json['passed'] === 'boolean';
+    default:
+      return false;
   }
 }
 

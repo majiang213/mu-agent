@@ -387,128 +387,114 @@ export class TuiApp {
   }
 
   private async handleSubmit(value: string): Promise<void> {
-    const task = value.trim();
-    if (!task) return;
+    const input = value.trim();
+    if (!input) return;
 
     this.editor.disableSubmit = true;
-    this.editor.addToHistory(task);
-
-    this.insertBefore(new UserMessage(task));
-
-    const scheduler = new TaskScheduler();
-    const tasks = await scheduler.decompose(task);
-    if (tasks.length > 1) {
-      this.insertBefore(new Text(C.dim(`  分解为 ${tasks.length} 个子任务`), 0, 0));
-    }
+    this.editor.addToHistory(input);
+    this.insertBefore(new UserMessage(input));
     this.tui.requestRender();
 
-    for (let i = 0; i < tasks.length; i++) {
-      const t = tasks[i]!;
-      this.header.setState('ANALYZE', i + 1, tasks.length);
+    const taskId = `task-${Date.now()}`;
+    this.header.setState('ANALYZE');
 
-      let currentTurn: AssistantTurn | null = null;
-      const pendingTools = new Map<string, string>();
+    let currentTurn: AssistantTurn | null = null;
+    const pendingTools = new Map<string, string>();
 
-      const loader = new Loader(
-        this.tui,
-        (s) => stateColor('ANALYZE')(s),
-        (s) => C.dim(s),
-        '执行中...',
-      );
-      this.insertBefore(loader);
-      loader.start();
-      this.tui.requestRender();
+    const loader = new Loader(
+      this.tui,
+      (s) => stateColor('ANALYZE')(s),
+      (s) => C.dim(s),
+      '执行中...',
+    );
+    this.insertBefore(loader);
+    loader.start();
+    this.tui.requestRender();
 
-      this.metrics.startTask(t.id);
-      this.metrics.recordStateEntry(t.id, 'ANALYZE');
+    this.metrics.startTask(taskId);
+    this.metrics.recordStateEntry(taskId, 'ANALYZE');
 
-      const onEvent = (event: ExecutionEvent): void => {
-        if (event.type === 'state_change') {
-          this.header.setState(event.to, i + 1, tasks.length);
-          loader.setMessage(`[${event.to}]`);
-          this.metrics.recordStateExit(t.id, event.from);
-          this.metrics.recordStateEntry(t.id, event.to);
-          currentTurn = new AssistantTurn(event.to);
+    const onEvent = (event: ExecutionEvent): void => {
+      if (event.type === 'state_change') {
+        this.header.setState(event.to);
+        loader.setMessage(`[${event.to}]`);
+        this.metrics.recordStateExit(taskId, event.from);
+        this.metrics.recordStateEntry(taskId, event.to);
+        currentTurn = new AssistantTurn(event.to);
+        const idx = this.tui.children.indexOf(loader);
+        this.tui.children.splice(idx, 0, currentTurn);
+
+      } else if (event.type === 'llm_thinking') {
+        if (!currentTurn) {
+          currentTurn = new AssistantTurn('ANALYZE');
           const idx = this.tui.children.indexOf(loader);
           this.tui.children.splice(idx, 0, currentTurn);
-
-        } else if (event.type === 'llm_thinking') {
-          if (!currentTurn) {
-            currentTurn = new AssistantTurn('ANALYZE');
-            const idx = this.tui.children.indexOf(loader);
-            this.tui.children.splice(idx, 0, currentTurn);
-          }
-          currentTurn.setThinking(event.content);
-          if (currentTurn.thinkingBlock && !this.allThinkingBlocks.includes(currentTurn.thinkingBlock)) {
-            this.allThinkingBlocks.push(currentTurn.thinkingBlock);
-          }
-
-        } else if (event.type === 'llm_output') {
-          if (!currentTurn) {
-            currentTurn = new AssistantTurn('ANALYZE');
-            const idx = this.tui.children.indexOf(loader);
-            this.tui.children.splice(idx, 0, currentTurn);
-          }
-          currentTurn.setOutput(event.content);
-
-        } else if (event.type === 'tool_call') {
-          if (!currentTurn) {
-            currentTurn = new AssistantTurn('ANALYZE');
-            const idx = this.tui.children.indexOf(loader);
-            this.tui.children.splice(idx, 0, currentTurn);
-          }
-          const toolId = `${Date.now()}-${event.tool}`;
-          pendingTools.set(toolId, event.tool);
-          currentTurn.addTool(toolId, event.tool, event.args);
-          loader.setMessage(`[${event.tool}]`);
-          this.metrics.recordToolCall(t.id, event.tool);
-
-        } else if (event.type === 'tool_result') {
-          const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
-          if (entry && currentTurn) {
-            currentTurn.resolveTool(entry[0], event.isError);
-            pendingTools.delete(entry[0]);
-          }
-
-        } else if (event.type === 'llm_call') {
-          this.metrics.recordLLMCall(t.id, event.promptLen, event.responseLen);
-          this.header.setContextTokens(event.contextTokens);
+        }
+        currentTurn.setThinking(event.content);
+        if (currentTurn.thinkingBlock && !this.allThinkingBlocks.includes(currentTurn.thinkingBlock)) {
+          this.allThinkingBlocks.push(currentTurn.thinkingBlock);
         }
 
-        this.tui.requestRender();
-      };
-
-      try {
-        const result = await scheduler.executeTask(
-          t, this.options.model, this.options.provider, this.options.baseUrl, onEvent,
-          this.conversationHistory,
-        );
-        loader.stop();
-        this.tui.removeChild(loader);
-        this.metrics.recordStateExit(t.id, result.state);
-        this.metrics.finishTask(t.id, result.success);
-        if (result.messages && result.messages.length > 0) {
-          this.conversationHistory = result.messages;
+      } else if (event.type === 'llm_output') {
+        if (!currentTurn) {
+          currentTurn = new AssistantTurn('ANALYZE');
+          const idx = this.tui.children.indexOf(loader);
+          this.tui.children.splice(idx, 0, currentTurn);
         }
-        this.insertBefore(new Text(
-          result.success ? C.successText('  ✓  子任务完成') : C.err('  ✗  子任务失败'),
-          0, 0,
-        ));
-      } catch (err) {
-        loader.stop();
-        this.tui.removeChild(loader);
-        this.metrics.finishTask(t.id, false);
-        this.insertBefore(new Text(C.err(`  ✗  错误: ${String(err)}`), 0, 0));
+        currentTurn.setOutput(event.content);
+
+      } else if (event.type === 'tool_call') {
+        if (!currentTurn) {
+          currentTurn = new AssistantTurn('ANALYZE');
+          const idx = this.tui.children.indexOf(loader);
+          this.tui.children.splice(idx, 0, currentTurn);
+        }
+        const toolId = `${Date.now()}-${event.tool}`;
+        pendingTools.set(toolId, event.tool);
+        currentTurn.addTool(toolId, event.tool, event.args);
+        loader.setMessage(`[${event.tool}]`);
+        this.metrics.recordToolCall(taskId, event.tool);
+
+      } else if (event.type === 'tool_result') {
+        const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
+        if (entry && currentTurn) {
+          currentTurn.resolveTool(entry[0], event.isError);
+          pendingTools.delete(entry[0]);
+        }
+
+      } else if (event.type === 'llm_call') {
+        this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
+        this.header.setContextTokens(event.contextTokens);
       }
 
       this.tui.requestRender();
+    };
+
+    const scheduler = new TaskScheduler();
+    try {
+      const result = await scheduler.executeInput(
+        input, this.options.model, this.options.provider, this.options.baseUrl, onEvent,
+        this.conversationHistory,
+      );
+      loader.stop();
+      this.tui.removeChild(loader);
+      this.metrics.recordStateExit(taskId, result.state);
+      this.metrics.finishTask(taskId, result.success);
+      if (result.messages && result.messages.length > 0) {
+        this.conversationHistory = result.messages;
+      }
+    } catch (err) {
+      loader.stop();
+      this.tui.removeChild(loader);
+      this.metrics.finishTask(taskId, false);
+      this.insertBefore(new Text(C.err(`  ✗  错误: ${String(err)}`), 0, 0));
     }
 
     const summary = this.metrics.getSummary();
-    const tokens = Math.round(summary.avgTokens * tasks.length);
+    const tokens = Math.round(summary.avgTokens);
     const rate = Math.round(summary.successRate * 100);
     this.insertBefore(new Text(
-      '\n' + C.successText('  ✓  全部完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`),
+      '\n' + C.successText('  ✓  完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`),
       0, 0,
     ));
     this.header.setState('IDLE');

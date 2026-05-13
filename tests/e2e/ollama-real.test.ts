@@ -65,7 +65,7 @@ describe('Real Ollama Integration', () => {
     const service = new LLMService(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
 
-    const decomposed = decomposer.decompose('先修复登录bug然后写测试');
+    const decomposed = await decomposer.decompose('先修复登录bug然后写测试');
     expect(decomposed.tasks.length).toBeGreaterThanOrEqual(2);
 
     const firstTask = decomposed.tasks[0]!;
@@ -114,7 +114,7 @@ describe('Real Ollama Integration', () => {
     const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
 
-    const { tasks, level } = decomposer.decompose('先修复登录bug然后写单元测试');
+    const { tasks, level } = await decomposer.decompose('先修复登录bug然后写单元测试');
     console.log(`[E2E] decomposed into ${tasks.length} tasks at level ${level}`);
 
     for (const task of tasks) {
