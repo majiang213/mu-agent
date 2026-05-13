@@ -13,7 +13,9 @@ import type { Component, EditorTheme, MarkdownTheme } from '@mariozechner/pi-tui
 import { Markdown } from '@mariozechner/pi-tui';
 
 const R = '\x1b[0m';
+const RF = '\x1b[39m\x1b[22m\x1b[23m\x1b[29m';
 function fg(r: number, g: number, b: number) { return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${R}`; }
+function fgK(r: number, g: number, b: number) { return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${RF}`; }
 function bg(r: number, g: number, b: number) { return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}${R}`; }
 function bold(s: string) { return `\x1b[1m${s}\x1b[22m`; }
 function dim(s: string)  { return `\x1b[2m${s}\x1b[22m`; }
@@ -36,10 +38,10 @@ export interface TuiAppOptions {
 }
 
 const C = {
-  userBg:      bg(22, 27, 34),
-  userBar:     fg(56, 139, 253),
-  userText:    fg(230, 237, 243),
-  llmBg:       bg(22, 27, 34),
+
+  userBar:     fgK(56, 139, 253),
+  userText:    fgK(230, 237, 243),
+
   dim:         fg(110, 118, 129),
   dimItalic:   (s: string) => italic(fg(110, 118, 129)(s)),
   divider:     fg(48, 54, 61),
@@ -76,16 +78,16 @@ function stateColor(s: string): (t: string) => string {
 }
 
 const markdownTheme: MarkdownTheme = {
-  heading:        (s) => bold(fg(230, 237, 243)(s)),
-  link:           fg(88, 166, 255),
-  linkUrl:        C.dim,
-  code:           fg(227, 179, 65),
-  codeBlock:      fg(201, 209, 217),
-  codeBlockBorder:C.dim,
-  quote:          C.dimItalic,
-  quoteBorder:    C.dim,
-  hr:             C.dim,
-  listBullet:     C.dim,
+  heading:        (s) => bold(fgK(230, 237, 243)(s)),
+  link:           fgK(88, 166, 255),
+  linkUrl:        (s) => `\x1b[2m${s}\x1b[22m`,
+  code:           fgK(227, 179, 65),
+  codeBlock:      fgK(201, 209, 217),
+  codeBlockBorder:(s) => `\x1b[2m${s}\x1b[22m`,
+  quote:          (s) => `\x1b[2m\x1b[3m${s}\x1b[23m\x1b[22m`,
+  quoteBorder:    (s) => `\x1b[2m${s}\x1b[22m`,
+  hr:             (s) => `\x1b[2m${s}\x1b[22m`,
+  listBullet:     (s) => `\x1b[2m${s}\x1b[22m`,
   bold:           (s) => bold(s),
   italic:         (s) => italic(s),
   strikethrough:  (s) => `\x1b[9m${s}\x1b[29m`,
@@ -105,10 +107,12 @@ const editorTheme: EditorTheme = {
 
 // ─── Helper: fill line with bg color to full width ───────────────────────────
 
-function fillLine(content: string, width: number, bgFn: (s: string) => string): string {
+const BG_DARK = '\x1b[48;2;22;27;34m';
+
+function fillLine(content: string, width: number): string {
   const vw = visibleWidth(content);
   const pad = Math.max(0, width - vw);
-  return bgFn(content + ' '.repeat(pad));
+  return BG_DARK + content + BG_DARK + ' '.repeat(pad) + R;
 }
 
 // ─── Components ───────────────────────────────────────────────────────────────
@@ -185,7 +189,7 @@ class UserMessage implements Component {
     const content = bar + ' ' + C.userText(this.text);
     return [
       '',
-      fillLine('  ' + content, width, C.userBg),
+      fillLine('  ' + content, width),
       '',
     ];
   }
@@ -227,7 +231,7 @@ class LlmOutput implements Component {
     const childLines = this.inner.render(innerWidth);
     const result: string[] = [];
     for (const line of childLines) {
-      result.push(fillLine('  ' + line, width, C.llmBg));
+      result.push(fillLine('  ' + line, width));
     }
     if (result.length > 0) {
       result.push('');
