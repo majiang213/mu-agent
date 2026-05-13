@@ -9,20 +9,8 @@ import {
   truncateToWidth,
   visibleWidth,
 } from '@mariozechner/pi-tui';
-import type { Component, EditorTheme, MarkdownTheme } from '@mariozechner/pi-tui';
+import type { Component } from '@mariozechner/pi-tui';
 import { Markdown } from '@mariozechner/pi-tui';
-
-const R = '\x1b[0m';
-const RF = '\x1b[39m\x1b[22m\x1b[23m\x1b[29m';
-function fg(r: number, g: number, b: number) { return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${R}`; }
-function fgK(r: number, g: number, b: number) { return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${RF}`; }
-function bg(r: number, g: number, b: number) { return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}${R}`; }
-function bold(s: string) { return `\x1b[1m${s}\x1b[22m`; }
-function dim(s: string)  { return `\x1b[2m${s}\x1b[22m`; }
-function italic(s: string) { return `\x1b[3m${s}\x1b[23m`; }
-function fgBg(fr: number, fg_g: number, fb: number, br: number, bg_g: number, bb: number) {
-  return (s: string) => `\x1b[38;2;${fr};${fg_g};${fb}m\x1b[48;2;${br};${bg_g};${bb}m${s}${R}`;
-}
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { ConfigManager } from '../config/manager.js';
@@ -30,91 +18,13 @@ import { TaskScheduler } from '../core/agent.js';
 import type { ExecutionEvent } from '../core/agent.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
+import { C, R, bold, dim, italic, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 
 export interface TuiAppOptions {
   model: string;
   provider: string;
   baseUrl: string;
 }
-
-const C = {
-
-  userBar:     fgK(56, 139, 253),
-  userText:    fgK(230, 237, 243),
-
-  dim:         fg(110, 118, 129),
-  dimItalic:   (s: string) => italic(fg(110, 118, 129)(s)),
-  divider:     fg(48, 54, 61),
-  toolName:    fg(110, 118, 129),
-  toolArg:     fg(88, 166, 255),
-  ok:          fg(63, 185, 80),
-  err:         fg(248, 81, 73),
-  pending:     fg(110, 118, 129),
-  stateAnalyze:(s: string) => bold(fg(56, 139, 253)(s)),
-  stateLocate: (s: string) => bold(fg(57, 211, 83)(s)),
-  stateModify: (s: string) => bold(fg(210, 153, 34)(s)),
-  stateVerify: (s: string) => bold(fg(63, 185, 80)(s)),
-  stateDone:   (s: string) => bold(fg(63, 185, 80)(s)),
-  stateIdle:   fg(110, 118, 129),
-  headerCwd:   fg(110, 118, 129),
-  headerBranch:fg(63, 185, 80),
-  headerModel: fg(88, 166, 255),
-  headerSep:   fg(48, 54, 61),
-  successText: fg(63, 185, 80),
-  hintKey:     fg(139, 148, 158),
-};
-
-const STATE_FN: Record<string, (s: string) => string> = {
-  ANALYZE: C.stateAnalyze,
-  LOCATE:  C.stateLocate,
-  MODIFY:  C.stateModify,
-  VERIFY:  C.stateVerify,
-  DONE:    C.stateDone,
-  IDLE:    C.stateIdle,
-};
-
-function stateColor(s: string): (t: string) => string {
-  return STATE_FN[s] ?? C.dim;
-}
-
-const markdownTheme: MarkdownTheme = {
-  heading:        (s) => bold(fgK(230, 237, 243)(s)),
-  link:           fgK(88, 166, 255),
-  linkUrl:        (s) => `\x1b[2m${s}\x1b[22m`,
-  code:           fgK(227, 179, 65),
-  codeBlock:      fgK(201, 209, 217),
-  codeBlockBorder:(s) => `\x1b[2m${s}\x1b[22m`,
-  quote:          (s) => `\x1b[2m\x1b[3m${s}\x1b[23m\x1b[22m`,
-  quoteBorder:    (s) => `\x1b[2m${s}\x1b[22m`,
-  hr:             (s) => `\x1b[2m${s}\x1b[22m`,
-  listBullet:     (s) => `\x1b[2m${s}\x1b[22m`,
-  bold:           (s) => bold(s),
-  italic:         (s) => italic(s),
-  strikethrough:  (s) => `\x1b[9m${s}\x1b[29m`,
-  underline:      (s) => `\x1b[4m${s}\x1b[24m`,
-};
-
-const editorTheme: EditorTheme = {
-  borderColor: (s) => `\x1b[97m${s}\x1b[0m`,
-  selectList: {
-    selectedPrefix: fg(88, 166, 255),
-    selectedText:   (s) => bold(s),
-    description:    C.dim,
-    scrollInfo:     C.dim,
-    noMatch:        C.dim,
-  },
-};
-
-// ─── Helper: fill line with bg color to full width ───────────────────────────
-
-const BG_DARK = '\x1b[48;2;22;27;34m';
-
-function fillLine(content: string, width: number): string {
-  const vw = visibleWidth(content);
-  const pad = Math.max(0, width - vw);
-  return BG_DARK + content + BG_DARK + ' '.repeat(pad) + R;
-}
-
 // ─── Components ───────────────────────────────────────────────────────────────
 
 class HintLine implements Component {
@@ -189,7 +99,7 @@ class UserMessage implements Component {
     const content = bar + ' ' + C.userText(this.text);
     return [
       '',
-      fillLine('  ' + content, width),
+      fillLine('  ' + content, width, visibleWidth),
       '',
     ];
   }
@@ -231,7 +141,7 @@ class LlmOutput implements Component {
     const childLines = this.inner.render(innerWidth);
     const result: string[] = [];
     for (const line of childLines) {
-      result.push(fillLine('  ' + line, width));
+      result.push(fillLine('  ' + line, width, visibleWidth));
     }
     if (result.length > 0) {
       result.push('');
@@ -386,6 +296,70 @@ export class TuiApp {
     this.tui.children.splice(idx, 0, component);
   }
 
+  private createEventHandler(
+    taskId: string,
+    loader: Loader,
+    pendingTools: Map<string, string>,
+    getCurrentTurn: () => AssistantTurn | null,
+    setCurrentTurn: (t: AssistantTurn) => void,
+  ): (event: ExecutionEvent) => void {
+    const ensureCurrentTurn = (state = 'ANALYZE'): AssistantTurn => {
+      let turn = getCurrentTurn();
+      if (!turn) {
+        turn = new AssistantTurn(state);
+        const idx = this.tui.children.indexOf(loader);
+        this.tui.children.splice(idx, 0, turn);
+        setCurrentTurn(turn);
+      }
+      return turn;
+    };
+
+    return (event: ExecutionEvent): void => {
+      if (event.type === 'state_change') {
+        this.header.setState(event.to);
+        loader.setMessage(`[${event.to}]`);
+        this.metrics.recordStateExit(taskId, event.from);
+        this.metrics.recordStateEntry(taskId, event.to);
+        const turn = new AssistantTurn(event.to);
+        const idx = this.tui.children.indexOf(loader);
+        this.tui.children.splice(idx, 0, turn);
+        setCurrentTurn(turn);
+
+      } else if (event.type === 'llm_thinking') {
+        const turn = ensureCurrentTurn();
+        turn.setThinking(event.content);
+        if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
+          this.allThinkingBlocks.push(turn.thinkingBlock);
+        }
+
+      } else if (event.type === 'llm_output') {
+        ensureCurrentTurn().setOutput(event.content);
+
+      } else if (event.type === 'tool_call') {
+        const turn = ensureCurrentTurn();
+        const toolId = `${Date.now()}-${event.tool}`;
+        pendingTools.set(toolId, event.tool);
+        turn.addTool(toolId, event.tool, event.args);
+        loader.setMessage(`[${event.tool}]`);
+        this.metrics.recordToolCall(taskId, event.tool);
+
+      } else if (event.type === 'tool_result') {
+        const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
+        const turn = getCurrentTurn();
+        if (entry && turn) {
+          turn.resolveTool(entry[0], event.isError);
+          pendingTools.delete(entry[0]);
+        }
+
+      } else if (event.type === 'llm_call') {
+        this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
+        this.header.setContextTokens(event.contextTokens);
+      }
+
+      this.tui.requestRender();
+    };
+  }
+
   private async handleSubmit(value: string): Promise<void> {
     const input = value.trim();
     if (!input) return;
@@ -414,61 +388,13 @@ export class TuiApp {
     this.metrics.startTask(taskId);
     this.metrics.recordStateEntry(taskId, 'ANALYZE');
 
-    const onEvent = (event: ExecutionEvent): void => {
-      if (event.type === 'state_change') {
-        this.header.setState(event.to);
-        loader.setMessage(`[${event.to}]`);
-        this.metrics.recordStateExit(taskId, event.from);
-        this.metrics.recordStateEntry(taskId, event.to);
-        currentTurn = new AssistantTurn(event.to);
-        const idx = this.tui.children.indexOf(loader);
-        this.tui.children.splice(idx, 0, currentTurn);
-
-      } else if (event.type === 'llm_thinking') {
-        if (!currentTurn) {
-          currentTurn = new AssistantTurn('ANALYZE');
-          const idx = this.tui.children.indexOf(loader);
-          this.tui.children.splice(idx, 0, currentTurn);
-        }
-        currentTurn.setThinking(event.content);
-        if (currentTurn.thinkingBlock && !this.allThinkingBlocks.includes(currentTurn.thinkingBlock)) {
-          this.allThinkingBlocks.push(currentTurn.thinkingBlock);
-        }
-
-      } else if (event.type === 'llm_output') {
-        if (!currentTurn) {
-          currentTurn = new AssistantTurn('ANALYZE');
-          const idx = this.tui.children.indexOf(loader);
-          this.tui.children.splice(idx, 0, currentTurn);
-        }
-        currentTurn.setOutput(event.content);
-
-      } else if (event.type === 'tool_call') {
-        if (!currentTurn) {
-          currentTurn = new AssistantTurn('ANALYZE');
-          const idx = this.tui.children.indexOf(loader);
-          this.tui.children.splice(idx, 0, currentTurn);
-        }
-        const toolId = `${Date.now()}-${event.tool}`;
-        pendingTools.set(toolId, event.tool);
-        currentTurn.addTool(toolId, event.tool, event.args);
-        loader.setMessage(`[${event.tool}]`);
-        this.metrics.recordToolCall(taskId, event.tool);
-
-      } else if (event.type === 'tool_result') {
-        const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
-        if (entry && currentTurn) {
-          currentTurn.resolveTool(entry[0], event.isError);
-          pendingTools.delete(entry[0]);
-        }
-
-      } else if (event.type === 'llm_call') {
-        this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
-        this.header.setContextTokens(event.contextTokens);
-      }
-
-      this.tui.requestRender();
-    };
+    const onEvent = this.createEventHandler(
+      taskId,
+      loader,
+      pendingTools,
+      () => currentTurn,
+      (t) => { currentTurn = t; },
+    );
 
     const scheduler = new TaskScheduler();
     try {

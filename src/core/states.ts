@@ -112,3 +112,46 @@ export function getNextState(currentState: State, success: boolean): State {
 
   return transitions[currentState];
 }
+
+// ─── State completion detection ───────────────────────────────────────────────
+
+function extractJson(text: string): Record<string, unknown> | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check whether the LLM output contains the expected JSON for the current state.
+ * Used to drive state advancement deterministically.
+ */
+export function hasStateCompletionJson(state: State, text: string): boolean {
+  const json = extractJson(text);
+  if (!json) return false;
+  switch (state) {
+    case State.ANALYZE:
+      return typeof json['summary'] === 'string' && Array.isArray(json['files']);
+    case State.LOCATE:
+      return Array.isArray(json['locations']);
+    case State.MODIFY:
+      return typeof json['edited'] === 'string';
+    case State.VERIFY:
+      return typeof json['passed'] === 'boolean';
+    default:
+      return false;
+  }
+}
+
+/**
+ * Advance to the next state in the pipeline.
+ */
+export function advanceState(current: State): State {
+  const order = [State.ANALYZE, State.LOCATE, State.MODIFY, State.VERIFY, State.DONE];
+  const idx = order.indexOf(current);
+  return idx >= 0 && idx < order.length - 1 ? order[idx + 1]! : State.DONE;
+}
