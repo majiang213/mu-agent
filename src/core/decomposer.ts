@@ -26,6 +26,18 @@ const TASK_TYPE_KEYWORDS: Record<TaskType, string[]> = {
   DOCUMENTATION: ['文档', 'readme', 'docs', 'document', '注释', 'comment'],
   REVIEW: ['审查', '审核', 'review', 'check', '检查'],
   ANALYSIS: ['分析', '调查', 'analyze', 'investigate', 'research', '研究'],
+  QUESTION: [
+    '什么是',
+    '为什么',
+    '怎么理解',
+    '解释',
+    '是什么意思',
+    'what is',
+    'why ',
+    'how does',
+    'explain',
+    'what does',
+  ],
   UNKNOWN: [],
 };
 
@@ -78,8 +90,22 @@ function tryMixed(prompt: string): SubTask[] | null {
 
   const tasks: SubTask[] = [];
   tasks.push({ id: 'mix-0', description: first.trim(), type: detectTaskType(first), dependencies: [] });
-  tasks.push({ id: 'mix-1', description: parA.trim(), type: detectTaskType(parA), dependencies: ['mix-0'], parallel: true, parallelGroup: 'mix-par' });
-  tasks.push({ id: 'mix-2', description: parB.trim(), type: detectTaskType(parB), dependencies: ['mix-0'], parallel: true, parallelGroup: 'mix-par' });
+  tasks.push({
+    id: 'mix-1',
+    description: parA.trim(),
+    type: detectTaskType(parA),
+    dependencies: ['mix-0'],
+    parallel: true,
+    parallelGroup: 'mix-par',
+  });
+  tasks.push({
+    id: 'mix-2',
+    description: parB.trim(),
+    type: detectTaskType(parB),
+    dependencies: ['mix-0'],
+    parallel: true,
+    parallelGroup: 'mix-par',
+  });
   if (last) {
     tasks.push({ id: 'mix-3', description: last.trim(), type: detectTaskType(last), dependencies: ['mix-1', 'mix-2'] });
   }
@@ -161,14 +187,16 @@ export class TaskDecomposer {
       const end = content.lastIndexOf('}');
       if (start === -1 || end === -1) return null;
 
-      const parsed = JSON.parse(content.slice(start, end + 1)) as { tasks?: Array<{ id: string; description: string; type: string }> };
+      const parsed = JSON.parse(content.slice(start, end + 1)) as {
+        tasks?: Array<{ id: string; description: string; type: string }>;
+      };
       if (!Array.isArray(parsed.tasks) || parsed.tasks.length < 2 || parsed.tasks.length > 3) return null;
 
       const tasks: SubTask[] = parsed.tasks.map((t, i) => ({
         id: t.id ?? `l2-${i}`,
         description: t.description?.slice(0, 120) ?? '',
         type: (t.type as TaskType) ?? 'UNKNOWN',
-        dependencies: i > 0 ? [(parsed.tasks![i - 1]?.id ?? `l2-${i - 1}`)] : [],
+        dependencies: i > 0 ? [parsed.tasks![i - 1]?.id ?? `l2-${i - 1}`] : [],
       }));
 
       return validateTasks(tasks) ? tasks : null;

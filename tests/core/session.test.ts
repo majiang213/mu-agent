@@ -6,7 +6,7 @@ describe('StateMachineAgent', () => {
   describe('initialization', () => {
     it('should initialize with correct state', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
-      expect(agent.getCurrentState()).toBe(State.ANALYZE);
+      expect(agent.getCurrentState()).toBe(State.REASON);
     });
 
     it('should detect small model tier', () => {
@@ -26,7 +26,7 @@ describe('StateMachineAgent', () => {
   describe('state transitions', () => {
     it('should transition between states', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
-      expect(agent.getCurrentState()).toBe(State.ANALYZE);
+      expect(agent.getCurrentState()).toBe(State.REASON);
 
       agent.transitionTo(State.LOCATE);
       expect(agent.getCurrentState()).toBe(State.LOCATE);
@@ -46,6 +46,7 @@ describe('StateMachineAgent', () => {
   describe('tool management', () => {
     it('should return allowed tools for current state', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
+      agent.transitionTo(State.ANALYZE);
       const tools = agent.getAllowedTools();
       expect(tools.length).toBeGreaterThan(0);
     });

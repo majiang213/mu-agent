@@ -12,6 +12,14 @@ export enum State {
   MODIFY = 'MODIFY',
   VERIFY = 'VERIFY',
   DONE = 'DONE',
+  REASON = 'REASON',
+  CLARIFY = 'CLARIFY',
+  ANSWER = 'ANSWER',
+  DIAGNOSE = 'DIAGNOSE',
+  REVIEW = 'REVIEW',
+  TEST_WRITE = 'TEST_WRITE',
+  REFACTOR_PLAN = 'REFACTOR_PLAN',
+  ROLLBACK = 'ROLLBACK',
 }
 
 /** Model capability tiers */
@@ -84,6 +92,7 @@ export type TaskType =
   | 'DOCUMENTATION'
   | 'REVIEW'
   | 'ANALYSIS'
+  | 'QUESTION'
   | 'UNKNOWN';
 
 /** Sub-task produced by the decomposer */
@@ -101,4 +110,11 @@ export interface DecompositionResult {
   tasks: SubTask[];
   level: 1 | 2 | 3;
   confidence: number;
+}
+
+/** Queued task entry for multi-task execution */
+export interface QueuedTask {
+  subTask: SubTask;
+  route: State[];
+  status: 'pending' | 'running' | 'done' | 'failed';
 }

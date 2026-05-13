@@ -1,13 +1,6 @@
 import { codingTools } from '@mariozechner/pi-coding-agent';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
-import {
-  State,
-  type StateMachineConfig,
-  type StateResult,
-  type StateContext,
-  type ToolCall,
-  type ModelParams,
-} from './types.js';
+import { State, type StateMachineConfig, type StateContext, type ToolCall, type ModelParams } from './types.js';
 import { detectModelParams, getBaseStateConfigs } from './states.js';
 import { createStateContext } from './logic.js';
 import { buildSystemPrompt } from './prompts/index.js';
@@ -24,7 +17,6 @@ export class StateMachineAgent {
   private allTools: AgentTool[];
   private fileCount: number;
 
-
   constructor(modelName: string, extraTools: AgentTool<any, any>[] = []) {
     const modelParams = detectModelParams(modelName);
     const states = getBaseStateConfigs();
@@ -34,12 +26,11 @@ export class StateMachineAgent {
       states,
     };
 
-    this.currentState = State.ANALYZE;
+    this.currentState = State.REASON;
     this.stateIteration = 0;
     this.toolCalls = [];
     this.fileCount = 0;
     this.allTools = [...codingTools, ...extraTools];
-
   }
 
   /**
@@ -54,9 +45,7 @@ export class StateMachineAgent {
    */
   getAllowedTools(): AgentTool[] {
     const stateConfig = this.getCurrentStateConfig();
-    return this.allTools.filter((tool) =>
-      stateConfig.allowedTools.includes(tool.name),
-    );
+    return this.allTools.filter((tool) => stateConfig.allowedTools.includes(tool.name));
   }
 
   /**
@@ -149,10 +138,15 @@ export class StateMachineAgent {
   }
 
   resetForRetry(): void {
-    this.currentState = State.ANALYZE;
+    this.currentState = State.REASON;
     this.stateIteration = 0;
     this.fileCount = 0;
     this.toolCalls = [];
+  }
+
+  resetForNextTask(nextState: State): void {
+    this.currentState = nextState;
+    this.stateIteration = 0;
   }
 
   getModelParams(): ModelParams {

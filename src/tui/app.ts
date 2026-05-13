@@ -18,7 +18,7 @@ import { ReactAgent } from '../core/agent.js';
 import type { ExecutionEvent } from '../core/agent.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
-import { C, R, bold, dim, italic, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
+import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 
 export interface TuiAppOptions {
   model: string;
@@ -30,11 +30,7 @@ export interface TuiAppOptions {
 class HintLine implements Component {
   invalidate(): void {}
   render(_width: number): string[] {
-    return [
-      '  ' +
-      C.hintKey('Ctrl+C') + C.dim(' 退出') + '   ' +
-      C.hintKey('Tab') + C.dim(' 展开/折叠思考'),
-    ];
+    return ['  ' + C.hintKey('Ctrl+C') + C.dim(' 退出') + '   ' + C.hintKey('Tab') + C.dim(' 展开/折叠思考')];
   }
 }
 
@@ -53,9 +49,12 @@ class HeaderLine implements Component {
     this.cwd = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
     try {
       this.branch = execSync('git branch --show-current', {
-        encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'],
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
       }).trim();
-    } catch { this.branch = ''; }
+    } catch {
+      this.branch = '';
+    }
   }
 
   setState(state: string, taskIndex = 0, taskTotal = 0): void {
@@ -64,10 +63,12 @@ class HeaderLine implements Component {
   }
 
   setContextTokens(tokens: number): void {
-    this.contextTokensK = Math.round(tokens / 1000 * 10) / 10;
+    this.contextTokensK = Math.round((tokens / 1000) * 10) / 10;
   }
 
-  getState(): string { return this.state; }
+  getState(): string {
+    return this.state;
+  }
 
   invalidate(): void {}
 
@@ -91,16 +92,14 @@ class HeaderLine implements Component {
 
 class UserMessage implements Component {
   private text: string;
-  constructor(text: string) { this.text = text; }
+  constructor(text: string) {
+    this.text = text;
+  }
   invalidate(): void {}
   render(width: number): string[] {
     const bar = C.userBar('▌');
     const content = bar + ' ' + C.userText(this.text);
-    return [
-      '',
-      fillLine('  ' + content, width, visibleWidth),
-      '',
-    ];
+    return ['', fillLine('  ' + content, width, visibleWidth), ''];
   }
 }
 
@@ -109,9 +108,15 @@ class UserMessage implements Component {
 class ThinkingBlock implements Component {
   private content: string;
   expanded = false;
-  constructor(content: string) { this.content = content; }
-  toggle(): void { this.expanded = !this.expanded; }
-  setExpanded(v: boolean): void { this.expanded = v; }
+  constructor(content: string) {
+    this.content = content;
+  }
+  toggle(): void {
+    this.expanded = !this.expanded;
+  }
+  setExpanded(v: boolean): void {
+    this.expanded = v;
+  }
   invalidate(): void {}
   render(width: number): string[] {
     const arrow = this.expanded ? '▾' : '▸';
@@ -134,7 +139,9 @@ class LlmOutput implements Component {
   constructor(content: string) {
     this.inner = new Markdown(content, 0, 0, markdownTheme);
   }
-  invalidate(): void { this.inner.invalidate(); }
+  invalidate(): void {
+    this.inner.invalidate();
+  }
   render(width: number): string[] {
     const innerWidth = Math.max(1, width - 4);
     const childLines = this.inner.render(innerWidth);
@@ -171,7 +178,9 @@ class ToolLine implements Component {
     return typeof first === 'string' ? first.slice(0, 50) : '';
   }
 
-  setResult(isError: boolean): void { this.status = isError ? 'error' : 'ok'; }
+  setResult(isError: boolean): void {
+    this.status = isError ? 'error' : 'ok';
+  }
   invalidate(): void {}
 
   render(width: number): string[] {
@@ -194,10 +203,16 @@ class AssistantTurn implements Component {
   private toolLines: ToolLine[] = [];
   private toolMap = new Map<string, ToolLine>();
 
-  constructor(state: string) { this.state = state; }
+  constructor(state: string) {
+    this.state = state;
+  }
 
-  setThinking(content: string): void { this.thinkingBlock = new ThinkingBlock(content); }
-  setOutput(content: string): void { this.outputComp = new LlmOutput(content); }
+  setThinking(content: string): void {
+    this.thinkingBlock = new ThinkingBlock(content);
+  }
+  setOutput(content: string): void {
+    this.outputComp = new LlmOutput(content);
+  }
 
   addTool(id: string, tool: string, args?: Record<string, unknown>): void {
     const line = new ToolLine(tool, args);
@@ -248,7 +263,10 @@ export class TuiApp {
     this.editor.onSubmit = (value) => this.handleSubmit(value);
 
     this.tui.addInputListener((data) => {
-      if (data === '\x03' || matchesKey(data, 'ctrl+c')) { this.stop(); return { consume: true }; }
+      if (data === '\x03' || matchesKey(data, 'ctrl+c')) {
+        this.stop();
+        return { consume: true };
+      }
       if (data === '\t') {
         if (this.allThinkingBlocks.length > 0) {
           const anyExpanded = this.allThinkingBlocks.some((b) => b.expanded);
@@ -281,7 +299,6 @@ export class TuiApp {
     process.exit(0);
   }
 
-
   private insertBefore(component: Component): void {
     const idx = this.tui.children.indexOf(this.editor);
     this.tui.children.splice(idx, 0, component);
@@ -294,7 +311,7 @@ export class TuiApp {
     getCurrentTurn: () => AssistantTurn | null,
     setCurrentTurn: (t: AssistantTurn) => void,
   ): (event: ExecutionEvent) => void {
-    const ensureCurrentTurn = (state = 'ANALYZE'): AssistantTurn => {
+    const ensureCurrentTurn = (state = 'REASON'): AssistantTurn => {
       let turn = getCurrentTurn();
       if (!turn) {
         turn = new AssistantTurn(state);
@@ -315,17 +332,14 @@ export class TuiApp {
         const idx = this.tui.children.indexOf(loader);
         this.tui.children.splice(idx, 0, turn);
         setCurrentTurn(turn);
-
       } else if (event.type === 'llm_thinking') {
         const turn = ensureCurrentTurn();
         turn.setThinking(event.content);
         if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
           this.allThinkingBlocks.push(turn.thinkingBlock);
         }
-
       } else if (event.type === 'llm_output') {
         ensureCurrentTurn().setOutput(event.content);
-
       } else if (event.type === 'tool_call') {
         const turn = ensureCurrentTurn();
         const toolId = `${Date.now()}-${event.tool}`;
@@ -333,7 +347,6 @@ export class TuiApp {
         turn.addTool(toolId, event.tool, event.args);
         loader.setMessage(`[${event.tool}]`);
         this.metrics.recordToolCall(taskId, event.tool);
-
       } else if (event.type === 'tool_result') {
         const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
         const turn = getCurrentTurn();
@@ -341,10 +354,17 @@ export class TuiApp {
           turn.resolveTool(entry[0], event.isError);
           pendingTools.delete(entry[0]);
         }
-
       } else if (event.type === 'llm_call') {
         this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
         this.header.setContextTokens(event.contextTokens);
+      } else if (event.type === 'task_start') {
+        this.header.setState(event.description.slice(0, 20), event.taskIndex + 1, event.taskTotal);
+      } else if (event.type === 'task_done') {
+        this.insertBefore(new Text(C.dim(`  ✓ 子任务 [${event.taskIndex + 1}/${event.taskTotal}] 完成`), 0, 0));
+      } else if (event.type === 'clarification_needed') {
+        const questions = event.questions.map((q, i) => `  ${i + 1}. ${q}`).join('\n');
+        this.insertBefore(new Text(C.dim('  需要确认以下信息：\n') + questions, 0, 0));
+        this.editor.disableSubmit = false;
       }
 
       this.tui.requestRender();
@@ -361,14 +381,14 @@ export class TuiApp {
     this.tui.requestRender();
 
     const taskId = `task-${Date.now()}`;
-    this.header.setState('ANALYZE');
+    this.header.setState('REASON');
 
     let currentTurn: AssistantTurn | null = null;
     const pendingTools = new Map<string, string>();
 
     const loader = new Loader(
       this.tui,
-      (s) => stateColor('ANALYZE')(s),
+      (s) => stateColor('REASON')(s),
       (s) => C.dim(s),
       '执行中...',
     );
@@ -377,20 +397,26 @@ export class TuiApp {
     this.tui.requestRender();
 
     this.metrics.startTask(taskId);
-    this.metrics.recordStateEntry(taskId, 'ANALYZE');
+    this.metrics.recordStateEntry(taskId, 'REASON');
 
     const onEvent = this.createEventHandler(
       taskId,
       loader,
       pendingTools,
       () => currentTurn,
-      (t) => { currentTurn = t; },
+      (t) => {
+        currentTurn = t;
+      },
     );
 
     const agent = new ReactAgent();
     try {
       const result = await agent.run(
-        input, this.options.model, this.options.provider, this.options.baseUrl, onEvent,
+        input,
+        this.options.model,
+        this.options.provider,
+        this.options.baseUrl,
+        onEvent,
         this.conversationHistory,
       );
       loader.stop();
@@ -410,10 +436,7 @@ export class TuiApp {
     const summary = this.metrics.getSummary();
     const tokens = Math.round(summary.avgTokens);
     const rate = Math.round(summary.successRate * 100);
-    this.insertBefore(new Text(
-      '\n' + C.successText('  ✓  完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`),
-      0, 0,
-    ));
+    this.insertBefore(new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`), 0, 0));
     this.header.setState('IDLE');
     this.editor.disableSubmit = false;
     this.tui.requestRender();

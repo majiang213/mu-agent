@@ -74,11 +74,7 @@ export function checkExitCondition(
 /**
  * Create initial state context
  */
-export function createStateContext(
-  state: State,
-  task: string,
-  stateConfig: StateConfig,
-): StateContext {
+export function createStateContext(state: State, task: string, _stateConfig: StateConfig): StateContext {
   return {
     state,
     task,
@@ -86,5 +82,3 @@ export function createStateContext(
     availableTools: [], // Will be populated by StateMachine
   };
 }
-
-

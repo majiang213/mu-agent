@@ -14,7 +14,7 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
   it('StateMachineAgent completes full state transition sequence', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
 
-    expect(agent.getCurrentState()).toBe(State.ANALYZE);
+    expect(agent.getCurrentState()).toBe(State.REASON);
 
     agent.transitionTo(State.LOCATE);
     expect(agent.getCurrentState()).toBe(State.LOCATE);

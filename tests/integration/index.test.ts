@@ -23,7 +23,7 @@ describe('Integration Tests', () => {
       expect(config.runtime).toBeDefined();
 
       const stateMachine = new StateMachineAgent('qwen2.5:7b');
-      expect(stateMachine.getCurrentState()).toBe('ANALYZE');
+      expect(stateMachine.getCurrentState()).toBe('REASON');
 
       const failureHandler = createFailureHandler();
       expect(failureHandler.getCurrentLevel()).toBe(1);
@@ -52,8 +52,7 @@ describe('Integration Tests', () => {
 
       const stateMachine = new StateMachineAgent('qwen2.5:7b');
 
-      // Verify initial state
-      expect(stateMachine.getCurrentState()).toBe('ANALYZE');
+      expect(stateMachine.getCurrentState()).toBe('REASON');
 
       // Simulate state transitions
       stateMachine.transitionTo('LOCATE');

@@ -4,8 +4,10 @@ import { streamSimple } from '@mariozechner/pi-ai';
 import type { Model } from '@mariozechner/pi-ai';
 import { codingTools } from '@mariozechner/pi-coding-agent';
 import { StateMachineAgent } from './session.js';
-import { State, type StateResult } from './types.js';
+import { State, type StateResult, type QueuedTask } from './types.js';
 import { hasStateCompletionJson, advanceState } from './states.js';
+import { resolveRoute } from './router.js';
+import { TaskDecomposer } from './decomposer.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
 import { StagnationDetector } from './cognitive/index.js';
 import { FailureHandler } from './failure/handler.js';
@@ -21,13 +23,26 @@ export type ExecutionEvent =
   | { type: 'tool_result'; tool: string; isError: boolean }
   | { type: 'llm_output'; content: string }
   | { type: 'llm_thinking'; content: string }
-  | { type: 'llm_call'; promptLen: number; responseLen: number; contextTokens: number };
+  | { type: 'llm_call'; promptLen: number; responseLen: number; contextTokens: number }
+  | { type: 'task_start'; taskIndex: number; taskTotal: number; description: string }
+  | { type: 'task_done'; taskIndex: number; taskTotal: number }
+  | { type: 'clarification_needed'; questions: string[] };
 
 interface Task {
   id: string;
   description: string;
   state: 'pending' | 'running' | 'completed' | 'failed';
   result?: StateResult;
+}
+
+interface ExecCtx {
+  compactionSummary: string | null;
+  currentTemperature: number;
+  stagnationDetected: boolean;
+  turnCount: number;
+  taskQueue: QueuedTask[];
+  currentTaskIndex: number;
+  currentRoute: State[];
 }
 
 function buildModel(modelName: string, provider: string, baseUrl: string): Model<'openai-completions'> {
@@ -46,13 +61,6 @@ function buildModel(modelName: string, provider: string, baseUrl: string): Model
   };
 }
 
-interface ExecCtx {
-  compactionSummary: string | null;
-  currentTemperature: number;
-  stagnationDetected: boolean;
-  turnCount: number;
-}
-
 function buildAgentConfig(
   task: Task,
   model: Model<'openai-completions'>,
@@ -63,7 +71,7 @@ function buildAgentConfig(
   initialMessages?: AgentMessage[],
 ): ConstructorParameters<typeof Agent>[0] {
   const systemPrompt = buildSystemPrompt({
-    state: State.ANALYZE,
+    state: State.REASON,
     task: task.description,
     modelParams: stateMachine.getModelParams(),
   });
@@ -80,7 +88,11 @@ function buildAgentConfig(
         const summary = ctx.compactionSummary;
         ctx.compactionSummary = null;
         const preserved = agentCtx.messages.slice(-6);
-        const summaryMsg = { role: 'user' as const, content: `[Earlier context summarized]: ${summary}`, timestamp: Date.now() };
+        const summaryMsg = {
+          role: 'user' as const,
+          content: `[Earlier context summarized]: ${summary}`,
+          timestamp: Date.now(),
+        };
         const compactedCtx = { ...agentCtx, messages: [summaryMsg, ...preserved] };
         return streamSimple(m, compactedCtx, { ...opts, apiKey: 'ollama', temperature: ctx.currentTemperature });
       }
@@ -110,7 +122,9 @@ function buildAgentConfig(
         if (filePath) {
           try {
             await safeModifier.createCheckpoint(filePath);
-          } catch { /* new file — no checkpoint needed */ }
+          } catch {
+            /* new file — no checkpoint needed */
+          }
         }
       }
       return undefined;
@@ -136,7 +150,12 @@ function subscribeAgentEvents(
     if (event.type === 'tool_execution_start') {
       onEvent?.({ type: 'tool_call', tool: event.toolName, args: event.args as Record<string, unknown> });
       stateMachine.recordToolCall(event.toolName, event.args, null);
-      stagnationDetector.recordToolCall({ tool: event.toolName, input: event.args, output: null, timestamp: Date.now() });
+      stagnationDetector.recordToolCall({
+        tool: event.toolName,
+        input: event.args,
+        output: null,
+        timestamp: Date.now(),
+      });
       if (event.toolName === 'edit' || event.toolName === 'write') {
         const args = event.args as Record<string, unknown>;
         const fp = typeof args['filePath'] === 'string' ? args['filePath'] : null;
@@ -151,24 +170,42 @@ function subscribeAgentEvents(
       if (event.isError) {
         stagnationDetector.recordError(`tool_error:${event.toolName}`);
       }
-      if (filePath && !event.isError && safetyConfig.enableCheckpoint && safetyConfig.enablePostCheck && safeModifier.hasCheckpoint(filePath)) {
+      if (
+        filePath &&
+        !event.isError &&
+        safetyConfig.enableCheckpoint &&
+        safetyConfig.enablePostCheck &&
+        safeModifier.hasCheckpoint(filePath)
+      ) {
         const checkpoint = safeModifier.getCheckpoint(filePath);
         const originalContent = checkpoint?.originalContent ?? '';
-        Promise.all([syntaxCheckHook.check(filePath, originalContent), damageCheckHook.check(filePath, originalContent)])
+        Promise.all([
+          syntaxCheckHook.check(filePath, originalContent),
+          damageCheckHook.check(filePath, originalContent),
+        ])
           .then(([syntaxOk, damageOk]) => {
             if (!syntaxOk || !damageOk) {
               stagnationDetector.recordError(`post_check_failed:${filePath}(syntax=${syntaxOk},damage=${damageOk})`);
-              safeModifier.restore(filePath).then(() => {
-                agent.steer({
-                  role: 'user',
-                  content: [{ type: 'text', text: `[SAFE MODIFIER] Post-check failed for ${filePath} (syntax=${syntaxOk}, damage=${damageOk}). File restored. Please try a more conservative edit.` }],
-                  timestamp: Date.now(),
-                });
-              }).catch(() => {});
+              safeModifier
+                .restore(filePath)
+                .then(() => {
+                  agent.steer({
+                    role: 'user',
+                    content: [
+                      {
+                        type: 'text',
+                        text: `[SAFE MODIFIER] Post-check failed for ${filePath} (syntax=${syntaxOk}, damage=${damageOk}). File restored. Please try a more conservative edit.`,
+                      },
+                    ],
+                    timestamp: Date.now(),
+                  });
+                })
+                .catch(() => {});
             } else {
               safeModifier.clearCheckpoint(filePath);
             }
-          }).catch(() => {});
+          })
+          .catch(() => {});
       }
     }
 
@@ -184,14 +221,24 @@ function subscribeAgentEvents(
       }
       const usage = msg && 'usage' in msg ? (msg as { usage?: { input?: number; output?: number } }).usage : null;
       const inputTokens = usage?.input ?? 0;
-      onEvent?.({ type: 'llm_call', promptLen: inputTokens, responseLen: usage?.output ?? 0, contextTokens: inputTokens });
+      onEvent?.({
+        type: 'llm_call',
+        promptLen: inputTokens,
+        responseLen: usage?.output ?? 0,
+        contextTokens: inputTokens,
+      });
 
       const stagnationResult = smConfig.enableStagnationDetector ? stagnationDetector.check() : null;
       if (stagnationResult?.detected) {
         ctx.stagnationDetected = true;
         agent.steer({
           role: 'user',
-          content: [{ type: 'text', text: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}. Stopping current approach.` }],
+          content: [
+            {
+              type: 'text',
+              text: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}. Stopping current approach.`,
+            },
+          ],
           timestamp: Date.now(),
         });
         const currentState = stateMachine.getCurrentState();
@@ -218,23 +265,165 @@ function subscribeAgentEvents(
       if (prevState === State.DONE) return;
       stateMachine.incrementIteration();
 
-      const llmText = msg && 'content' in msg && Array.isArray(msg.content)
-        ? (msg.content as Array<{ type: string; text?: string }>).filter((c) => c.type === 'text' && c.text).map((c) => c.text as string).join('\n')
-        : '';
+      const llmText =
+        msg && 'content' in msg && Array.isArray(msg.content)
+          ? (msg.content as Array<{ type: string; text?: string }>)
+              .filter((c) => c.type === 'text' && c.text)
+              .map((c) => c.text as string)
+              .join('\n')
+          : '';
 
-      if (hasStateCompletionJson(prevState, llmText)) {
-        const nextState = advanceState(prevState);
+      if (prevState === State.REASON && hasStateCompletionJson(State.REASON, llmText)) {
+        const json = extractJsonFromText(llmText);
+        const needsClarify = json?.['needsClarify'] === true;
+        const decompose = json?.['decompose'] === true;
+        const rawType = typeof json?.['type'] === 'string' ? (json['type'] as string) : 'UNKNOWN';
+        const taskType = rawType as import('./types.js').TaskType;
+
+        if (decompose) {
+          const decomposer = new TaskDecomposer();
+          decomposer
+            .decompose(task.description)
+            .then((result) => {
+              ctx.taskQueue = result.tasks.map((st) => ({
+                subTask: st,
+                route: resolveRoute(st.type, needsClarify),
+                status: 'pending' as const,
+              }));
+              ctx.currentTaskIndex = 0;
+              ctx.taskQueue[0]!.status = 'running';
+              ctx.currentRoute = ctx.taskQueue[0]!.route;
+              onEvent?.({
+                type: 'task_start',
+                taskIndex: 0,
+                taskTotal: ctx.taskQueue.length,
+                description: ctx.taskQueue[0]!.subTask.description,
+              });
+              const firstState = ctx.currentRoute[0]!;
+              stateMachine.transitionTo(firstState);
+              onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
+              agent.setSystemPrompt(
+                buildSystemPrompt({
+                  state: firstState,
+                  task: ctx.taskQueue[0]!.subTask.description,
+                  modelParams: stateMachine.getModelParams(),
+                }),
+              );
+              agent.steer({
+                role: 'user',
+                content: [{ type: 'text', text: buildUserPrompt(firstState, ctx.taskQueue[0]!.subTask.description) }],
+                timestamp: Date.now(),
+              });
+            })
+            .catch(() => {});
+        } else {
+          const route = resolveRoute(taskType, needsClarify);
+          ctx.taskQueue = [
+            {
+              subTask: { id: 'task-0', description: task.description, type: taskType, dependencies: [] },
+              route,
+              status: 'running',
+            },
+          ];
+          ctx.currentTaskIndex = 0;
+          ctx.currentRoute = route;
+          onEvent?.({ type: 'task_start', taskIndex: 0, taskTotal: 1, description: task.description });
+          const firstState = route[0]!;
+          stateMachine.transitionTo(firstState);
+          onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
+          agent.setSystemPrompt(
+            buildSystemPrompt({
+              state: firstState,
+              task: task.description,
+              modelParams: stateMachine.getModelParams(),
+            }),
+          );
+          agent.steer({
+            role: 'user',
+            content: [{ type: 'text', text: buildUserPrompt(firstState, task.description) }],
+            timestamp: Date.now(),
+          });
+        }
+        return;
+      }
+
+      if (prevState === State.CLARIFY && hasStateCompletionJson(State.CLARIFY, llmText)) {
+        const json = extractJsonFromText(llmText);
+        const questions = Array.isArray(json?.['questions']) ? (json['questions'] as string[]) : [];
+        onEvent?.({ type: 'clarification_needed', questions });
+        return;
+      }
+
+      const shouldAdvanceAnswer = prevState === State.ANSWER && ctx.turnCount >= 1;
+      if (shouldAdvanceAnswer || hasStateCompletionJson(prevState, llmText)) {
+        const nextState = advanceState(prevState, ctx.currentRoute);
         if (nextState !== prevState) {
           stateMachine.transitionTo(nextState);
           onEvent?.({ type: 'state_change', from: prevState, to: nextState });
-          if (nextState !== State.DONE) {
-            agent.setSystemPrompt(buildSystemPrompt({ state: nextState, task: task.description, modelParams: stateMachine.getModelParams() }));
-            agent.steer({ role: 'user', content: [{ type: 'text', text: buildUserPrompt(nextState, task.description) }], timestamp: Date.now() });
+
+          if (nextState === State.DONE) {
+            onEvent?.({ type: 'task_done', taskIndex: ctx.currentTaskIndex, taskTotal: ctx.taskQueue.length });
+            ctx.taskQueue[ctx.currentTaskIndex]!.status = 'done';
+            const nextIdx = ctx.currentTaskIndex + 1;
+            if (nextIdx < ctx.taskQueue.length) {
+              const nextQueued = ctx.taskQueue[nextIdx]!;
+              const depsOk = nextQueued.subTask.dependencies.every(
+                (dep) => ctx.taskQueue.find((t) => t.subTask.id === dep)?.status === 'done',
+              );
+              if (depsOk) {
+                ctx.currentTaskIndex = nextIdx;
+                ctx.currentRoute = nextQueued.route;
+                nextQueued.status = 'running';
+                const firstState = nextQueued.route[0]!;
+                stateMachine.resetForNextTask(firstState);
+                onEvent?.({ type: 'state_change', from: State.DONE, to: firstState });
+                onEvent?.({
+                  type: 'task_start',
+                  taskIndex: nextIdx,
+                  taskTotal: ctx.taskQueue.length,
+                  description: nextQueued.subTask.description,
+                });
+                agent.setSystemPrompt(
+                  buildSystemPrompt({
+                    state: firstState,
+                    task: nextQueued.subTask.description,
+                    modelParams: stateMachine.getModelParams(),
+                  }),
+                );
+                agent.steer({
+                  role: 'user',
+                  content: [{ type: 'text', text: buildUserPrompt(firstState, nextQueued.subTask.description) }],
+                  timestamp: Date.now(),
+                });
+                return;
+              }
+            }
+          } else {
+            const currentSubTask = ctx.taskQueue[ctx.currentTaskIndex]?.subTask.description ?? task.description;
+            agent.setSystemPrompt(
+              buildSystemPrompt({ state: nextState, task: currentSubTask, modelParams: stateMachine.getModelParams() }),
+            );
+            agent.steer({
+              role: 'user',
+              content: [{ type: 'text', text: buildUserPrompt(nextState, currentSubTask) }],
+              timestamp: Date.now(),
+            });
           }
         }
       }
     }
   });
+}
+
+function extractJsonFromText(text: string): Record<string, unknown> | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 async function runAgentWithRetry(
@@ -250,7 +439,9 @@ async function runAgentWithRetry(
   const failureHandler = new FailureHandler({
     maxRetries,
     onHumanIntervention: failureConfig.enableHumanIntervention
-      ? (fCtx) => { console.error(`[HUMAN INTERVENTION REQUIRED] ${fCtx.error.message}`); }
+      ? (fCtx) => {
+          console.error(`[HUMAN INTERVENTION REQUIRED] ${fCtx.error.message}`);
+        }
       : undefined,
   });
   let attempt = 0;
@@ -263,7 +454,9 @@ async function runAgentWithRetry(
       break;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
-      const failureCtx = failureHandler.createContext('llm_error', lastError, stateMachine.getCurrentState(), attempt, { stagnationDetected: ctx.stagnationDetected });
+      const failureCtx = failureHandler.createContext('llm_error', lastError, stateMachine.getCurrentState(), attempt, {
+        stagnationDetected: ctx.stagnationDetected,
+      });
       const recovery = await failureHandler.handleFailure(failureCtx);
       if (!recovery.shouldRetry) break;
       attempt++;
@@ -280,6 +473,15 @@ async function runAgentWithRetry(
 }
 
 export class ReactAgent {
+  private _pendingClarification: ((answer: string) => void) | null = null;
+
+  provideClarification(answer: string): void {
+    if (this._pendingClarification) {
+      this._pendingClarification(answer);
+      this._pendingClarification = null;
+    }
+  }
+
   async run(
     input: string,
     modelName: string,
@@ -307,12 +509,41 @@ export class ReactAgent {
       preserveLastN: 6,
     });
     const safeModifier = new SafeModifier(agentConfig.system.task.checkpointDir);
-    const ctx: ExecCtx = { compactionSummary: null, currentTemperature: LLMConnector.DEFAULT_TEMPERATURE, stagnationDetected: false, turnCount: 0 };
+    const ctx: ExecCtx = {
+      compactionSummary: null,
+      currentTemperature: LLMConnector.DEFAULT_TEMPERATURE,
+      stagnationDetected: false,
+      turnCount: 0,
+      taskQueue: [],
+      currentTaskIndex: 0,
+      currentRoute: [State.REASON],
+    };
 
-    const agent = new Agent(buildAgentConfig(task, model, stateMachine, safetyConfig, safeModifier, ctx, initialMessages));
-    subscribeAgentEvents(agent, task, stateMachine, stagnationDetector, contextCompactor, safeModifier, safetyConfig, smConfig, ctx, onEvent);
+    const agent = new Agent(
+      buildAgentConfig(task, model, stateMachine, safetyConfig, safeModifier, ctx, initialMessages),
+    );
+    subscribeAgentEvents(
+      agent,
+      task,
+      stateMachine,
+      stagnationDetector,
+      contextCompactor,
+      safeModifier,
+      safetyConfig,
+      smConfig,
+      ctx,
+      onEvent,
+    );
 
-    const lastError = await runAgentWithRetry(agent, task, stateMachine, stagnationDetector, safeModifier, failureConfig, ctx);
+    const lastError = await runAgentWithRetry(
+      agent,
+      task,
+      stateMachine,
+      stagnationDetector,
+      safeModifier,
+      failureConfig,
+      ctx,
+    );
 
     const finalState = stateMachine.getCurrentState();
     const agentMessages = agent.state.messages;
@@ -333,5 +564,3 @@ export class ReactAgent {
     return result;
   }
 }
-
-

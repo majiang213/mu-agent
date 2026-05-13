@@ -95,19 +95,75 @@ Check:
       prompt: 'Task completed.',
       maxIterations: 0,
     },
+    [State.REASON]: {
+      name: State.REASON,
+      allowedTools: [],
+      prompt: 'Reason about the task.',
+      maxIterations: 1,
+    },
+    [State.CLARIFY]: {
+      name: State.CLARIFY,
+      allowedTools: [],
+      prompt: 'Ask the user for clarification.',
+      maxIterations: 1,
+    },
+    [State.ANSWER]: {
+      name: State.ANSWER,
+      allowedTools: [],
+      prompt: 'Answer the question directly.',
+      maxIterations: 2,
+    },
+    [State.DIAGNOSE]: {
+      name: State.DIAGNOSE,
+      allowedTools: ['read', 'grep', 'bash'],
+      prompt: 'Diagnose the root cause of the issue.',
+      maxIterations: 5,
+    },
+    [State.REVIEW]: {
+      name: State.REVIEW,
+      allowedTools: ['read', 'grep'],
+      prompt: 'Review the code and provide feedback.',
+      maxIterations: 5,
+    },
+    [State.TEST_WRITE]: {
+      name: State.TEST_WRITE,
+      allowedTools: ['read', 'write'],
+      prompt: 'Write tests for the code.',
+      maxIterations: 8,
+    },
+    [State.REFACTOR_PLAN]: {
+      name: State.REFACTOR_PLAN,
+      allowedTools: ['read'],
+      prompt: 'Plan the refactoring steps.',
+      maxIterations: 3,
+    },
+    [State.ROLLBACK]: {
+      name: State.ROLLBACK,
+      allowedTools: ['write'],
+      prompt: 'Restore files to their previous state.',
+      maxIterations: 3,
+    },
   };
 }
 
 /**
  * State transition rules
  */
-export function getNextState(currentState: State, success: boolean): State {
+export function getNextState(currentState: State, _success: boolean): State {
   const transitions: Record<State, State> = {
     [State.ANALYZE]: State.LOCATE,
     [State.LOCATE]: State.MODIFY,
     [State.MODIFY]: State.VERIFY,
     [State.VERIFY]: State.DONE,
     [State.DONE]: State.DONE,
+    [State.REASON]: State.ANALYZE,
+    [State.CLARIFY]: State.ANALYZE,
+    [State.ANSWER]: State.DONE,
+    [State.DIAGNOSE]: State.LOCATE,
+    [State.REVIEW]: State.DONE,
+    [State.TEST_WRITE]: State.VERIFY,
+    [State.REFACTOR_PLAN]: State.LOCATE,
+    [State.ROLLBACK]: State.DONE,
   };
 
   return transitions[currentState];
@@ -142,16 +198,26 @@ export function hasStateCompletionJson(state: State, text: string): boolean {
       return typeof json['edited'] === 'string';
     case State.VERIFY:
       return typeof json['passed'] === 'boolean';
+    case State.REASON:
+      return typeof json['decompose'] === 'boolean';
+    case State.CLARIFY:
+      return Array.isArray(json['questions']);
+    case State.DIAGNOSE:
+      return typeof json['rootCause'] === 'string';
+    case State.REVIEW:
+      return typeof json['verdict'] === 'string';
+    case State.TEST_WRITE:
+      return typeof json['testFile'] === 'string';
+    case State.REFACTOR_PLAN:
+      return Array.isArray(json['steps']);
+    case State.ANSWER:
+      return false;
     default:
       return false;
   }
 }
 
-/**
- * Advance to the next state in the pipeline.
- */
-export function advanceState(current: State): State {
-  const order = [State.ANALYZE, State.LOCATE, State.MODIFY, State.VERIFY, State.DONE];
-  const idx = order.indexOf(current);
-  return idx >= 0 && idx < order.length - 1 ? order[idx + 1]! : State.DONE;
+export function advanceState(current: State, route: State[]): State {
+  const idx = route.indexOf(current);
+  return idx >= 0 && idx < route.length - 1 ? route[idx + 1]! : State.DONE;
 }
