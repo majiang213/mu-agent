@@ -25,7 +25,7 @@ export class StateMachineAgent {
   private fileCount: number;
   private promptBuilder: PromptBuilder;
 
-  constructor(modelName: string) {
+  constructor(modelName: string, extraTools: AgentTool<any, any>[] = []) {
     const modelParams = detectModelParams(modelName);
     const states = getBaseStateConfigs();
 
@@ -38,7 +38,7 @@ export class StateMachineAgent {
     this.stateIteration = 0;
     this.toolCalls = [];
     this.fileCount = 0;
-    this.allTools = codingTools;
+    this.allTools = [...codingTools, ...extraTools];
     this.promptBuilder = new PromptBuilder();
   }
 

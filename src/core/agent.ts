@@ -12,6 +12,8 @@ import { FailureHandler } from './failure/handler.js';
 import { LLMConnector } from '../provider/llm.js';
 import { ContextCompactor } from './compaction/index.js';
 import { astLocatorTool } from '../tool/locator.js';
+import { SafeModifier, syntaxCheckHook, damageCheckHook } from '../tool/safety/index.js';
+import { ConfigManager } from '../config/manager.js';
 
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
@@ -75,12 +77,21 @@ export class TaskScheduler {
   ): Promise<StateResult> {
     task.state = 'running';
 
-    const stateMachine = new StateMachineAgent(modelName);
+    const stateMachine = new StateMachineAgent(modelName, [astLocatorTool]);
     const promptBuilder = new PromptBuilder();
     const model = buildModel(modelName, provider, baseUrl);
+    const smConfig = ConfigManager.getInstance().getConfig().stateMachine;
     const stagnationDetector = new StagnationDetector();
-    const contextCompactor = new ContextCompactor({ maxTokens: 24000, preserveFirstN: 2, preserveLastN: 6 });
+    const contextCompactor = new ContextCompactor({
+      maxTokens: smConfig.compactionThreshold > 0 ? smConfig.compactionThreshold * 8 : 24000,
+      preserveFirstN: 2,
+      preserveLastN: 6,
+    });
+    const safeModifier = new SafeModifier();
+    const pendingModifyPaths = new Map<string, string>();
     let stagnationDetected = false;
+    let currentTemperature = LLMConnector.DEFAULT_TEMPERATURE;
+    let compactionSummary: string | null = null;
 
     const systemPrompt = promptBuilder.buildSystemPrompt({
       state: State.ANALYZE,
@@ -95,7 +106,15 @@ export class TaskScheduler {
         tools: [...codingTools, astLocatorTool],
       },
       streamFn: async (m, ctx, opts) => {
-        return streamSimple(m, ctx, { ...opts, apiKey: 'ollama' });
+        if (compactionSummary !== null) {
+          const summary = compactionSummary;
+          compactionSummary = null;
+          const preserved = ctx.messages.slice(-6);
+          const summaryMsg = { role: 'user' as const, content: `[Earlier context summarized]: ${summary}`, timestamp: Date.now() };
+          const compactedCtx = { ...ctx, messages: [summaryMsg, ...preserved] };
+          return streamSimple(m, compactedCtx, { ...opts, apiKey: 'ollama', temperature: currentTemperature });
+        }
+        return streamSimple(m, ctx, { ...opts, apiKey: 'ollama', temperature: currentTemperature });
       },
       getApiKey: () => 'ollama',
 
@@ -108,6 +127,19 @@ export class TaskScheduler {
             reason: `State ${stateMachine.getCurrentState()} does not allow tool '${toolName}'. Allowed: ${allowedTools.join(', ')}`,
           };
         }
+
+        if (toolName === 'edit' || toolName === 'write') {
+          const args = ctx.args as Record<string, unknown>;
+          const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null;
+          if (filePath) {
+            try {
+              await safeModifier.createCheckpoint(filePath);
+            } catch {
+              // File may not exist yet (write creating new file) — skip checkpoint
+            }
+          }
+        }
+
         return undefined;
       },
     });
@@ -126,6 +158,41 @@ export class TaskScheduler {
           output: null,
           timestamp: Date.now(),
         });
+
+        if (event.toolName === 'edit' || event.toolName === 'write') {
+          const args = event.args as Record<string, unknown>;
+          const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null;
+          if (filePath) pendingModifyPaths.set(event.toolCallId, filePath);
+        }
+      }
+
+      if (event.type === 'tool_execution_end') {
+        const filePath = pendingModifyPaths.get(event.toolCallId);
+        pendingModifyPaths.delete(event.toolCallId);
+
+        if (filePath && !event.isError && safeModifier.hasCheckpoint(filePath)) {
+          const checkpoint = safeModifier.getCheckpoint(filePath);
+          const originalContent = checkpoint?.originalContent ?? '';
+          Promise.all([
+            syntaxCheckHook.check(filePath, originalContent),
+            damageCheckHook.check(filePath, originalContent),
+          ]).then(([syntaxOk, damageOk]) => {
+            if (!syntaxOk || !damageOk) {
+              safeModifier.restore(filePath).then(() => {
+                agent.steer({
+                  role: 'user',
+                  content: [{
+                    type: 'text',
+                    text: `[SAFE MODIFIER] Post-check failed for ${filePath} (syntax=${syntaxOk}, damage=${damageOk}). File restored. Please try a more conservative edit.`,
+                  }],
+                  timestamp: Date.now(),
+                });
+              }).catch(() => {});
+            } else {
+              safeModifier.clearCheckpoint(filePath);
+            }
+          }).catch(() => {});
+        }
       }
 
       if (event.type === 'turn_end') {
@@ -133,14 +200,14 @@ export class TaskScheduler {
         onEvent?.({ type: 'llm_call', promptLen: 0, responseLen: 0 });
 
         // Stagnation detection — check after each turn
-        const stagnation = stagnationDetector.check();
-        if (stagnation.detected) {
+        const stagnationResult = smConfig.enableStagnationDetector ? stagnationDetector.check() : null;
+        if (stagnationResult?.detected) {
           stagnationDetected = true;
           agent.steer({
             role: 'user',
             content: [{
               type: 'text',
-              text: `[STAGNATION DETECTED] ${stagnation.message}. ${stagnation.suggestion}. Stopping current approach.`,
+              text: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}. Stopping current approach.`,
             }],
             timestamp: Date.now(),
           });
@@ -156,23 +223,18 @@ export class TaskScheduler {
           return;
         }
 
-        // Context compaction — inject summary when approaching context limit
-        const rawMessages = agent.state.messages.map((m) => {
-          const content = 'content' in m
-            ? (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
-            : '';
-          return { role: m.role, content };
-        });
-        const compactionResult = contextCompactor.compact(rawMessages);
-        if (compactionResult.compacted && compactionResult.summary) {
-          agent.steer({
-            role: 'user',
-            content: [{
-              type: 'text',
-              text: `[CONTEXT COMPACTED] Earlier context summarized (${compactionResult.removedCount} messages removed): ${compactionResult.summary}`,
-            }],
-            timestamp: Date.now(),
+        // Context compaction — truncate messages passed to LLM on next turn
+        if (smConfig.enableCompaction) {
+          const rawMessages = agent.state.messages.map((m) => {
+            const content = 'content' in m
+              ? (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))
+              : '';
+            return { role: m.role, content };
           });
+          const compactionResult = contextCompactor.compact(rawMessages);
+          if (compactionResult.compacted && compactionResult.summary) {
+            compactionSummary = compactionResult.summary;
+          }
         }
 
         const prevState = stateMachine.getCurrentState();
@@ -229,9 +291,10 @@ export class TaskScheduler {
         const recovery = await failureHandler.handleFailure(failureCtx);
         if (!recovery.shouldRetry) break;
         attempt++;
-        const newTemperature = LLMConnector.DEFAULT_TEMPERATURE + attempt * LLMConnector.RETRY_TEMPERATURE_STEP;
-        const newModel = buildModel(modelName, provider, baseUrl);
-        agent.setModel({ ...newModel } as Parameters<typeof agent.setModel>[0]);
+        currentTemperature = Math.min(
+          LLMConnector.DEFAULT_TEMPERATURE + attempt * LLMConnector.RETRY_TEMPERATURE_STEP,
+          LLMConnector.MAX_TEMPERATURE,
+        );
         stagnationDetector.reset();
       }
     }

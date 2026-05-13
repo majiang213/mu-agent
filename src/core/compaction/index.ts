@@ -1,5 +1,5 @@
 // Simple message interface for compaction
-interface CompactMessage {
+export interface CompactMessage {
   role: string;
   content: string;
   [key: string]: unknown;
@@ -24,6 +24,7 @@ export interface CompactionResult {
   compactedCount: number;
   removedCount: number;
   summary?: string;
+  messages?: CompactMessage[];
 }
 
 /**
@@ -105,6 +106,7 @@ export class ContextCompactor {
       compactedCount: compacted.length,
       removedCount: middle.length,
       summary,
+      messages: compacted,
     };
   }
 

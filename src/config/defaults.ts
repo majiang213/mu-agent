@@ -11,7 +11,7 @@ function getDefaultModelConfig(hardware: HardwareConstraints): ModelConfig {
     model: `qwen2.5:${hardware.recommendedModelSize.toLowerCase()}`,
     baseUrl: 'http://localhost:11434',
     contextLength: hardware.recommendedContextLength,
-    temperature: 0.7,
+    temperature: 0.1,
     maxTokens: 2048,
   };
 }

@@ -29,12 +29,12 @@ export const level1RetryStrategy: RecoveryStrategy = {
 };
 
 /**
- * Level 2: Simplify task scope
+ * Level 2: Simplify task scope (triggers on second attempt)
  */
 export const level2SimplifyStrategy: RecoveryStrategy = {
   level: 2,
   name: 'simplify_task',
-  canHandle: (ctx) => ctx.attempt >= ctx.maxAttempts && ctx.type === 'tool_execution',
+  canHandle: (ctx) => ctx.attempt === 1,
   execute: async (): Promise<RecoveryResult> => {
     return {
       success: true,
@@ -49,12 +49,12 @@ export const level2SimplifyStrategy: RecoveryStrategy = {
 };
 
 /**
- * Level 3: Switch to larger model
+ * Level 3: Switch to larger model (triggers on third attempt)
  */
 export const level3ModelSwitchStrategy: RecoveryStrategy = {
   level: 3,
   name: 'switch_model',
-  canHandle: (ctx) => ctx.type === 'llm_error' && ctx.attempt >= ctx.maxAttempts,
+  canHandle: (ctx) => ctx.attempt >= 2 && ctx.attempt < ctx.maxAttempts,
   execute: async (): Promise<RecoveryResult> => {
     return {
       success: true,

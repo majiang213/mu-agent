@@ -2,12 +2,7 @@
 import { Command } from 'commander';
 import { ConfigManager } from './config/manager.js';
 import { TaskScheduler } from './core/agent.js';
-import { StateMachineAgent } from './core/session.js';
-import { createFailureHandler } from './core/failure/index.js';
-import { createStagnationDetector } from './core/cognitive/index.js';
-import { createContextCompactor } from './core/compaction/index.js';
-import { createASTLocator } from './tool/locator.js';
-import { createSafeModifier } from './tool/safety/index.js';
+
 
 const program = new Command();
 
@@ -32,16 +27,6 @@ program
       const configManager = ConfigManager.getInstance();
       const config = configManager.initialize();
       console.log('✅ Config loaded');
-
-      // Initialize components
-      const stateMachine = new StateMachineAgent(options.model);
-      const failureHandler = createFailureHandler();
-      const stagnationDetector = createStagnationDetector();
-      const compactor = createContextCompactor();
-      const astLocator = createASTLocator();
-      const safeModifier = createSafeModifier();
-
-      console.log('✅ Components initialized');
 
       // Create task scheduler
       const scheduler = new TaskScheduler();
