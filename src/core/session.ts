@@ -8,8 +8,8 @@ import {
   type ToolCall,
   type ModelParams,
 } from './types.js';
-import { detectModelParams, getBaseStateConfigs, generateAdaptivePrompt } from './states.js';
-import { checkExitCondition, createStateContext, formatToolCallsForContext } from './logic.js';
+import { detectModelParams, getBaseStateConfigs } from './states.js';
+import { createStateContext } from './logic.js';
 import { PromptBuilder } from '../provider/prompt.js';
 
 /**
@@ -83,24 +83,6 @@ export class StateMachineAgent {
   }
 
   /**
-   * Check if should exit current state
-   */
-  checkExit(llmOutput: string): { shouldExit: boolean; nextState: State; reason: string } {
-    const stateConfig = this.getCurrentStateConfig();
-    const result = checkExitCondition(
-      this.currentState,
-      this.stateIteration,
-      stateConfig.maxIterations,
-      llmOutput,
-    );
-    return {
-      shouldExit: result.shouldExit,
-      nextState: result.nextState,
-      reason: result.reason,
-    };
-  }
-
-  /**
    * Transition to next state
    */
   transitionTo(nextState: State): void {
@@ -157,13 +139,22 @@ export class StateMachineAgent {
   /**
    * Check if can modify more files
    */
-  canModifyMoreFiles(): boolean {
-    return this.fileCount < this.config.modelParams.maxFilesPerTask;
+  canModifyMoreFiles(maxFiles?: number): boolean {
+    const limit = maxFiles ?? this.config.modelParams.maxFilesPerTask;
+    return this.fileCount < limit;
   }
 
-  /**
-   * Get model params
-   */
+  getFileCount(): number {
+    return this.fileCount;
+  }
+
+  resetForRetry(): void {
+    this.currentState = State.ANALYZE;
+    this.stateIteration = 0;
+    this.fileCount = 0;
+    this.toolCalls = [];
+  }
+
   getModelParams(): ModelParams {
     return this.config.modelParams;
   }

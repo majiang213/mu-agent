@@ -1,4 +1,4 @@
-import type { Config, ModelConfig, SystemConfig, RuntimeConfig, StateMachineConfig, TaskConfig } from './types.js';
+import type { Config, ModelConfig, SystemConfig, RuntimeConfig, StateMachineConfig, TaskConfig, SafetyConfig, DecompositionConfig, FailureHandlingConfig } from './types.js';
 import type { HardwareConstraints } from '../sysinfo/types.js';
 import { getSysInfo, calculateHardwareConstraints } from '../sysinfo/collector.js';
 
@@ -58,9 +58,36 @@ function getDefaultRuntimeConfig(hardware: HardwareConstraints): RuntimeConfig {
 function getDefaultStateMachineConfig(): StateMachineConfig {
   return {
     maxIterations: 50,
+    maxTurnsPerState: 5,
+    maxTotalTurns: 25,
     enableStagnationDetector: true,
     enableCompaction: true,
     compactionThreshold: 3000,
+  };
+}
+
+function getDefaultSafetyConfig(): SafetyConfig {
+  return {
+    enableCheckpoint: true,
+    enablePostCheck: true,
+    maxLinesPerEdit: 30,
+    maxFilesPerTask: 4,
+  };
+}
+
+function getDefaultDecompositionConfig(): DecompositionConfig {
+  return {
+    enableLevel1: true,
+    enableLevel2: false,
+    level2MaxTokens: 500,
+    maxSubTasks: 6,
+  };
+}
+
+function getDefaultFailureHandlingConfig(): FailureHandlingConfig {
+  return {
+    maxRetries: 3,
+    enableHumanIntervention: true,
   };
 }
 
@@ -75,6 +102,9 @@ export function getDefaultConfig(): Config {
     system: getDefaultSystemConfig(hardware),
     runtime: getDefaultRuntimeConfig(hardware),
     stateMachine: getDefaultStateMachineConfig(),
+    safety: getDefaultSafetyConfig(),
+    decomposition: getDefaultDecompositionConfig(),
+    failureHandling: getDefaultFailureHandlingConfig(),
   };
 }
 
@@ -104,6 +134,18 @@ export function mergeWithDefaults(userConfig: Partial<Config>): Config {
     stateMachine: {
       ...defaults.stateMachine,
       ...userConfig.stateMachine,
+    },
+    safety: {
+      ...defaults.safety,
+      ...userConfig.safety,
+    },
+    decomposition: {
+      ...defaults.decomposition,
+      ...userConfig.decomposition,
+    },
+    failureHandling: {
+      ...defaults.failureHandling,
+      ...userConfig.failureHandling,
     },
   };
 }

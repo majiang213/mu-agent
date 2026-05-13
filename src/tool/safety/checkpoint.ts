@@ -1,5 +1,5 @@
-import { readFile, writeFile, copyFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
+import { dirname, join, basename } from 'node:path';
 import { existsSync } from 'node:fs';
 
 /**
@@ -100,13 +100,27 @@ export class SafeModifier {
     await writeFile(checkpointPath, checkpoint.originalContent, 'utf-8');
   }
 
-  /**
-   * Load checkpoint from disk
-   */
   private async loadFromDisk(filePath: string): Promise<Checkpoint | null> {
-    // Implementation would scan checkpoint directory
-    // For now, return null
-    return null;
+    if (!existsSync(this.checkpointDir)) return null;
+    try {
+      const entries = await readdir(this.checkpointDir);
+      const escapedPath = filePath.replace(/[/\\]/g, '_');
+      const matching = entries
+        .filter((e) => e.endsWith(`_${escapedPath}.bak`))
+        .sort()
+        .reverse();
+      const latest = matching[0];
+      if (!latest) return null;
+      const content = await readFile(join(this.checkpointDir, latest), 'utf-8');
+      const tsMatch = basename(latest).match(/^(\d+)_/);
+      return {
+        filePath,
+        originalContent: content,
+        timestamp: tsMatch?.[1] ? parseInt(tsMatch[1], 10) : 0,
+      };
+    } catch {
+      return null;
+    }
   }
 }
 

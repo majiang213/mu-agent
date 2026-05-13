@@ -45,13 +45,12 @@ function buildModel(modelName: string, provider: string, baseUrl: string): Model
 
 export class TaskScheduler {
   private tasks: Task[];
-  private currentTaskIndex: number;
   private decomposer: TaskDecomposer;
 
   constructor() {
     this.tasks = [];
-    this.currentTaskIndex = 0;
-    this.decomposer = new TaskDecomposer();
+    const decompositionConfig = ConfigManager.getInstance().getConfig().decomposition;
+    this.decomposer = new TaskDecomposer(undefined, decompositionConfig);
   }
 
   async decompose(taskDescription: string): Promise<Task[]> {
@@ -80,14 +79,17 @@ export class TaskScheduler {
     const stateMachine = new StateMachineAgent(modelName, [astLocatorTool]);
     const promptBuilder = new PromptBuilder();
     const model = buildModel(modelName, provider, baseUrl);
-    const smConfig = ConfigManager.getInstance().getConfig().stateMachine;
+    const agentConfig = ConfigManager.getInstance().getConfig();
+    const smConfig = agentConfig.stateMachine;
+    const safetyConfig = agentConfig.safety;
+    const failureConfig = agentConfig.failureHandling;
     const stagnationDetector = new StagnationDetector();
     const contextCompactor = new ContextCompactor({
       maxTokens: smConfig.compactionThreshold > 0 ? smConfig.compactionThreshold * 8 : 24000,
       preserveFirstN: 2,
       preserveLastN: 6,
     });
-    const safeModifier = new SafeModifier();
+    const safeModifier = new SafeModifier(agentConfig.system.task.checkpointDir);
     const pendingModifyPaths = new Map<string, string>();
     let stagnationDetected = false;
     let currentTemperature = LLMConnector.DEFAULT_TEMPERATURE;
@@ -129,6 +131,15 @@ export class TaskScheduler {
         }
 
         if (toolName === 'edit' || toolName === 'write') {
+          if (!stateMachine.canModifyMoreFiles(safetyConfig.maxFilesPerTask)) {
+            return {
+              block: true,
+              reason: `File modification limit reached (max ${safetyConfig.maxFilesPerTask} files per task). Switch to VERIFY to review changes.`,
+            };
+          }
+        }
+
+        if ((toolName === 'edit' || toolName === 'write') && safetyConfig.enableCheckpoint) {
           const args = ctx.args as Record<string, unknown>;
           const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null;
           if (filePath) {
@@ -145,8 +156,8 @@ export class TaskScheduler {
     });
 
     let turnCount = 0;
-    const maxTurnsPerState = 5;
-    const maxTotalTurns = 25;
+    const maxTurnsPerState = smConfig.maxTurnsPerState;
+    const maxTotalTurns = smConfig.maxTotalTurns;
 
     agent.subscribe((event: AgentEvent) => {
       if (event.type === 'tool_execution_start') {
@@ -170,7 +181,7 @@ export class TaskScheduler {
         const filePath = pendingModifyPaths.get(event.toolCallId);
         pendingModifyPaths.delete(event.toolCallId);
 
-        if (filePath && !event.isError && safeModifier.hasCheckpoint(filePath)) {
+        if (filePath && !event.isError && safetyConfig.enableCheckpoint && safetyConfig.enablePostCheck && safeModifier.hasCheckpoint(filePath)) {
           const checkpoint = safeModifier.getCheckpoint(filePath);
           const originalContent = checkpoint?.originalContent ?? '';
           Promise.all([
@@ -270,11 +281,17 @@ export class TaskScheduler {
       }
     });
 
-    const failureHandler = new FailureHandler({ maxRetries: stateMachine.getModelParams().maxRetries });
+    const maxRetries = Math.max(stateMachine.getModelParams().maxRetries, failureConfig.maxRetries);
+    const failureHandler = new FailureHandler({
+      maxRetries,
+      onHumanIntervention: failureConfig.enableHumanIntervention
+        ? (ctx) => { console.error(`[HUMAN INTERVENTION REQUIRED] ${ctx.error.message}`); }
+        : undefined,
+    });
     let attempt = 0;
     let lastError: Error | null = null;
 
-    while (attempt <= stateMachine.getModelParams().maxRetries) {
+    while (attempt < maxRetries) {
       try {
         await agent.prompt(task.description);
         lastError = null;
@@ -296,6 +313,8 @@ export class TaskScheduler {
           LLMConnector.MAX_TEMPERATURE,
         );
         stagnationDetector.reset();
+        stateMachine.resetForRetry();
+        safeModifier.clearAll();
       }
     }
 

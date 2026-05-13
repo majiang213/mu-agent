@@ -28,15 +28,6 @@ export interface CompactionResult {
 }
 
 /**
- * Message summary for compaction
- */
-export interface MessageSummary {
-  role: string;
-  content: string;
-  originalIndex: number;
-}
-
-/**
  * Context compactor for managing token budget
  */
 export class ContextCompactor {

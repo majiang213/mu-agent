@@ -1,4 +1,4 @@
-import { State, type ModelParams, type ModelTier, type StateConfig } from './types.js';
+import { State, type ModelParams, type StateConfig } from './types.js';
 
 /**
  * Detect model capability tier based on parameter count
@@ -96,29 +96,6 @@ Check:
       maxIterations: 0,
     },
   };
-}
-
-/**
- * Generate adaptive prompt based on model tier
- */
-export function generateAdaptivePrompt(
-  basePrompt: string,
-  modelParams: ModelParams,
-  currentFileCount: number,
-): string {
-  if (modelParams.tier === 'SMALL') {
-    const constraints = `
-
-IMPORTANT CONSTRAINTS (Small Model Mode):
-- Maximum ${modelParams.maxFilesPerTask} files can be modified in this task
-- Already modified: ${currentFileCount} files
-- Must read file content before editing
-- If verification fails, retry up to ${modelParams.maxRetries} times
-- Keep changes minimal and focused`;
-    return basePrompt + constraints;
-  }
-
-  return basePrompt;
 }
 
 /**

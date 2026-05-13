@@ -8,7 +8,6 @@ import {
 } from '@mariozechner/pi-tui';
 import { ConfigManager } from '../config/manager.js';
 import { TaskScheduler } from '../core/agent.js';
-import { StateMachineAgent } from '../core/session.js';
 import { MetricsCollector } from '../core/metrics.js';
 import { DynamicBorder } from './components/dynamic-border.js';
 import { HeaderComponent } from './components/header.js';
@@ -143,7 +142,6 @@ export class TuiApp {
       this.metrics.startTask(t.id);
       this.metrics.recordStateEntry(t.id, 'ANALYZE');
 
-      const agent = new StateMachineAgent(this.options.model);
       const onStateChange = (from: string, to: string) => {
         this.header.update({ state: to });
         this.messageLog.append(`[${to}]`, 'state');
@@ -174,7 +172,7 @@ export class TuiApp {
           },
         );
 
-        this.metrics.recordStateExit(t.id, agent.getCurrentState());
+        this.metrics.recordStateExit(t.id, result.state);
         this.metrics.finishTask(t.id, result.success);
 
         if (result.success) {

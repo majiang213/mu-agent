@@ -1,4 +1,4 @@
-import { State, type StateConfig, type StateContext, type StateResult, type ToolCall, type ExitCheckResult } from './types.js';
+import { State, type StateConfig, type StateContext, type ExitCheckResult } from './types.js';
 import { getNextState } from './states.js';
 
 /**
@@ -87,17 +87,4 @@ export function createStateContext(
   };
 }
 
-/**
- * Format tool calls for LLM context
- */
-export function formatToolCallsForContext(toolCalls: ToolCall[]): string {
-  if (toolCalls.length === 0) return '';
 
-  return toolCalls
-    .map((call) => {
-      const input = JSON.stringify(call.input);
-      const output = JSON.stringify(call.output).slice(0, 500);
-      return `Tool: ${call.tool}\nInput: ${input}\nOutput: ${output}...`;
-    })
-    .join('\n\n');
-}

@@ -1,5 +1,6 @@
 import type { SubTask, TaskType, DecompositionResult } from './types.js';
 import type { LLMConnector } from '../provider/llm.js';
+import type { DecompositionConfig } from '../config/types.js';
 
 const SEQUENTIAL_PATTERNS = [
   /先(.+?)然后(.+?)(?:再(.+?))?(?:最后(.+?))?$/,
@@ -85,8 +86,8 @@ function tryMixed(prompt: string): SubTask[] | null {
   return tasks;
 }
 
-function validateTasks(tasks: SubTask[]): boolean {
-  if (tasks.length === 0 || tasks.length > 5) return false;
+function validateTasks(tasks: SubTask[], maxSubTasks = 5): boolean {
+  if (tasks.length === 0 || tasks.length > maxSubTasks) return false;
   const ids = new Set(tasks.map((t) => t.id));
   for (const task of tasks) {
     for (const dep of task.dependencies) {
@@ -110,32 +111,44 @@ const LEVEL2_FEW_SHOT = `Example:
 Input: "重构认证系统并添加 OAuth 支持"
 Output: {"tasks": [{"id": "l2-0", "description": "分析现有认证系统结构", "type": "ANALYSIS"}, {"id": "l2-1", "description": "重构认证模块为可扩展架构", "type": "REFACTORING"}, {"id": "l2-2", "description": "实现 OAuth 提供商集成", "type": "CODING"}]}`;
 
+const DEFAULT_DECOMPOSITION_CONFIG: DecompositionConfig = {
+  enableLevel1: true,
+  enableLevel2: false,
+  level2MaxTokens: 500,
+  maxSubTasks: 6,
+};
+
 export class TaskDecomposer {
   private llm: LLMConnector | null;
+  private config: DecompositionConfig;
 
-  constructor(llm?: LLMConnector) {
+  constructor(llm?: LLMConnector, config?: DecompositionConfig) {
     this.llm = llm ?? null;
+    this.config = config ?? DEFAULT_DECOMPOSITION_CONFIG;
   }
 
   async decompose(prompt: string): Promise<DecompositionResult> {
     const trimmed = prompt.trim();
+    const { enableLevel1, enableLevel2, maxSubTasks } = this.config;
 
-    const mixed = tryMixed(trimmed);
-    if (mixed && validateTasks(mixed)) {
-      return { tasks: mixed, level: 1, confidence: 0.85 };
+    if (enableLevel1) {
+      const mixed = tryMixed(trimmed);
+      if (mixed && validateTasks(mixed, maxSubTasks)) {
+        return { tasks: mixed, level: 1, confidence: 0.85 };
+      }
+
+      const seq = trySequential(trimmed);
+      if (seq && validateTasks(seq, maxSubTasks)) {
+        return { tasks: seq, level: 1, confidence: 0.9 };
+      }
+
+      const par = tryParallel(trimmed);
+      if (par && validateTasks(par, maxSubTasks)) {
+        return { tasks: par, level: 1, confidence: 0.8 };
+      }
     }
 
-    const seq = trySequential(trimmed);
-    if (seq && validateTasks(seq)) {
-      return { tasks: seq, level: 1, confidence: 0.9 };
-    }
-
-    const par = tryParallel(trimmed);
-    if (par && validateTasks(par)) {
-      return { tasks: par, level: 1, confidence: 0.8 };
-    }
-
-    if (this.llm) {
+    if (enableLevel2 && this.llm) {
       const level2 = await this.tryLevel2LLM(trimmed);
       if (level2) {
         return { tasks: level2, level: 2, confidence: 0.6 };

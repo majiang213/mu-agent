@@ -3,7 +3,6 @@ import { dirname } from 'node:path';
 import type { Config, RuntimeConfig } from './types.js';
 import { getDefaultConfig, mergeWithDefaults } from './defaults.js';
 import { VramWatcher } from '../sysinfo/watcher.js';
-import type { AgentSessionConfig } from '@mariozechner/pi-coding-agent';
 
 /**
  * Configuration manager singleton

@@ -70,23 +70,50 @@ export interface RuntimeConfig {
  * Configuration for state machine
  */
 export interface StateMachineConfig {
-  /** Maximum iterations per task */
   maxIterations: number;
+  maxTurnsPerState: number;
+  maxTotalTurns: number;
   enableStagnationDetector: boolean;
-  /** Enable context compaction */
   enableCompaction: boolean;
-  /** Compaction threshold (token count) */
   compactionThreshold: number;
+}
+
+/**
+ * Safety modification configuration
+ */
+export interface SafetyConfig {
+  enableCheckpoint: boolean;
+  enablePostCheck: boolean;
+  maxLinesPerEdit: number;
+  maxFilesPerTask: number;
+}
+
+/**
+ * Task decomposition configuration
+ */
+export interface DecompositionConfig {
+  enableLevel1: boolean;
+  enableLevel2: boolean;
+  level2MaxTokens: number;
+  maxSubTasks: number;
+}
+
+/**
+ * Failure handling configuration
+ */
+export interface FailureHandlingConfig {
+  maxRetries: number;
+  enableHumanIntervention: boolean;
 }
 
 /**
  * Complete configuration object
  */
 export interface Config {
-  /** System configuration */
   system: SystemConfig;
-  /** Runtime configuration (dynamic) */
   runtime: RuntimeConfig;
-  /** State machine configuration */
   stateMachine: StateMachineConfig;
+  safety: SafetyConfig;
+  decomposition: DecompositionConfig;
+  failureHandling: FailureHandlingConfig;
 }
