@@ -14,7 +14,7 @@ import { Markdown } from '@mariozechner/pi-tui';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { ConfigManager } from '../config/manager.js';
-import { TaskScheduler } from '../core/agent.js';
+import { ReactAgent } from '../core/agent.js';
 import type { ExecutionEvent } from '../core/agent.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
@@ -396,9 +396,9 @@ export class TuiApp {
       (t) => { currentTurn = t; },
     );
 
-    const scheduler = new TaskScheduler();
+    const agent = new ReactAgent();
     try {
-      const result = await scheduler.executeInput(
+      const result = await agent.run(
         input, this.options.model, this.options.provider, this.options.baseUrl, onEvent,
         this.conversationHistory,
       );

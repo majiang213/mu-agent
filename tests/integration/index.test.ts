@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ConfigManager } from '../../src/config/manager.js';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { TaskScheduler } from '../../src/core/agent.js';
+import { ReactAgent } from '../../src/core/agent.js';
 import { createFailureHandler } from '../../src/core/failure/index.js';
 import { createStagnationDetector } from '../../src/core/cognitive/index.js';
 import { createASTLocator } from '../../src/tool/locator.js';
@@ -38,9 +38,9 @@ describe('Integration Tests', () => {
       expect(safeModifier).toBeDefined();
     });
 
-    it('should create task scheduler', () => {
-      const scheduler = new TaskScheduler();
-      expect(scheduler).toBeDefined();
+    it('should create react agent', () => {
+      const agent = new ReactAgent();
+      expect(agent).toBeDefined();
     });
   });
 

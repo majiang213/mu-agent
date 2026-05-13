@@ -23,7 +23,7 @@ export type ExecutionEvent =
   | { type: 'llm_thinking'; content: string }
   | { type: 'llm_call'; promptLen: number; responseLen: number; contextTokens: number };
 
-export interface Task {
+interface Task {
   id: string;
   description: string;
   state: 'pending' | 'running' | 'completed' | 'failed';
@@ -279,8 +279,8 @@ async function runAgentWithRetry(
   return lastError;
 }
 
-export class TaskScheduler {
-  async executeInput(
+export class ReactAgent {
+  async run(
     input: string,
     modelName: string,
     provider: string,
@@ -291,20 +291,8 @@ export class TaskScheduler {
     const task: Task = {
       id: `task-${Date.now()}`,
       description: input,
-      state: 'pending',
+      state: 'running',
     };
-    return this.executeTask(task, modelName, provider, baseUrl, onEvent, initialMessages);
-  }
-
-  async executeTask(
-    task: Task,
-    modelName: string,
-    provider: string,
-    baseUrl: string,
-    onEvent?: (event: ExecutionEvent) => void,
-    initialMessages?: AgentMessage[],
-  ): Promise<StateResult> {
-    task.state = 'running';
 
     const stateMachine = new StateMachineAgent(modelName, [astLocatorTool]);
     const model = buildModel(modelName, provider, baseUrl);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { ConfigManager } from './config/manager.js';
-import { TaskScheduler } from './core/agent.js';
+import { ReactAgent } from './core/agent.js';
 
 
 const program = new Command();
@@ -28,16 +28,12 @@ program
       const config = configManager.initialize();
       console.log('✅ Config loaded');
 
-      // Create task scheduler
-      const scheduler = new TaskScheduler();
-      
-      // Execute task
       console.log('\n📋 Executing task...\n');
-      const result = await scheduler.executeTask(
-        { id: '1', description: task, state: 'pending' },
+      const result = await new ReactAgent().run(
+        task,
         options.model,
         options.provider,
-        options.baseUrl
+        options.baseUrl,
       );
 
       if (result.success) {
