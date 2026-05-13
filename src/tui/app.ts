@@ -33,7 +33,6 @@ class HintLine implements Component {
     return [
       '  ' +
       C.hintKey('Ctrl+C') + C.dim(' 退出') + '   ' +
-      C.hintKey('Ctrl+L') + C.dim(' 清屏') + '   ' +
       C.hintKey('Tab') + C.dim(' 展开/折叠思考'),
     ];
   }
@@ -250,7 +249,6 @@ export class TuiApp {
 
     this.tui.addInputListener((data) => {
       if (data === '\x03' || matchesKey(data, 'ctrl+c')) { this.stop(); return { consume: true }; }
-      if (data === '\x0c' || matchesKey(data, 'ctrl+l')) { this.clearMessages(); return { consume: true }; }
       if (data === '\t') {
         if (this.allThinkingBlocks.length > 0) {
           const anyExpanded = this.allThinkingBlocks.some((b) => b.expanded);
@@ -283,13 +281,6 @@ export class TuiApp {
     process.exit(0);
   }
 
-  private clearMessages(): void {
-    const editorIdx = this.tui.children.indexOf(this.editor);
-    this.tui.children.splice(3, editorIdx - 3);
-    this.allThinkingBlocks = [];
-    this.conversationHistory = [];
-    this.tui.requestRender(true);
-  }
 
   private insertBefore(component: Component): void {
     const idx = this.tui.children.indexOf(this.editor);
