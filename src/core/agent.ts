@@ -1,5 +1,5 @@
 import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentEvent } from '@mariozechner/pi-agent-core';
+import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { streamSimple } from '@mariozechner/pi-ai';
 import type { Model } from '@mariozechner/pi-ai';
 import { codingTools } from '@mariozechner/pi-coding-agent';
@@ -21,7 +21,7 @@ export type ExecutionEvent =
   | { type: 'tool_result'; tool: string; isError: boolean }
   | { type: 'llm_output'; content: string }
   | { type: 'llm_thinking'; content: string }
-  | { type: 'llm_call'; promptLen: number; responseLen: number };
+  | { type: 'llm_call'; promptLen: number; responseLen: number; contextTokens: number };
 
 export interface Task {
   id: string;
@@ -76,6 +76,7 @@ export class TaskScheduler {
     provider: string,
     baseUrl: string,
     onEvent?: (event: ExecutionEvent) => void,
+    initialMessages?: AgentMessage[],
   ): Promise<StateResult> {
     task.state = 'running';
 
@@ -109,6 +110,7 @@ export class TaskScheduler {
         systemPrompt,
         model,
         tools: [...codingTools, astLocatorTool],
+        ...(initialMessages && initialMessages.length > 0 ? { messages: initialMessages } : {}),
       },
       streamFn: async (m, ctx, opts) => {
         if (compactionSummary !== null) {
@@ -225,7 +227,8 @@ export class TaskScheduler {
           }
         }
         const usage = msg && 'usage' in msg ? (msg as { usage?: { input?: number; output?: number } }).usage : null;
-        onEvent?.({ type: 'llm_call', promptLen: usage?.input ?? 0, responseLen: usage?.output ?? 0 });
+        const inputTokens = usage?.input ?? 0;
+        onEvent?.({ type: 'llm_call', promptLen: inputTokens, responseLen: usage?.output ?? 0, contextTokens: inputTokens });
 
         // Stagnation detection — check after each turn
         const stagnationResult = smConfig.enableStagnationDetector ? stagnationDetector.check() : null;
@@ -346,6 +349,7 @@ export class TaskScheduler {
       output: lastError ? `Failed: ${lastError.message}` : 'Task execution completed',
       toolCalls: [],
       nextState: State.DONE,
+      messages: agentMessages,
     };
 
     task.result = result;

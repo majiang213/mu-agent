@@ -3,7 +3,7 @@
  * Based on architecture design: deterministic pipeline + constrained LLM
  */
 
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 
 /** Core states for coding tasks */
 export enum State {
@@ -49,6 +49,7 @@ export interface StateResult {
   output: string;
   toolCalls: ToolCall[];
   nextState: State;
+  messages?: AgentMessage[];
 }
 
 /** Tool call record */

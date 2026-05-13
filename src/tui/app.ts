@@ -26,6 +26,7 @@ import { homedir } from 'node:os';
 import { ConfigManager } from '../config/manager.js';
 import { TaskScheduler } from '../core/agent.js';
 import type { ExecutionEvent } from '../core/agent.js';
+import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
 
 export interface TuiAppOptions {
@@ -130,7 +131,7 @@ class HeaderLine implements Component {
   private model: string;
   private state = 'IDLE';
   private taskLabel = '';
-  private contextPct = 0;
+  private contextTokensK = 0;
 
   constructor(model: string) {
     this.model = model;
@@ -144,11 +145,16 @@ class HeaderLine implements Component {
     } catch { this.branch = ''; }
   }
 
-  setState(state: string, taskIndex = 0, taskTotal = 0, contextPct = 0): void {
+  setState(state: string, taskIndex = 0, taskTotal = 0): void {
     this.state = state;
     this.taskLabel = taskTotal > 0 ? ` [${taskIndex}/${taskTotal}]` : '';
-    this.contextPct = contextPct;
   }
+
+  setContextTokens(tokens: number): void {
+    this.contextTokensK = Math.round(tokens / 1000 * 10) / 10;
+  }
+
+  getState(): string { return this.state; }
 
   invalidate(): void {}
 
@@ -160,7 +166,7 @@ class HeaderLine implements Component {
     ];
     const left = leftParts.join(C.headerSep('  │  '));
     const colorFn = stateColor(this.state);
-    const right = colorFn(this.state + this.taskLabel) + '  ' + C.dim('ctx ' + this.contextPct + '%');
+    const right = colorFn(this.state + this.taskLabel) + '  ' + C.dim('ctx ' + this.contextTokensK + 'k');
     const leftW = visibleWidth(left);
     const rightW = visibleWidth(right);
     const gap = Math.max(1, width - leftW - rightW - 2);
@@ -192,6 +198,7 @@ class ThinkingBlock implements Component {
   expanded = false;
   constructor(content: string) { this.content = content; }
   toggle(): void { this.expanded = !this.expanded; }
+  setExpanded(v: boolean): void { this.expanded = v; }
   invalidate(): void {}
   render(width: number): string[] {
     const arrow = this.expanded ? '▾' : '▸';
@@ -313,7 +320,8 @@ export class TuiApp {
   private header: HeaderLine;
   private metrics = new MetricsCollector();
   private running = false;
-  private lastThinkingBlock: ThinkingBlock | null = null;
+  private allThinkingBlocks: ThinkingBlock[] = [];
+  private conversationHistory: AgentMessage[] = [];
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
@@ -330,8 +338,9 @@ export class TuiApp {
       if (data === '\x03' || matchesKey(data, 'ctrl+c')) { this.stop(); return { consume: true }; }
       if (data === '\x0c' || matchesKey(data, 'ctrl+l')) { this.clearMessages(); return { consume: true }; }
       if (data === '\t') {
-        if (this.lastThinkingBlock) {
-          this.lastThinkingBlock.toggle();
+        if (this.allThinkingBlocks.length > 0) {
+          const anyExpanded = this.allThinkingBlocks.some((b) => b.expanded);
+          for (const b of this.allThinkingBlocks) b.setExpanded(!anyExpanded);
           this.tui.requestRender(true);
         }
         return { consume: true };
@@ -363,7 +372,8 @@ export class TuiApp {
   private clearMessages(): void {
     const editorIdx = this.tui.children.indexOf(this.editor);
     this.tui.children.splice(3, editorIdx - 3);
-    this.lastThinkingBlock = null;
+    this.allThinkingBlocks = [];
+    this.conversationHistory = [];
     this.tui.requestRender(true);
   }
 
@@ -425,7 +435,9 @@ export class TuiApp {
             this.tui.children.splice(idx, 0, currentTurn);
           }
           currentTurn.setThinking(event.content);
-          if (currentTurn.thinkingBlock) this.lastThinkingBlock = currentTurn.thinkingBlock;
+          if (currentTurn.thinkingBlock && !this.allThinkingBlocks.includes(currentTurn.thinkingBlock)) {
+            this.allThinkingBlocks.push(currentTurn.thinkingBlock);
+          }
 
         } else if (event.type === 'llm_output') {
           if (!currentTurn) {
@@ -456,6 +468,7 @@ export class TuiApp {
 
         } else if (event.type === 'llm_call') {
           this.metrics.recordLLMCall(t.id, event.promptLen, event.responseLen);
+          this.header.setContextTokens(event.contextTokens);
         }
 
         this.tui.requestRender();
@@ -464,11 +477,15 @@ export class TuiApp {
       try {
         const result = await scheduler.executeTask(
           t, this.options.model, this.options.provider, this.options.baseUrl, onEvent,
+          this.conversationHistory,
         );
         loader.stop();
         this.tui.removeChild(loader);
         this.metrics.recordStateExit(t.id, result.state);
         this.metrics.finishTask(t.id, result.success);
+        if (result.messages && result.messages.length > 0) {
+          this.conversationHistory = result.messages;
+        }
         this.insertBefore(new Text(
           result.success ? C.successText('  ✓  子任务完成') : C.err('  ✗  子任务失败'),
           0, 0,
