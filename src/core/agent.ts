@@ -17,7 +17,10 @@ import { ConfigManager } from '../config/manager.js';
 
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
-  | { type: 'tool_call'; tool: string }
+  | { type: 'tool_call'; tool: string; args?: Record<string, unknown> }
+  | { type: 'tool_result'; tool: string; isError: boolean }
+  | { type: 'llm_output'; content: string }
+  | { type: 'llm_thinking'; content: string }
   | { type: 'llm_call'; promptLen: number; responseLen: number };
 
 export interface Task {
@@ -161,7 +164,7 @@ export class TaskScheduler {
 
     agent.subscribe((event: AgentEvent) => {
       if (event.type === 'tool_execution_start') {
-        onEvent?.({ type: 'tool_call', tool: event.toolName });
+        onEvent?.({ type: 'tool_call', tool: event.toolName, args: event.args as Record<string, unknown> });
         stateMachine.recordToolCall(event.toolName, event.args, null);
         stagnationDetector.recordToolCall({
           tool: event.toolName,
@@ -178,6 +181,7 @@ export class TaskScheduler {
       }
 
       if (event.type === 'tool_execution_end') {
+        onEvent?.({ type: 'tool_result', tool: event.toolName, isError: event.isError });
         const filePath = pendingModifyPaths.get(event.toolCallId);
         pendingModifyPaths.delete(event.toolCallId);
 
@@ -208,7 +212,20 @@ export class TaskScheduler {
 
       if (event.type === 'turn_end') {
         turnCount++;
-        onEvent?.({ type: 'llm_call', promptLen: 0, responseLen: 0 });
+        const msg = event.message;
+        if (msg && 'content' in msg && Array.isArray(msg.content)) {
+          const parts = msg.content as Array<{ type: string; text?: string; thinking?: string }>;
+          const thinkingParts = parts.filter((c) => c.type === 'thinking' && c.thinking).map((c) => c.thinking as string);
+          const textParts = parts.filter((c) => c.type === 'text' && c.text).map((c) => c.text as string);
+          if (thinkingParts.length > 0) {
+            onEvent?.({ type: 'llm_thinking', content: thinkingParts.join('\n') });
+          }
+          if (textParts.length > 0) {
+            onEvent?.({ type: 'llm_output', content: textParts.join('\n') });
+          }
+        }
+        const usage = msg && 'usage' in msg ? (msg as { usage?: { input?: number; output?: number } }).usage : null;
+        onEvent?.({ type: 'llm_call', promptLen: usage?.input ?? 0, responseLen: usage?.output ?? 0 });
 
         // Stagnation detection — check after each turn
         const stagnationResult = smConfig.enableStagnationDetector ? stagnationDetector.check() : null;
