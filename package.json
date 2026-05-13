@@ -9,15 +9,45 @@
   },
   "scripts": {
     "build": "tsc",
+    "clean": "rimraf dist",
+    "rebuild": "rimraf dist && tsc",
     "test": "vitest run",
     "dev": "tsx src/cli.ts",
-    "cli": "tsx src/cli.ts"
+    "cli": "tsx src/cli.ts",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "format": "prettier --write src tests",
+    "format:check": "prettier --check src tests",
+    "prepare": "husky"
   },
-  "keywords": ["agent", "llm", "coding"],
+  "lint-staged": {
+    "src/**/*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "tests/**/*.ts": [
+      "prettier --write"
+    ]
+  },
+  "keywords": [
+    "agent",
+    "llm",
+    "coding"
+  ],
   "author": "MJ",
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^20.19.40",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.4",
+    "@typescript-eslint/eslint-plugin": "^8.59.3",
+    "@typescript-eslint/parser": "^8.59.3",
+    "eslint": "^10.3.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.4",
+    "prettier": "^3.8.3",
+    "rimraf": "^6.1.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^1.6.1"

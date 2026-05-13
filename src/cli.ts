@@ -3,13 +3,9 @@ import { Command } from 'commander';
 import { ConfigManager } from './config/manager.js';
 import { ReactAgent } from './core/agent.js';
 
-
 const program = new Command();
 
-program
-  .name('local-agent')
-  .description('Local ReAct Agent with deterministic pipelines')
-  .version('1.0.0');
+program.name('local-agent').description('Local ReAct Agent with deterministic pipelines').version('1.0.0');
 
 program
   .command('run')
@@ -25,16 +21,11 @@ program
 
       // Initialize config
       const configManager = ConfigManager.getInstance();
-      const config = configManager.initialize();
+      configManager.initialize();
       console.log('✅ Config loaded');
 
       console.log('\n📋 Executing task...\n');
-      const result = await new ReactAgent().run(
-        task,
-        options.model,
-        options.provider,
-        options.baseUrl,
-      );
+      const result = await new ReactAgent().run(task, options.model, options.provider, options.baseUrl);
 
       if (result.success) {
         console.log('\n✅ Task completed successfully');

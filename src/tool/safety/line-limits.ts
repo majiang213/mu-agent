@@ -66,7 +66,7 @@ export class LineLimitChecker {
    * Count function changes
    */
   private countFunctionChanges(original: string, modified: string): number {
-    const functionPattern = /(?:function|const|let|var)\s+(\w+)\s*[\(=]/g;
+    const functionPattern = /(?:function|const|let|var)\s+(\w+)\s*[(=]/g;
 
     const originalFunctions = new Set<string>();
     let match;

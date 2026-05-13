@@ -1,9 +1,4 @@
-import {
-  type FailureContext,
-  type RecoveryResult,
-  type RecoveryStrategy,
-  type RecoveryLevel,
-} from './types.js';
+import { type FailureContext, type RecoveryResult, type RecoveryStrategy } from './types.js';
 
 /**
  * Level 1: Retry with parameter adjustment
@@ -89,21 +84,13 @@ export const level4HumanInterventionStrategy: RecoveryStrategy = {
  * Get all strategies ordered by level
  */
 export function getDefaultStrategies(): RecoveryStrategy[] {
-  return [
-    level1RetryStrategy,
-    level2SimplifyStrategy,
-    level3ModelSwitchStrategy,
-    level4HumanInterventionStrategy,
-  ];
+  return [level1RetryStrategy, level2SimplifyStrategy, level3ModelSwitchStrategy, level4HumanInterventionStrategy];
 }
 
 /**
  * Find appropriate strategy for failure
  */
-export function findStrategy(
-  context: FailureContext,
-  strategies: RecoveryStrategy[],
-): RecoveryStrategy | null {
+export function findStrategy(context: FailureContext, strategies: RecoveryStrategy[]): RecoveryStrategy | null {
   for (const strategy of strategies) {
     if (strategy.canHandle(context)) {
       return strategy;

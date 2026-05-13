@@ -83,7 +83,10 @@ function getLinuxGpuInfo(): GpuInfo | undefined {
       { encoding: 'utf-8', timeout: 5000 },
     );
 
-    const parts = output.trim().split(',').map((s) => s.trim());
+    const parts = output
+      .trim()
+      .split(',')
+      .map((s) => s.trim());
     if (parts.length < 5) return undefined;
 
     const vramTotal = parseFloat(parts[1] ?? '0') * 1024 * 1024;
@@ -129,8 +132,8 @@ export function calculateHardwareConstraints(sysInfo: SysInfo): HardwareConstrai
 
   let maxVramBytes = totalVram > 0 ? Math.floor(totalVram * 0.8) : 0;
   let maxRamBytes = Math.floor(totalRam * 0.7);
-  let recommendedContextLength = 4096;
-  let recommendedModelSize = '7B';
+  let recommendedContextLength: number;
+  let recommendedModelSize: string;
 
   if (totalVram >= 24 * 1024 * 1024 * 1024) {
     recommendedModelSize = '13B';
