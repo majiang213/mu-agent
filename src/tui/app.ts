@@ -1,18 +1,12 @@
-import {
-  Container,
-  Input,
-  matchesKey,
-  ProcessTerminal,
-  Spacer,
-  TUI,
-} from '@mariozechner/pi-tui';
+import { Editor, Loader, Markdown, ProcessTerminal, Spacer, Text, TUI, truncateToWidth } from '@mariozechner/pi-tui';
+import type { EditorTheme, MarkdownTheme } from '@mariozechner/pi-tui';
+import type { Component } from '@mariozechner/pi-tui';
+import chalk from 'chalk';
+import { execSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { ConfigManager } from '../config/manager.js';
 import { TaskScheduler } from '../core/agent.js';
 import { MetricsCollector } from '../core/metrics.js';
-import { DynamicBorder } from './components/dynamic-border.js';
-import { HeaderComponent } from './components/header.js';
-import { MessageLog } from './components/message-log.js';
-import { StatusBar } from './components/status-bar.js';
 
 export interface TuiAppOptions {
   model: string;
@@ -20,135 +14,169 @@ export interface TuiAppOptions {
   baseUrl: string;
 }
 
+const editorTheme: EditorTheme = {
+  borderColor: (s) => chalk.dim(s),
+  selectList: {
+    selectedPrefix: (s) => chalk.cyan(s),
+    selectedText: (s) => chalk.bold(s),
+    description: (s) => chalk.dim(s),
+    scrollInfo: (s) => chalk.dim(s),
+    noMatch: (s) => chalk.dim(s),
+  },
+};
+
+const markdownTheme: MarkdownTheme = {
+  heading: (s) => chalk.bold.cyan(s),
+  link: (s) => chalk.blue(s),
+  linkUrl: (s) => chalk.dim(s),
+  code: (s) => chalk.yellow(s),
+  codeBlock: (s) => chalk.green(s),
+  codeBlockBorder: (s) => chalk.dim(s),
+  quote: (s) => chalk.italic(s),
+  quoteBorder: (s) => chalk.dim(s),
+  hr: (s) => chalk.dim(s),
+  listBullet: (s) => chalk.cyan(s),
+  bold: (s) => chalk.bold(s),
+  italic: (s) => chalk.italic(s),
+  strikethrough: (s) => chalk.strikethrough(s),
+  underline: (s) => chalk.underline(s),
+};
+
+function getGitBranch(): string {
+  try {
+    return execSync('git branch --show-current', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function shortenCwd(cwd: string): string {
+  const home = homedir();
+  return cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
+}
+
+class HeaderLine implements Component {
+  private cwd = shortenCwd(process.cwd());
+  private branch = getGitBranch();
+  private model: string;
+  private state = 'IDLE';
+  private taskLabel = '';
+
+  constructor(model: string) {
+    this.model = model;
+  }
+
+  setState(state: string, taskIndex = 0, taskTotal = 0): void {
+    this.state = state;
+    this.taskLabel = taskTotal > 0 ? ` [${taskIndex}/${taskTotal}]` : '';
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const parts: string[] = [
+      chalk.dim(this.cwd),
+      ...(this.branch ? [chalk.green(this.branch)] : []),
+      chalk.cyan(this.model),
+      chalk.yellow(this.state + this.taskLabel),
+    ];
+    const line = ' ' + parts.join(chalk.dim('  │  ')) + ' ';
+    return [truncateToWidth(line, width)];
+  }
+}
+
+class HRule implements Component {
+  invalidate(): void {}
+  render(width: number): string[] {
+    return [chalk.dim('─'.repeat(Math.max(1, width)))];
+  }
+}
+
 export class TuiApp {
   private tui: TUI;
-  private header: HeaderComponent;
-  private chatContainer: Container;
-  private messageLog: MessageLog;
-  private statusBar: StatusBar;
-  private editorContainer: Container;
-  private input: Input;
-  private metrics: MetricsCollector;
-  private history: string[] = [];
-  private historyIndex = -1;
+  private editor: Editor;
+  private header: HeaderLine;
+  private metrics = new MetricsCollector();
   private running = false;
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
-    this.metrics = new MetricsCollector();
-
-    this.header = new HeaderComponent({
-      model: options.model,
-      state: 'IDLE',
-      taskIndex: 0,
-      taskTotal: 0,
-      contextPct: 0,
-    });
-
-    this.chatContainer = new Container();
-    this.messageLog = new MessageLog();
-    this.chatContainer.addChild(this.messageLog);
-
-    this.statusBar = new StatusBar(this.tui);
-
-    this.input = new Input();
-    this.input.onSubmit = (value) => this.handleSubmit(value);
-    this.input.onEscape = () => this.stop();
-
-    this.editorContainer = new Container();
-    this.editorContainer.addChild(new DynamicBorder());
-    this.editorContainer.addChild(new Spacer(1));
-    this.editorContainer.addChild(this.input);
-    this.editorContainer.addChild(new Spacer(1));
+    this.header = new HeaderLine(options.model);
 
     this.tui.addChild(this.header);
-    this.tui.addChild(new DynamicBorder());
+    this.tui.addChild(new HRule());
     this.tui.addChild(new Spacer(1));
-    this.tui.addChild(this.chatContainer);
-    this.tui.addChild(this.statusBar);
-    this.tui.addChild(this.editorContainer);
 
-    this.tui.addInputListener((data) => {
-      if (matchesKey(data, 'ctrl+c') || data === 'q') {
-        this.stop();
-        return { consume: true };
-      }
-      if (matchesKey(data, 'ctrl+l')) {
-        this.messageLog.clear();
-        this.tui.requestRender(true);
-        return { consume: true };
-      }
-      if (matchesKey(data, 'up') && this.history.length > 0) {
-        this.historyIndex = Math.min(this.historyIndex + 1, this.history.length - 1);
-        this.input.setValue(this.history[this.historyIndex] ?? '');
-        this.tui.requestRender();
-        return { consume: true };
-      }
-      if (matchesKey(data, 'down')) {
-        this.historyIndex = Math.max(this.historyIndex - 1, -1);
-        this.input.setValue(this.historyIndex >= 0 ? (this.history[this.historyIndex] ?? '') : '');
-        this.tui.requestRender();
-        return { consume: true };
-      }
-      return undefined;
-    });
+    this.editor = new Editor(this.tui, editorTheme, { paddingX: 1 });
+    this.editor.onSubmit = (value) => this.handleSubmit(value);
+
+    this.tui.addChild(this.editor);
+    this.tui.setFocus(this.editor);
   }
 
   start(): void {
     this.running = true;
     ConfigManager.getInstance().initialize();
-    this.tui.setFocus(this.input);
     this.tui.start();
-    this.messageLog.append('准备就绪，输入任务后按 Enter 执行', 'info');
-    this.messageLog.append('快捷键: Ctrl+C 退出  Ctrl+L 清屏  ↑↓ 历史', 'info');
+    this.addMessage(chalk.dim('准备就绪，输入任务后按 Enter 执行'), 'info');
+    this.addMessage(chalk.dim('快捷键: Ctrl+C 退出  Ctrl+L 清屏'), 'info');
     this.tui.requestRender();
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    this.statusBar.stop();
     this.tui.stop();
+  }
+
+  private addMessage(text: string, _level: string): void {
+    const msg = new Text(text, 1, 0);
+    this.tui.children.splice(this.tui.children.length - 1, 0, msg);
+    this.tui.requestRender();
+  }
+
+  private addSeparator(): void {
+    const sep = new HRule();
+    this.tui.children.splice(this.tui.children.length - 1, 0, sep);
   }
 
   private async handleSubmit(value: string): Promise<void> {
     const task = value.trim();
     if (!task) return;
 
-    this.input.setValue('');
-    this.history.unshift(task);
-    this.historyIndex = -1;
+    this.editor.disableSubmit = true;
+    this.editor.addToHistory(task);
 
-    this.messageLog.append(`📋 ${task}`, 'task');
-    this.statusBar.start('分解任务...');
-    this.header.update({ state: 'DECOMPOSE', taskIndex: 0, taskTotal: 0 });
-    this.tui.requestRender();
+    this.addSeparator();
+    this.addMessage(chalk.bold('▶ ' + task), 'task');
 
     const scheduler = new TaskScheduler();
     const tasks = await scheduler.decompose(task);
 
-    this.header.update({ taskTotal: tasks.length });
-    this.messageLog.append(`分解为 ${tasks.length} 个子任务`, 'info');
+    this.addMessage(chalk.dim(`分解为 ${tasks.length} 个子任务`), 'info');
     this.tui.requestRender();
 
     for (let i = 0; i < tasks.length; i++) {
       const t = tasks[i]!;
-      this.header.update({ taskIndex: i + 1, state: 'ANALYZE' });
-      this.messageLog.append(`子任务 ${i + 1}/${tasks.length}: ${t.description}`, 'task');
-      this.statusBar.start(`执行中... [${i + 1}/${tasks.length}]`);
+
+      this.addMessage(chalk.cyan(`[${i + 1}/${tasks.length}] ${t.description}`), 'task');
+
+      const loader = new Loader(
+        this.tui,
+        (s) => chalk.cyan(s),
+        (s) => chalk.dim(s),
+        '执行中...',
+      );
+      this.tui.children.splice(this.tui.children.length - 1, 0, loader);
+      loader.start();
       this.tui.requestRender();
 
       this.metrics.startTask(t.id);
       this.metrics.recordStateEntry(t.id, 'ANALYZE');
-
-      const onStateChange = (from: string, to: string) => {
-        this.header.update({ state: to });
-        this.messageLog.append(`[${to}]`, 'state');
-        this.metrics.recordStateExit(t.id, from);
-        this.metrics.recordStateEntry(t.id, to);
-        this.tui.requestRender();
-      };
 
       try {
         const result = await scheduler.executeTask(
@@ -158,45 +186,51 @@ export class TuiApp {
           this.options.baseUrl,
           (event) => {
             if (event.type === 'state_change') {
-              onStateChange(event.from, event.to);
+              this.header.setState(event.to, i + 1, tasks.length);
+              loader.setMessage(`[${event.to}] 执行中...`);
+              this.metrics.recordStateExit(t.id, event.from);
+              this.metrics.recordStateEntry(t.id, event.to);
             } else if (event.type === 'tool_call') {
-              this.messageLog.append(event.tool, 'tool');
+              loader.setMessage(`[${event.tool}]`);
               this.metrics.recordToolCall(t.id, event.tool);
             } else if (event.type === 'llm_call') {
               this.metrics.recordLLMCall(t.id, event.promptLen, event.responseLen);
-              const summary = this.metrics.getSummary();
-              const ctxPct = Math.min(100, Math.round((summary.avgTokens * (i + 1)) / 327.68));
-              this.header.update({ contextPct: ctxPct });
             }
             this.tui.requestRender();
           },
         );
 
+        loader.stop();
+        this.tui.removeChild(loader);
+
         this.metrics.recordStateExit(t.id, result.state);
         this.metrics.finishTask(t.id, result.success);
 
         if (result.success) {
-          this.messageLog.append(`子任务 ${i + 1} 完成`, 'success');
+          this.addMessage(chalk.green(`✓ 子任务 ${i + 1} 完成`), 'success');
         } else {
-          this.messageLog.append(`子任务 ${i + 1} 失败`, 'error');
+          this.addMessage(chalk.red(`✗ 子任务 ${i + 1} 失败`), 'error');
         }
       } catch (err) {
+        loader.stop();
+        this.tui.removeChild(loader);
         this.metrics.finishTask(t.id, false);
-        this.messageLog.append(`错误: ${String(err)}`, 'error');
+        this.addMessage(chalk.red(`✗ 错误: ${String(err)}`), 'error');
       }
 
       this.tui.requestRender();
     }
 
     const summary = this.metrics.getSummary();
-    this.statusBar.update('完成', summary);
-    this.header.update({ state: 'DONE', taskIndex: tasks.length });
-    this.messageLog.append(
-      `全部完成  成功率 ${Math.round(summary.successRate * 100)}%  tokens≈${Math.round(summary.avgTokens * tasks.length)}`,
+    const tokens = Math.round(summary.avgTokens * tasks.length);
+    this.addMessage(
+      chalk.green(`✓ 全部完成`) +
+        chalk.dim(`  成功率 ${Math.round(summary.successRate * 100)}%  tokens≈${tokens}`),
       'success',
     );
-    this.statusBar.stop();
-    this.header.update({ state: 'IDLE', taskIndex: 0, taskTotal: 0, contextPct: 0 });
+
+    this.header.setState('IDLE');
+    this.editor.disableSubmit = false;
     this.tui.requestRender();
   }
 }
