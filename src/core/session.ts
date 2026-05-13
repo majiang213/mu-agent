@@ -10,7 +10,7 @@ import {
 } from './types.js';
 import { detectModelParams, getBaseStateConfigs } from './states.js';
 import { createStateContext } from './logic.js';
-import { PromptBuilder } from '../provider/prompt.js';
+import { buildSystemPrompt } from './prompts/index.js';
 
 /**
  * State machine controlled agent
@@ -23,7 +23,7 @@ export class StateMachineAgent {
   private toolCalls: ToolCall[];
   private allTools: AgentTool[];
   private fileCount: number;
-  private promptBuilder: PromptBuilder;
+
 
   constructor(modelName: string, extraTools: AgentTool<any, any>[] = []) {
     const modelParams = detectModelParams(modelName);
@@ -39,7 +39,7 @@ export class StateMachineAgent {
     this.toolCalls = [];
     this.fileCount = 0;
     this.allTools = [...codingTools, ...extraTools];
-    this.promptBuilder = new PromptBuilder();
+
   }
 
   /**
@@ -64,7 +64,7 @@ export class StateMachineAgent {
    */
   generatePrompt(task: string): string {
     const context = this.createContext(task);
-    return this.promptBuilder.buildSystemPrompt({
+    return buildSystemPrompt({
       state: this.currentState,
       task,
       modelParams: this.config.modelParams,

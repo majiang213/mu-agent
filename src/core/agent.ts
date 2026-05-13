@@ -6,7 +6,7 @@ import { codingTools } from '@mariozechner/pi-coding-agent';
 import { StateMachineAgent } from './session.js';
 import { State, type StateResult } from './types.js';
 import { TaskDecomposer } from './decomposer.js';
-import { PromptBuilder } from '../provider/prompt.js';
+import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
 import { StagnationDetector } from './cognitive/index.js';
 import { FailureHandler } from './failure/handler.js';
 import { LLMConnector } from '../provider/llm.js';
@@ -81,7 +81,7 @@ export class TaskScheduler {
     task.state = 'running';
 
     const stateMachine = new StateMachineAgent(modelName, [astLocatorTool]);
-    const promptBuilder = new PromptBuilder();
+
     const model = buildModel(modelName, provider, baseUrl);
     const agentConfig = ConfigManager.getInstance().getConfig();
     const smConfig = agentConfig.stateMachine;
@@ -99,7 +99,7 @@ export class TaskScheduler {
     let currentTemperature = LLMConnector.DEFAULT_TEMPERATURE;
     let compactionSummary: string | null = null;
 
-    const systemPrompt = promptBuilder.buildSystemPrompt({
+    const systemPrompt = buildSystemPrompt({
       state: State.ANALYZE,
       task: task.description,
       modelParams: stateMachine.getModelParams(),
@@ -283,7 +283,7 @@ export class TaskScheduler {
             onEvent?.({ type: 'state_change', from: prevState, to: nextState });
 
             if (nextState !== State.DONE) {
-              const newPrompt = promptBuilder.buildSystemPrompt({
+              const newPrompt = buildSystemPrompt({
                 state: nextState,
                 task: task.description,
                 modelParams: stateMachine.getModelParams(),
@@ -292,7 +292,7 @@ export class TaskScheduler {
 
               agent.steer({
                 role: 'user',
-                content: [{ type: 'text', text: promptBuilder.buildUserPrompt(nextState, task.description) }],
+                content: [{ type: 'text', text: buildUserPrompt(nextState, task.description) }],
                 timestamp: Date.now(),
               });
             }

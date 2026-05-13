@@ -1,6 +1,6 @@
-import { State, type ModelParams, type StateContext } from '../core/types.js';
+import { State, type ModelParams, type StateContext } from '../types.js';
 
-export interface PromptOptions {
+export interface SystemPromptOptions {
   state: State;
   task: string;
   modelParams: ModelParams;
@@ -47,53 +47,51 @@ CONSTRAINTS (small model mode — follow strictly):
 - Do not speculate — only report what you observe
 - If unsure, output {"error": "<what is unclear>"} and stop`;
 
-export class PromptBuilder {
-  buildSystemPrompt(options: PromptOptions): string {
-    const { state, task, modelParams, context } = options;
+export function buildSystemPrompt(options: SystemPromptOptions): string {
+  const { state, task, modelParams, context } = options;
 
-    if (state === State.DONE) {
-      return 'Task complete.';
-    }
-
-    const goal = STATE_GOALS[state];
-    const outputFormat = STATE_OUTPUT_FORMAT[state];
-    const example = STATE_EXAMPLES[state] ?? '';
-
-    const toolList = context?.availableTools?.length
-      ? `Available tools: ${context.availableTools.map((t) => t.name).join(', ')}`
-      : '';
-
-    const lines = [
-      `You are a coding assistant. Current state: ${state}. Goal: ${goal}.`,
-      '',
-      `Task: ${task}`,
-      '',
-      toolList,
-      '',
-      outputFormat,
-      '',
-      example,
-    ];
-
-    if (modelParams.tier === 'SMALL') {
-      lines.push(SMALL_MODEL_CONSTRAINTS);
-    }
-
-    return lines.filter((l) => l !== undefined).join('\n').trim();
+  if (state === State.DONE) {
+    return 'Task complete.';
   }
 
-  buildUserPrompt(state: State, task: string): string {
-    switch (state) {
-      case State.ANALYZE:
-        return `Analyze this task and output your plan as JSON: ${task}`;
-      case State.LOCATE:
-        return `Locate the exact code positions for: ${task}`;
-      case State.MODIFY:
-        return `Apply the changes for: ${task}`;
-      case State.VERIFY:
-        return `Verify the changes are correct for: ${task}`;
-      default:
-        return task;
-    }
+  const goal = STATE_GOALS[state];
+  const outputFormat = STATE_OUTPUT_FORMAT[state];
+  const example = STATE_EXAMPLES[state] ?? '';
+
+  const toolList = context?.availableTools?.length
+    ? `Available tools: ${context.availableTools.map((t) => t.name).join(', ')}`
+    : '';
+
+  const lines = [
+    `You are a coding assistant. Current state: ${state}. Goal: ${goal}.`,
+    '',
+    `Task: ${task}`,
+    '',
+    toolList,
+    '',
+    outputFormat,
+    '',
+    example,
+  ];
+
+  if (modelParams.tier === 'SMALL') {
+    lines.push(SMALL_MODEL_CONSTRAINTS);
+  }
+
+  return lines.filter((l) => l !== undefined).join('\n').trim();
+}
+
+export function buildUserPrompt(state: State, task: string): string {
+  switch (state) {
+    case State.ANALYZE:
+      return `Analyze this task and output your plan as JSON: ${task}`;
+    case State.LOCATE:
+      return `Locate the exact code positions for: ${task}`;
+    case State.MODIFY:
+      return `Apply the changes for: ${task}`;
+    case State.VERIFY:
+      return `Verify the changes are correct for: ${task}`;
+    default:
+      return task;
   }
 }
