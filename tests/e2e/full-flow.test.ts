@@ -1,8 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { Planner } from '../../src/core/decomposer.js';
 import { MetricsCollector } from '../../src/core/metrics.js';
-import { State } from '../../src/core/types.js';
+import { State, type Step } from '../../src/core/types.js';
 
 vi.mock('../../src/provider/llm.js', () => ({
   LLMConnector: vi.fn().mockImplementation(() => ({
@@ -29,18 +28,21 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     expect(agent.getCurrentState()).toBe(State.DONE);
   });
 
-  it('Planner decomposes sequential prompt', async () => {
-    const decomposer = new Planner();
-    const result = await decomposer.decompose('先修复登录bug然后写测试');
-    expect(result.tasks.length).toBeGreaterThanOrEqual(2);
-    expect(result.tasks[0]!.description).toContain('修复登录bug');
+  it('Step type holds state and focus', () => {
+    const step: Step = { state: State.MODIFY, focus: '在 login() 后添加 logout() 方法' };
+    expect(step.state).toBe(State.MODIFY);
+    expect(step.focus).toContain('logout');
   });
 
-  it('Planner falls back to single task for simple prompt', async () => {
-    const decomposer = new Planner();
-    const result = await decomposer.decompose('帮我看看这个项目');
-    expect(result.tasks).toHaveLength(1);
-    expect(result.tasks[0]!.description).toBe('帮我看看这个项目');
+  it('dynamic agenda: multi-step plan from REASON output', () => {
+    const steps: Step[] = [
+      { state: State.ANALYZE, focus: '理解 auth.ts 结构' },
+      { state: State.MODIFY, focus: '添加 logout 方法' },
+      { state: State.VERIFY, focus: '运行测试' },
+    ];
+    expect(steps).toHaveLength(3);
+    expect(steps[0]!.state).toBe(State.ANALYZE);
+    expect(steps[1]!.focus).toContain('logout');
   });
 
   it('MetricsCollector tracks a complete task lifecycle', () => {
@@ -60,19 +62,22 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     expect(m.endTime).toBeDefined();
   });
 
-  it('full pipeline: decompose → state machine → metrics', async () => {
+  it('full pipeline: dynamic steps → state machine → metrics', () => {
     const metrics = new MetricsCollector();
-    const decomposer = new Planner();
     const agent = new StateMachineAgent('qwen2.5:7b');
 
-    const result = await decomposer.decompose('先修复bug然后写测试');
-    expect(result.tasks.length).toBeGreaterThanOrEqual(2);
+    const steps: Step[] = [
+      { state: State.ANALYZE, focus: '分析 bug 位置' },
+      { state: State.MODIFY, focus: '修复 bug' },
+      { state: State.VERIFY, focus: '写测试验证' },
+    ];
 
-    const taskId = result.tasks[0]!.id;
+    const taskId = 'step-0';
     metrics.startTask(taskId);
     metrics.recordStateEntry(taskId, 'ANALYZE');
 
-    const prompt = agent.generatePrompt(result.tasks[0]!.description);
+    agent.transitionTo(State.ANALYZE);
+    const prompt = agent.generatePrompt(steps[0]!.focus);
     expect(prompt.toLowerCase()).toContain('coding assistant');
 
     metrics.recordLLMCall(taskId, prompt.length, 100);

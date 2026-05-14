@@ -2,9 +2,8 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { LLMConnector } from '../../src/provider/llm.js';
 import { LLMService } from '../../src/provider/llm-service.js';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { Planner } from '../../src/core/decomposer.js';
 import { MetricsCollector } from '../../src/core/metrics.js';
-import { State } from '../../src/core/types.js';
+import { State, type Step } from '../../src/core/types.js';
 
 const MODEL = 'qwen3.5:9b';
 const BASE_URL = 'http://localhost:11434';
@@ -32,48 +31,44 @@ describe('Real Ollama Integration', () => {
     if (!running) return;
 
     const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
-    const result = await connector.generate(
-      'You are a helpful assistant. Reply in one short sentence.',
-      'Say hello in Chinese.',
-    );
-
-    console.log('[LLMConnector] response:', result.content.slice(0, 100));
-    expect(typeof result.content).toBe('string');
+    const result = await connector.generate('You are a helpful assistant.', '你好');
+    console.log('[LLMConnector] response:', result.content);
     expect(result.content.length).toBeGreaterThan(0);
   }, 30000);
 
-  it('LLMService: 在 ANALYZE 状态下生成分析响应', async () => {
+  it('LLMService: 在 REASON 状态下生成分析响应', async () => {
     const running = await isOllamaRunning();
     if (!running) return;
 
     const service = new LLMService(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
-    const context = agent.createContext('修复 src/auth.ts 中的登录 bug');
+    const context = agent.createContext('帮我给 foo.ts 加一个 hello 函数');
+    const result = await service.generate(context, '帮我给 foo.ts 加一个 hello 函数');
 
-    const result = await service.generate(context, '修复 src/auth.ts 中的登录 bug');
-
-    console.log('[LLMService ANALYZE] response:', result.content.slice(0, 200));
+    console.log('[LLMService REASON] response:', result.content.slice(0, 200));
     expect(result.content.length).toBeGreaterThan(0);
     expect(result.toolCalls).toBeDefined();
   }, 30000);
 
-  it('Planner + LLMService: 分解任务后对第一个子任务调用 LLM', async () => {
+  it('动态步骤 + LLMService: 对第一个 Step 调用 LLM', async () => {
     const running = await isOllamaRunning();
     if (!running) return;
 
-    const decomposer = new Planner();
+    const steps: Step[] = [
+      { state: State.ANALYZE, focus: '分析登录 bug 的位置' },
+      { state: State.MODIFY, focus: '修复 bug' },
+      { state: State.VERIFY, focus: '写测试验证' },
+    ];
+
     const service = new LLMService(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
+    agent.transitionTo(steps[0]!.state);
 
-    const decomposed = await decomposer.decompose('先修复登录bug然后写测试');
-    expect(decomposed.tasks.length).toBeGreaterThanOrEqual(2);
+    const context = agent.createContext(steps[0]!.focus);
+    const result = await service.generate(context, steps[0]!.focus);
 
-    const firstTask = decomposed.tasks[0]!;
-    const context = agent.createContext(firstTask.description);
-    const result = await service.generate(context, firstTask.description);
-
-    console.log(`[Decompose+LLM] task="${firstTask.description}" level=${decomposed.level}`);
-    console.log('[Decompose+LLM] response:', result.content.slice(0, 200));
+    console.log(`[Dynamic+LLM] focus="${steps[0]!.focus}"`);
+    console.log('[Dynamic+LLM] response:', result.content.slice(0, 200));
     expect(result.content.length).toBeGreaterThan(0);
   }, 30000);
 
@@ -105,30 +100,36 @@ describe('Real Ollama Integration', () => {
     expect(m.success).toBe(true);
   }, 30000);
 
-  it('完整流程: 分解 → 状态机 → LLM → Metrics 汇总', async () => {
+  it('完整流程: 动态步骤 → 状态机 → LLM → Metrics 汇总', async () => {
     const running = await isOllamaRunning();
     if (!running) return;
 
-    const decomposer = new Planner();
+    const steps: Step[] = [
+      { state: State.ANALYZE, focus: '分析登录 bug 位置' },
+      { state: State.MODIFY, focus: '修复 bug' },
+    ];
+
     const metrics = new MetricsCollector();
     const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
 
-    const { tasks, level } = await decomposer.decompose('先修复登录bug然后写单元测试');
-    console.log(`[E2E] decomposed into ${tasks.length} tasks at level ${level}`);
+    console.log(`[E2E] executing ${steps.length} dynamic steps`);
 
-    for (const task of tasks) {
-      metrics.startTask(task.id);
-      metrics.recordStateEntry(task.id, State.ANALYZE);
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i]!;
+      const taskId = `step-${i}`;
+      agent.transitionTo(step.state);
+      metrics.startTask(taskId);
+      metrics.recordStateEntry(taskId, step.state);
 
-      const systemPrompt = agent.generatePrompt(task.description);
-      const result = await connector.generate(systemPrompt, task.description);
+      const systemPrompt = agent.generatePrompt(step.focus);
+      const result = await connector.generate(systemPrompt, step.focus);
 
-      metrics.recordLLMCall(task.id, systemPrompt.length, result.content.length);
-      metrics.recordStateExit(task.id, State.ANALYZE);
-      metrics.finishTask(task.id, result.content.length > 0);
+      metrics.recordLLMCall(taskId, systemPrompt.length, result.content.length);
+      metrics.recordStateExit(taskId, step.state);
+      metrics.finishTask(taskId, result.content.length > 0);
 
-      console.log(`[E2E] task="${task.description}" → ${result.content.slice(0, 80)}...`);
+      console.log(`[E2E] step="${step.focus}" → ${result.content.slice(0, 80)}...`);
     }
 
     const summary = metrics.getSummary();
@@ -136,7 +137,7 @@ describe('Real Ollama Integration', () => {
       `[E2E] summary: tasks=${summary.totalTasks} successRate=${summary.successRate} avgTokens≈${Math.round(summary.avgTokens)}`,
     );
 
-    expect(summary.totalTasks).toBe(tasks.length);
+    expect(summary.totalTasks).toBe(steps.length);
     expect(summary.successRate).toBe(1.0);
     expect(summary.avgTokens).toBeGreaterThan(0);
   }, 60000);

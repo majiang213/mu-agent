@@ -86,36 +86,10 @@ export interface ExitCheckResult {
   nextState: State;
 }
 
-/** Task type for decomposition classification */
-export type IntentType =
-  | 'CODING'
-  | 'BUGFIX'
-  | 'REFACTORING'
-  | 'TESTING'
-  | 'DOCUMENTATION'
-  | 'REVIEW'
-  | 'ANALYSIS'
-  | 'QUESTION'
-  | 'RUN'
-  | 'RESEARCH'
-  | 'SETUP'
-  | 'UNKNOWN';
-
-/** A single execution step produced by the Planner */
+/** A single execution step in the agent's dynamic plan (from REASON output) */
 export interface Step {
-  id: string;
-  description: string;
-  type: IntentType;
-  dependencies: string[];
-  parallel?: boolean;
-  parallelGroup?: string;
-}
-
-/** Result from the Planner */
-export interface DecompositionResult {
-  tasks: Step[];
-  level: 1 | 2 | 3;
-  confidence: number;
+  state: State;
+  focus: string;
 }
 
 /** An item in the agent's agenda (step + its execution trajectory) */
@@ -123,4 +97,7 @@ export interface AgendaItem {
   step: Step;
   trajectory: State[];
   status: 'pending' | 'running' | 'done' | 'failed';
+  /** For multi-step agendas, the id used to track dependencies */
+  id?: string;
+  dependencies?: string[];
 }

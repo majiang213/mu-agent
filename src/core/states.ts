@@ -219,8 +219,11 @@ export function hasStateCompletionJson(state: State, text: string): boolean {
       return typeof json['edited'] === 'string';
     case State.VERIFY:
       return typeof json['passed'] === 'boolean';
-    case State.REASON:
-      return typeof json['decompose'] === 'boolean';
+    case State.REASON: {
+      const steps = json['steps'];
+      const needsClarify = json['needsClarify'] === true;
+      return Array.isArray(steps) && (needsClarify || (steps as unknown[]).length > 0);
+    }
     case State.CLARIFY:
       return Array.isArray(json['questions']);
     case State.DIAGNOSE:
@@ -230,7 +233,7 @@ export function hasStateCompletionJson(state: State, text: string): boolean {
     case State.TEST_WRITE:
       return typeof json['testFile'] === 'string';
     case State.REFACTOR_PLAN:
-      return Array.isArray(json['steps']);
+      return Array.isArray(json['refactorSteps']);
     case State.RUN:
       return typeof json['exitCode'] === 'number';
     case State.SETUP:

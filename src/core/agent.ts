@@ -4,10 +4,8 @@ import { streamSimple } from '@mariozechner/pi-ai';
 import type { Model } from '@mariozechner/pi-ai';
 import { codingTools } from '@mariozechner/pi-coding-agent';
 import { StateMachineAgent } from './session.js';
-import { State, type StateResult, type AgendaItem } from './types.js';
+import { State, type StateResult, type AgendaItem, type Step } from './types.js';
 import { hasStateCompletionJson, advanceState } from './states.js';
-import { plan } from './router.js';
-import { Planner } from './decomposer.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
 import { StagnationDetector } from './cognitive/index.js';
 import { FailureHandler } from './failure/handler.js';
@@ -276,74 +274,51 @@ function subscribeAgentEvents(
       if (prevState === State.REASON && hasStateCompletionJson(State.REASON, llmText)) {
         const json = extractJsonFromText(llmText);
         const needsClarify = json?.['needsClarify'] === true;
-        const decompose = json?.['decompose'] === true;
-        const rawType = typeof json?.['type'] === 'string' ? (json['type'] as string) : 'UNKNOWN';
-        const taskType = rawType as import('./types.js').IntentType;
 
-        if (decompose) {
-          const planner = new Planner();
-          planner
-            .decompose(mission.description)
-            .then((result) => {
-              ctx.agenda = result.tasks.map((st) => ({
-                step: st,
-                trajectory: plan(st.type, needsClarify),
-                status: 'pending' as const,
-              }));
-              ctx.currentTaskIndex = 0;
-              ctx.agenda[0]!.status = 'running';
-              ctx.trajectory = ctx.agenda[0]!.trajectory;
-              onEvent?.({
-                type: 'task_start',
-                taskIndex: 0,
-                taskTotal: ctx.agenda.length,
-                description: ctx.agenda[0]!.step.description,
-              });
-              const firstState = ctx.trajectory[0]!;
-              stateMachine.transitionTo(firstState);
-              onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
-              agent.setSystemPrompt(
-                buildSystemPrompt({
-                  state: firstState,
-                  task: ctx.agenda[0]!.step.description,
-                  modelParams: stateMachine.getModelParams(),
-                }),
-              );
-              agent.steer({
-                role: 'user',
-                content: [{ type: 'text', text: buildUserPrompt(firstState, ctx.agenda[0]!.step.description) }],
-                timestamp: Date.now(),
-              });
-            })
-            .catch(() => {});
-        } else {
-          const trajectory = plan(taskType, needsClarify);
-          ctx.agenda = [
-            {
-              step: { id: 'task-0', description: mission.description, type: taskType, dependencies: [] },
-              trajectory,
-              status: 'running',
-            },
-          ];
-          ctx.currentTaskIndex = 0;
-          ctx.trajectory = trajectory;
-          onEvent?.({ type: 'task_start', taskIndex: 0, taskTotal: 1, description: mission.description });
-          const firstState = trajectory[0]!;
-          stateMachine.transitionTo(firstState);
-          onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
-          agent.setSystemPrompt(
-            buildSystemPrompt({
-              state: firstState,
-              task: mission.description,
-              modelParams: stateMachine.getModelParams(),
-            }),
-          );
-          agent.steer({
-            role: 'user',
-            content: [{ type: 'text', text: buildUserPrompt(firstState, mission.description) }],
-            timestamp: Date.now(),
-          });
+        if (needsClarify) {
+          const questions = Array.isArray(json?.['questions']) ? (json['questions'] as string[]) : [];
+          onEvent?.({ type: 'clarification_needed', questions });
+          return;
         }
+
+        const parsedSteps = parseReasonSteps(json);
+        const steps = parsedSteps ?? DEFAULT_FALLBACK_STEPS(mission.description);
+
+        ctx.agenda = steps.map((s, i) => ({
+          step: s,
+          trajectory: [s.state, State.DONE],
+          status: (i === 0 ? 'running' : 'pending') as AgendaItem['status'],
+          id: `step-${i}`,
+          dependencies: i > 0 ? [`step-${i - 1}`] : [],
+        }));
+        ctx.currentTaskIndex = 0;
+        ctx.trajectory = ctx.agenda[0]!.trajectory;
+
+        onEvent?.({
+          type: 'task_start',
+          taskIndex: 0,
+          taskTotal: ctx.agenda.length,
+          description: ctx.agenda[0]!.step.focus,
+        });
+
+        const firstState = ctx.trajectory[0]!;
+        stateMachine.transitionTo(firstState);
+        onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
+        agent.setSystemPrompt(
+          buildSystemPrompt({
+            state: firstState,
+            task: mission.description,
+            focus: ctx.agenda[0]!.step.focus,
+            modelParams: stateMachine.getModelParams(),
+          }),
+        );
+        agent.steer({
+          role: 'user',
+          content: [
+            { type: 'text', text: buildUserPrompt(firstState, mission.description, ctx.agenda[0]!.step.focus) },
+          ],
+          timestamp: Date.now(),
+        });
         return;
       }
 
@@ -367,45 +342,51 @@ function subscribeAgentEvents(
             const nextIdx = ctx.currentTaskIndex + 1;
             if (nextIdx < ctx.agenda.length) {
               const nextItem = ctx.agenda[nextIdx]!;
-              const depsOk = nextItem.step.dependencies.every(
-                (dep) => ctx.agenda.find((t) => t.step.id === dep)?.status === 'done',
+              const depsOk =
+                nextItem.dependencies?.every((dep) => ctx.agenda.find((t) => t.id === dep)?.status === 'done') ?? true;
+              if (!depsOk) return;
+              ctx.currentTaskIndex = nextIdx;
+              ctx.trajectory = nextItem.trajectory;
+              nextItem.status = 'running';
+              const firstState = nextItem.trajectory[0]!;
+              stateMachine.resetForNextTask(firstState);
+              onEvent?.({ type: 'state_change', from: State.DONE, to: firstState });
+              onEvent?.({
+                type: 'task_start',
+                taskIndex: nextIdx,
+                taskTotal: ctx.agenda.length,
+                description: nextItem.step.focus,
+              });
+              agent.setSystemPrompt(
+                buildSystemPrompt({
+                  state: firstState,
+                  task: mission.description,
+                  focus: nextItem.step.focus,
+                  modelParams: stateMachine.getModelParams(),
+                }),
               );
-              if (depsOk) {
-                ctx.currentTaskIndex = nextIdx;
-                ctx.trajectory = nextItem.trajectory;
-                nextItem.status = 'running';
-                const firstState = nextItem.trajectory[0]!;
-                stateMachine.resetForNextTask(firstState);
-                onEvent?.({ type: 'state_change', from: State.DONE, to: firstState });
-                onEvent?.({
-                  type: 'task_start',
-                  taskIndex: nextIdx,
-                  taskTotal: ctx.agenda.length,
-                  description: nextItem.step.description,
-                });
-                agent.setSystemPrompt(
-                  buildSystemPrompt({
-                    state: firstState,
-                    task: nextItem.step.description,
-                    modelParams: stateMachine.getModelParams(),
-                  }),
-                );
-                agent.steer({
-                  role: 'user',
-                  content: [{ type: 'text', text: buildUserPrompt(firstState, nextItem.step.description) }],
-                  timestamp: Date.now(),
-                });
-                return;
-              }
+              agent.steer({
+                role: 'user',
+                content: [
+                  { type: 'text', text: buildUserPrompt(firstState, mission.description, nextItem.step.focus) },
+                ],
+                timestamp: Date.now(),
+              });
+              return;
             }
           } else {
-            const currentSubTask = ctx.agenda[ctx.currentTaskIndex]?.step.description ?? mission.description;
+            const currentFocus = ctx.agenda[ctx.currentTaskIndex]?.step.focus;
             agent.setSystemPrompt(
-              buildSystemPrompt({ state: nextState, task: currentSubTask, modelParams: stateMachine.getModelParams() }),
+              buildSystemPrompt({
+                state: nextState,
+                task: mission.description,
+                focus: currentFocus,
+                modelParams: stateMachine.getModelParams(),
+              }),
             );
             agent.steer({
               role: 'user',
-              content: [{ type: 'text', text: buildUserPrompt(nextState, currentSubTask) }],
+              content: [{ type: 'text', text: buildUserPrompt(nextState, mission.description, currentFocus) }],
               timestamp: Date.now(),
             });
           }
@@ -424,6 +405,30 @@ function extractJsonFromText(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function parseReasonSteps(json: Record<string, unknown> | null): Step[] | null {
+  if (!json || !Array.isArray(json['steps'])) return null;
+  const validStates = new Set(Object.values(State));
+  const steps = (json['steps'] as unknown[]).filter(
+    (s): s is Step =>
+      typeof s === 'object' &&
+      s !== null &&
+      typeof (s as Record<string, unknown>)['state'] === 'string' &&
+      validStates.has((s as Record<string, unknown>)['state'] as State) &&
+      typeof (s as Record<string, unknown>)['focus'] === 'string' &&
+      ((s as Record<string, unknown>)['focus'] as string).length > 0,
+  );
+  return steps.length > 0 ? steps.slice(0, 6) : null;
+}
+
+function DEFAULT_FALLBACK_STEPS(description: string): Step[] {
+  return [
+    { state: State.ANALYZE, focus: `Understand the codebase and plan changes for: ${description}` },
+    { state: State.LOCATE, focus: `Find the exact files and lines to change for: ${description}` },
+    { state: State.MODIFY, focus: `Apply the necessary code changes for: ${description}` },
+    { state: State.VERIFY, focus: `Verify the changes are correct for: ${description}` },
+  ];
 }
 
 async function runAgentWithRetry(
