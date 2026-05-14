@@ -26,12 +26,12 @@ describe('buildSystemPrompt', () => {
   });
 
   it('includes coding assistant identity', () => {
-    const prompt = buildSystemPrompt({ state: State.ANALYZE, task: 'fix bug', modelParams: SMALL_PARAMS });
+    const prompt = buildSystemPrompt({ state: State.LOCATE, task: 'fix bug', modelParams: SMALL_PARAMS });
     expect(prompt.toLowerCase()).toContain('coding assistant');
   });
 
-  it('includes state-specific instruction for ANALYZE', () => {
-    const prompt = buildSystemPrompt({ state: State.ANALYZE, task: 'task', modelParams: SMALL_PARAMS });
+  it('includes state-specific instruction for LOCATE', () => {
+    const prompt = buildSystemPrompt({ state: State.LOCATE, task: 'task', modelParams: SMALL_PARAMS });
     expect(prompt).toContain('JSON');
   });
 
@@ -57,8 +57,8 @@ describe('buildSystemPrompt', () => {
 });
 
 describe('buildUserPrompt', () => {
-  it('returns task for ANALYZE state', () => {
-    const prompt = buildUserPrompt(State.ANALYZE, 'fix the login bug');
+  it('returns task for REASON state (default)', () => {
+    const prompt = buildUserPrompt(State.REASON, 'fix the login bug');
     expect(prompt).toContain('fix the login bug');
   });
 

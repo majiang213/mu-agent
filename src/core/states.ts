@@ -39,19 +39,6 @@ export function detectModelParams(modelName: string): ModelParams {
  */
 export function getBaseStateConfigs(): Record<State, StateConfig> {
   return {
-    [State.ANALYZE]: {
-      name: State.ANALYZE,
-      allowedTools: ['read'],
-      prompt: `Analyze the task and understand what needs to be done.
-Read relevant files to understand the codebase structure.
-Do not write any code yet.
-
-Output your analysis in this format:
-1. Task summary
-2. Files that need to be modified
-3. Approach to implement the changes`,
-      maxIterations: 3,
-    },
     [State.LOCATE]: {
       name: State.LOCATE,
       allowedTools: ['read', 'grep', 'find', 'ls', 'ast_code_locator'],
@@ -151,9 +138,9 @@ Check:
     },
     [State.RESEARCH]: {
       name: State.RESEARCH,
-      allowedTools: ['webfetch', 'websearch'],
-      prompt: 'Research the topic using web search or URL fetch.',
-      maxIterations: 5,
+      allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch'],
+      prompt: 'Research and investigate the topic. Read local files or search the web as needed.',
+      maxIterations: 8,
     },
     [State.SETUP]: {
       name: State.SETUP,
@@ -169,13 +156,12 @@ Check:
  */
 export function getNextState(currentState: State, _success: boolean): State {
   const transitions: Record<State, State> = {
-    [State.ANALYZE]: State.LOCATE,
     [State.LOCATE]: State.MODIFY,
     [State.MODIFY]: State.VERIFY,
     [State.VERIFY]: State.DONE,
     [State.DONE]: State.DONE,
-    [State.REASON]: State.ANALYZE,
-    [State.CLARIFY]: State.ANALYZE,
+    [State.REASON]: State.LOCATE,
+    [State.CLARIFY]: State.LOCATE,
     [State.ANSWER]: State.DONE,
     [State.DIAGNOSE]: State.LOCATE,
     [State.REVIEW]: State.DONE,
@@ -211,8 +197,6 @@ export function hasStateCompletionJson(state: State, text: string): boolean {
   const json = extractJson(text);
   if (!json) return false;
   switch (state) {
-    case State.ANALYZE:
-      return typeof json['summary'] === 'string' && Array.isArray(json['files']);
     case State.LOCATE:
       return Array.isArray(json['locations']);
     case State.MODIFY:

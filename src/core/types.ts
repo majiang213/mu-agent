@@ -7,7 +7,6 @@ import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 
 /** Core states for coding tasks */
 export enum State {
-  ANALYZE = 'ANALYZE',
   LOCATE = 'LOCATE',
   MODIFY = 'MODIFY',
   VERIFY = 'VERIFY',
@@ -100,4 +99,10 @@ export interface AgendaItem {
   /** For multi-step agendas, the id used to track dependencies */
   id?: string;
   dependencies?: string[];
+}
+
+export interface StepHandoff {
+  state: State;
+  focus: string;
+  output: string;
 }

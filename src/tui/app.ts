@@ -28,9 +28,24 @@ export interface TuiAppOptions {
 // ─── Components ───────────────────────────────────────────────────────────────
 
 class HintLine implements Component {
+  private debugMode = false;
+  setDebugMode(v: boolean): void {
+    this.debugMode = v;
+  }
   invalidate(): void {}
   render(_width: number): string[] {
-    return ['  ' + C.hintKey('Ctrl+C') + C.dim(' 退出') + '   ' + C.hintKey('Tab') + C.dim(' 展开/折叠思考')];
+    const debugLabel = this.debugMode ? C.ok(' [调试开]') : C.dim(' 调试');
+    return [
+      '  ' +
+        C.hintKey('Ctrl+C') +
+        C.dim(' 退出') +
+        '   ' +
+        C.hintKey('Tab') +
+        C.dim(' 展开/折叠思考') +
+        '   ' +
+        C.hintKey('d') +
+        debugLabel,
+    ];
   }
 }
 
@@ -142,6 +157,50 @@ class ThinkingBlock implements Component {
       }
       lines.push('');
     }
+    return lines;
+  }
+}
+
+// ─── DebugBlock ───────────────────────────────────────────────────────────────
+
+class DebugBlock implements Component {
+  private systemPrompt: string;
+  private userPrompt: string;
+  expanded = false;
+
+  constructor(systemPrompt: string, userPrompt: string) {
+    this.systemPrompt = systemPrompt;
+    this.userPrompt = userPrompt;
+  }
+
+  toggle(): void {
+    this.expanded = !this.expanded;
+  }
+
+  setExpanded(v: boolean): void {
+    this.expanded = v;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const arrow = this.expanded ? '▾' : '▸';
+    const header = '  ' + C.dimItalic(arrow + ' 调试: 原始输入');
+    if (!this.expanded) return [header];
+
+    const lines: string[] = [header];
+    const maxW = width - 6;
+
+    lines.push('    ' + C.dim('── system prompt ──'));
+    for (const line of this.systemPrompt.split('\n')) {
+      lines.push('    ' + C.dim(truncateToWidth(line, maxW)));
+    }
+    lines.push('');
+    lines.push('    ' + C.dim('── user prompt ──'));
+    for (const line of this.userPrompt.split('\n')) {
+      lines.push('    ' + C.dim(truncateToWidth(line, maxW)));
+    }
+    lines.push('');
     return lines;
   }
 }
@@ -297,15 +356,19 @@ export class TuiApp {
   private tui: TUI;
   private editor: Editor;
   private header: HeaderLine;
+  private hintLine: HintLine;
   private metrics = new MetricsCollector();
   private running = false;
+  private debugMode = false;
   private allThinkingBlocks: ThinkingBlock[] = [];
+  private allDebugBlocks: DebugBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
     this.header = new HeaderLine(options.model);
+    this.hintLine = new HintLine();
 
     this.tui.addChild(this.header);
     this.tui.addChild(new Spacer(1));
@@ -326,11 +389,18 @@ export class TuiApp {
         }
         return { consume: true };
       }
+      if (data === 'd' || data === 'D') {
+        this.debugMode = !this.debugMode;
+        this.hintLine.setDebugMode(this.debugMode);
+        for (const b of this.allDebugBlocks) b.setExpanded(this.debugMode);
+        this.tui.requestRender(true);
+        return { consume: true };
+      }
       return undefined;
     });
 
     this.tui.addChild(this.editor);
-    this.tui.addChild(new HintLine());
+    this.tui.addChild(this.hintLine);
   }
 
   start(): void {
@@ -413,6 +483,12 @@ export class TuiApp {
           turn.resolveTool(entry[0], event.isError);
           pendingTools.delete(entry[0]);
         }
+      } else if (event.type === 'llm_prompt') {
+        const block = new DebugBlock(event.systemPrompt, event.userPrompt);
+        block.setExpanded(this.debugMode);
+        this.allDebugBlocks.push(block);
+        const idx = this.tui.children.indexOf(loader);
+        this.tui.children.splice(idx, 0, block);
       } else if (event.type === 'llm_call') {
         this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
         this.header.setContextTokens(event.contextTokens);

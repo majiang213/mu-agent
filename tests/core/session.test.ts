@@ -46,7 +46,7 @@ describe('StateMachineAgent', () => {
   describe('tool management', () => {
     it('should return allowed tools for current state', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
-      agent.transitionTo(State.ANALYZE);
+      agent.transitionTo(State.LOCATE);
       const tools = agent.getAllowedTools();
       expect(tools.length).toBeGreaterThan(0);
     });

@@ -36,22 +36,22 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
 
   it('dynamic agenda: multi-step plan from REASON output', () => {
     const steps: Step[] = [
-      { state: State.ANALYZE, focus: '理解 auth.ts 结构' },
+      { state: State.LOCATE, focus: '定位 auth.ts 里需要改动的位置' },
       { state: State.MODIFY, focus: '添加 logout 方法' },
       { state: State.VERIFY, focus: '运行测试' },
     ];
     expect(steps).toHaveLength(3);
-    expect(steps[0]!.state).toBe(State.ANALYZE);
+    expect(steps[0]!.state).toBe(State.LOCATE);
     expect(steps[1]!.focus).toContain('logout');
   });
 
   it('MetricsCollector tracks a complete task lifecycle', () => {
     const metrics = new MetricsCollector();
     metrics.startTask('e2e-1');
-    metrics.recordStateEntry('e2e-1', 'ANALYZE');
+    metrics.recordStateEntry('e2e-1', 'LOCATE');
     metrics.recordLLMCall('e2e-1', 500, 200);
     metrics.recordToolCall('e2e-1', 'read');
-    metrics.recordStateExit('e2e-1', 'ANALYZE');
+    metrics.recordStateExit('e2e-1', 'LOCATE');
     metrics.finishTask('e2e-1', true);
 
     const m = metrics.getMetrics('e2e-1')!;
@@ -67,21 +67,21 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
 
     const steps: Step[] = [
-      { state: State.ANALYZE, focus: '分析 bug 位置' },
+      { state: State.LOCATE, focus: '定位 bug 位置' },
       { state: State.MODIFY, focus: '修复 bug' },
       { state: State.VERIFY, focus: '写测试验证' },
     ];
 
     const taskId = 'step-0';
     metrics.startTask(taskId);
-    metrics.recordStateEntry(taskId, 'ANALYZE');
+    metrics.recordStateEntry(taskId, 'LOCATE');
 
-    agent.transitionTo(State.ANALYZE);
+    agent.transitionTo(State.LOCATE);
     const prompt = agent.generatePrompt(steps[0]!.focus);
     expect(prompt.toLowerCase()).toContain('coding assistant');
 
     metrics.recordLLMCall(taskId, prompt.length, 100);
-    metrics.recordStateExit(taskId, 'ANALYZE');
+    metrics.recordStateExit(taskId, 'LOCATE');
     metrics.finishTask(taskId, true);
 
     const summary = metrics.getSummary();

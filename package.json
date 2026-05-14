@@ -56,6 +56,9 @@
     "@mariozechner/pi-agent-core": "^0.58.4",
     "@mariozechner/pi-ai": "^0.58.4",
     "@mariozechner/pi-coding-agent": "^0.58.4",
-    "commander": "^14.0.3"
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.9.0",
+    "commander": "^14.0.3",
+    "wink-bm25-text-search": "^3.1.2"
   }
 }

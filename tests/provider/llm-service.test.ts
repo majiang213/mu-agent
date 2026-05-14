@@ -29,7 +29,7 @@ describe('LLMService', () => {
     const service = new LLMService('ollama', 'qwen2.5:7b');
 
     const context: StateContext = {
-      state: State.ANALYZE,
+      state: State.LOCATE,
       task: 'fix bug',
       history: [],
       availableTools: [],
@@ -42,7 +42,9 @@ describe('LLMService', () => {
   it('returns content and toolCalls from connector response', async () => {
     const { LLMConnector } = await import('../../src/provider/llm.js');
     (LLMConnector as ReturnType<typeof vi.fn>).mockImplementation(() => ({
-      generate: vi.fn().mockResolvedValue({ content: 'hello', toolCalls: [{ tool: 'read', input: {}, output: null, timestamp: 0 }] }),
+      generate: vi
+        .fn()
+        .mockResolvedValue({ content: 'hello', toolCalls: [{ tool: 'read', input: {}, output: null, timestamp: 0 }] }),
     }));
 
     const { LLMService } = await import('../../src/provider/llm-service.js');
@@ -95,7 +97,7 @@ describe('LLMService', () => {
     const service = new LLMService('ollama', 'qwen2.5:7b');
 
     const context: StateContext = {
-      state: State.ANALYZE,
+      state: State.LOCATE,
       task: 'task',
       history: [],
       availableTools: [],

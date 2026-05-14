@@ -5,6 +5,8 @@ export interface EnvContext {
   platform: string;
   isGitRepo: boolean;
   date: string;
+  projectTree?: string;
+  suggestedFiles?: Array<{ path: string; hint?: string }>;
 }
 
 export interface SystemPromptOptions {
@@ -16,15 +18,26 @@ export interface SystemPromptOptions {
   env?: EnvContext;
 }
 
-function buildBasePrompt(env?: EnvContext): string {
-  const envBlock = env
-    ? `<env>
+const STATES_NEEDING_TREE = new Set([State.LOCATE, State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.REFACTOR_PLAN]);
+
+function buildBasePrompt(env?: EnvContext, state?: State): string {
+  let envBlock = '';
+  if (env) {
+    const treeSection =
+      state && STATES_NEEDING_TREE.has(state) && env.projectTree
+        ? `\n<project_structure>\n${env.projectTree}\n</project_structure>`
+        : '';
+    const suggestedSection =
+      state && STATES_NEEDING_TREE.has(state) && env.suggestedFiles?.length
+        ? `\n<suggested_files>\n${env.suggestedFiles.map((f) => `- ${f.path}${f.hint ? ` (${f.hint})` : ''}`).join('\n')}\n</suggested_files>`
+        : '';
+    envBlock = `<env>
   Working directory: ${env.cwd}
   Platform: ${env.platform}
   Is git repo: ${env.isGitRepo ? 'yes' : 'no'}
-  Today's date: ${env.date}
-</env>`
-    : '';
+  Today's date: ${env.date}${treeSection}${suggestedSection}
+</env>`;
+  }
 
   return [
     `You are an expert coding assistant running in a terminal. You help users with software engineering tasks by reading files, executing commands, editing code, and writing new files.`,
@@ -48,21 +61,22 @@ function buildBasePrompt(env?: EnvContext): string {
 }
 
 const STATE_INSTRUCTIONS: Partial<Record<State, string>> = {
-  [State.REASON]: `Analyze the user request and create an execution plan.
+  [State.REASON]: `Analyze the user request and output a JSON execution plan. Do NOT call any tools. Output JSON ONLY.
 
 Choose the MINIMUM steps needed:
-- Question / explanation → [ANSWER]
+- Pure Q&A (no files needed, e.g. "what is X?") → [ANSWER]
+- Understand / explain / summarize / report code → [RESEARCH]
+- Web search / URL / external topic → [RESEARCH]
+- Code quality review / find issues → [REVIEW]
 - Simple edit (location obvious) → [MODIFY, VERIFY]
 - Edit requiring search → [LOCATE, MODIFY, VERIFY]
-- Complex edit → [ANALYZE, LOCATE, MODIFY, VERIFY]
+- Complex edit → [LOCATE, MODIFY, VERIFY]
 - Bug investigation → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
-- Code review → [REVIEW]
 - Run a command → [RUN]
-- Web search / URL → [RESEARCH]
 - Project init → [SETUP]
 
 Each step needs a specific "focus" — exactly what to do in that step.
-Maximum 6 steps. Multi-task: list all steps in sequence.
+Maximum 6 steps.
 
 Output JSON:
 {"steps": [{"state": "<STATE>", "focus": "<specific goal>"}], "needsClarify": false}
@@ -74,23 +88,11 @@ If the request is ambiguous:
 Output JSON: {"questions": ["<q1>", "<q2>"]}
 Maximum 3 questions. Be specific.`,
 
-  [State.ANALYZE]: `Understand the codebase and plan the changes.
-
-Steps:
-1. Read the relevant files first to understand the current code
-2. Identify exactly what needs to change and why
-3. Output a brief plan
-
-Output JSON:
-{"summary": "<one sentence>", "files": ["<path>", ...], "approach": "<how to implement>"}
-
-Do NOT write any code yet.`,
-
   [State.LOCATE]: `Locate the exact code positions that need to change.
 
 Steps:
-1. Read the files identified in ANALYZE
-2. Use grep/find if you need to search
+1. Read the relevant files to understand the current code
+2. Use grep/find if you need to search across files
 3. Identify the precise lines and snippets
 
 Output JSON:
@@ -155,13 +157,15 @@ Rules:
 Output JSON when done:
 {"exitCode": <n>, "summary": "<what happened, key output>"}`,
 
-  [State.RESEARCH]: `Research the question using web tools.
+  [State.RESEARCH]: `Research and investigate the topic. Read local files or search the web as needed.
 
 Strategy:
+- Understand/explain/report local code → read files, ls, grep to explore the codebase
 - URL provided → webfetch it directly
-- Topic or error → websearch first, then webfetch top results for detail
+- Web topic or error → websearch first, then webfetch top results for detail
+- Mixed (local + web) → read local files first, then supplement with web search
 
-Output: plain text answer with source URLs cited.
+Output: plain text report with findings. Cite file paths or source URLs.
 Do NOT modify files or run commands.`,
 
   [State.SETUP]: `Analyze this project and generate AGENTS.md.
@@ -191,7 +195,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
     return 'Task complete.';
   }
 
-  const base = buildBasePrompt(env);
+  const base = buildBasePrompt(env, state);
 
   const toolList = context?.availableTools?.length
     ? `Available tools:\n${context.availableTools.map((t) => `- ${t.name}`).join('\n')}`
@@ -212,8 +216,6 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 export function buildUserPrompt(state: State, task: string, focus?: string): string {
   const target = focus ?? task;
   switch (state) {
-    case State.ANALYZE:
-      return target;
     case State.LOCATE:
       return `Locate the code positions for: ${target}`;
     case State.MODIFY:

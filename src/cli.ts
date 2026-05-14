@@ -72,6 +72,16 @@ program
   .option('-p, --provider <provider>', 'Provider', 'ollama')
   .option('-u, --base-url <url>', 'Base URL', 'http://localhost:11434')
   .action(async (options) => {
+    const { CodeGraphLocator } = await import('./core/graph/locator.js');
+    try {
+      const locator = new CodeGraphLocator(process.cwd());
+      if (locator.needsRebuild()) {
+        locator.buildGraph();
+      }
+    } catch (e) {
+      void e;
+    }
+
     const { createTuiApp } = await import('./tui/index.js');
     const app = createTuiApp({
       model: options.model,
