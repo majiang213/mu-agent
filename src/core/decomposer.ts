@@ -1,4 +1,4 @@
-import type { SubTask, TaskType, DecompositionResult } from './types.js';
+import type { Step, IntentType, DecompositionResult } from './types.js';
 import type { LLMConnector } from '../provider/llm.js';
 import type { DecompositionConfig } from '../config/types.js';
 
@@ -18,7 +18,7 @@ const PARALLEL_PATTERNS = [
 
 const MIXED_PATTERN = /先(.+?)然后(.+?)和(.+?)(?:最后(.+?))?$/;
 
-const TASK_TYPE_KEYWORDS: Record<TaskType, string[]> = {
+const INTENT_KEYWORDS: Record<IntentType, string[]> = {
   CODING: ['实现', '开发', '编写', '写代码', 'implement', 'add', 'create', 'build', 'code'],
   BUGFIX: ['修复', '修bug', 'fix', 'bug', 'error', 'broken', '错误'],
   REFACTORING: ['重构', '优化', 'refactor', 'refactoring', 'clean', 'improve'],
@@ -38,94 +38,148 @@ const TASK_TYPE_KEYWORDS: Record<TaskType, string[]> = {
     'explain',
     'what does',
   ],
+  RUN: [
+    '跑一下',
+    '执行',
+    '运行',
+    '启动',
+    '安装依赖',
+    'npm',
+    'yarn',
+    'pnpm',
+    'bun',
+    'npx',
+    'make',
+    'cargo',
+    'go run',
+    'run',
+    'execute',
+    'start',
+    'install',
+    'launch',
+  ],
+  RESEARCH: [
+    '搜索',
+    '搜一下',
+    '查一下',
+    '查找',
+    '帮我找',
+    '查询',
+    '这个网址',
+    '这个链接',
+    '这个url',
+    '看看这个',
+    'search',
+    'look up',
+    'find out',
+    'fetch',
+    'browse',
+    'http://',
+    'https://',
+    'www.',
+  ],
+  SETUP: [
+    '初始化项目',
+    '初始化',
+    '生成agents.md',
+    '生成配置',
+    '分析项目',
+    '项目分析',
+    '项目配置',
+    'init project',
+    'initialize',
+    'setup project',
+    'generate agents.md',
+    'agents.md',
+  ],
   UNKNOWN: [],
 };
 
-export function detectTaskType(description: string): TaskType {
+export function inferIntent(description: string): IntentType {
   const lower = description.toLowerCase();
-  for (const [type, keywords] of Object.entries(TASK_TYPE_KEYWORDS) as [TaskType, string[]][]) {
+  for (const [type, keywords] of Object.entries(INTENT_KEYWORDS) as [IntentType, string[]][]) {
     if (type === 'UNKNOWN') continue;
     if (keywords.some((kw) => lower.includes(kw))) return type;
   }
   return 'UNKNOWN';
 }
 
-function makeTasks(parts: string[], parallel: boolean): SubTask[] {
+function makeSteps(parts: string[], parallel: boolean): Step[] {
   return parts.map((desc, i) => ({
     id: parallel ? `par-${i}` : `seq-${i}`,
     description: desc.trim(),
-    type: detectTaskType(desc),
+    type: inferIntent(desc),
     dependencies: parallel ? [] : i > 0 ? [`seq-${i - 1}`] : [],
     ...(parallel ? { parallel: true, parallelGroup: 'group-0' } : {}),
   }));
 }
 
-function trySequential(prompt: string): SubTask[] | null {
+function trySequential(prompt: string): Step[] | null {
   for (const pattern of SEQUENTIAL_PATTERNS) {
     const m = prompt.match(pattern);
     if (m) {
       const parts = m.slice(1).filter(Boolean);
-      if (parts.length >= 2) return makeTasks(parts, false);
+      if (parts.length >= 2) return makeSteps(parts, false);
     }
   }
   return null;
 }
 
-function tryParallel(prompt: string): SubTask[] | null {
+function tryParallel(prompt: string): Step[] | null {
   for (const pattern of PARALLEL_PATTERNS) {
     const m = prompt.match(pattern);
     if (m) {
       const parts = m.slice(1).filter(Boolean);
-      if (parts.length >= 2) return makeTasks(parts, true);
+      if (parts.length >= 2) return makeSteps(parts, true);
     }
   }
   return null;
 }
 
-function tryMixed(prompt: string): SubTask[] | null {
+function tryMixed(prompt: string): Step[] | null {
   const m = prompt.match(MIXED_PATTERN);
   if (!m) return null;
   const [, first, parA, parB, last] = m;
   if (!first || !parA || !parB) return null;
 
-  const tasks: SubTask[] = [];
-  tasks.push({ id: 'mix-0', description: first.trim(), type: detectTaskType(first), dependencies: [] });
-  tasks.push({
+  const steps: Step[] = [];
+  steps.push({ id: 'mix-0', description: first.trim(), type: inferIntent(first), dependencies: [] });
+  steps.push({
     id: 'mix-1',
     description: parA.trim(),
-    type: detectTaskType(parA),
+    type: inferIntent(parA),
     dependencies: ['mix-0'],
     parallel: true,
     parallelGroup: 'mix-par',
   });
-  tasks.push({
+  steps.push({
     id: 'mix-2',
     description: parB.trim(),
-    type: detectTaskType(parB),
+    type: inferIntent(parB),
     dependencies: ['mix-0'],
     parallel: true,
     parallelGroup: 'mix-par',
   });
   if (last) {
-    tasks.push({ id: 'mix-3', description: last.trim(), type: detectTaskType(last), dependencies: ['mix-1', 'mix-2'] });
+    steps.push({ id: 'mix-3', description: last.trim(), type: inferIntent(last), dependencies: ['mix-1', 'mix-2'] });
   }
-  return tasks;
+  return steps;
 }
 
-function validateTasks(tasks: SubTask[], maxSubTasks = 5): boolean {
-  if (tasks.length === 0 || tasks.length > maxSubTasks) return false;
-  const ids = new Set(tasks.map((t) => t.id));
-  for (const task of tasks) {
-    for (const dep of task.dependencies) {
+function validateSteps(steps: Step[], maxSteps = 5): boolean {
+  if (steps.length === 0 || steps.length > maxSteps) return false;
+  const ids = new Set(steps.map((t) => t.id));
+  for (const step of steps) {
+    for (const dep of step.dependencies) {
       if (!ids.has(dep)) return false;
     }
-    if (!task.description.trim()) return false;
+    if (!step.description.trim()) return false;
   }
   return true;
 }
 
-function level3Fallback(prompt: string): SubTask[] {
-  return [{ id: 'task-0', description: prompt.trim(), type: detectTaskType(prompt), dependencies: [] }];
+function level3Fallback(prompt: string): Step[] {
+  return [{ id: 'task-0', description: prompt.trim(), type: inferIntent(prompt), dependencies: [] }];
 }
 
 import { LEVEL2_SYSTEM_PROMPT, LEVEL2_FEW_SHOT } from './prompts/index.js';
@@ -134,10 +188,10 @@ const DEFAULT_DECOMPOSITION_CONFIG: DecompositionConfig = {
   enableLevel1: true,
   enableLevel2: false,
   level2MaxTokens: 500,
-  maxSubTasks: 6,
+  maxSteps: 6,
 };
 
-export class TaskDecomposer {
+export class Planner {
   private llm: LLMConnector | null;
   private config: DecompositionConfig;
 
@@ -148,21 +202,21 @@ export class TaskDecomposer {
 
   async decompose(prompt: string): Promise<DecompositionResult> {
     const trimmed = prompt.trim();
-    const { enableLevel1, enableLevel2, maxSubTasks } = this.config;
+    const { enableLevel1, enableLevel2, maxSteps } = this.config;
 
     if (enableLevel1) {
       const mixed = tryMixed(trimmed);
-      if (mixed && validateTasks(mixed, maxSubTasks)) {
+      if (mixed && validateSteps(mixed, maxSteps)) {
         return { tasks: mixed, level: 1, confidence: 0.85 };
       }
 
       const seq = trySequential(trimmed);
-      if (seq && validateTasks(seq, maxSubTasks)) {
+      if (seq && validateSteps(seq, maxSteps)) {
         return { tasks: seq, level: 1, confidence: 0.9 };
       }
 
       const par = tryParallel(trimmed);
-      if (par && validateTasks(par, maxSubTasks)) {
+      if (par && validateSteps(par, maxSteps)) {
         return { tasks: par, level: 1, confidence: 0.8 };
       }
     }
@@ -177,7 +231,7 @@ export class TaskDecomposer {
     return { tasks: level3Fallback(trimmed), level: 3, confidence: 1.0 };
   }
 
-  private async tryLevel2LLM(prompt: string): Promise<SubTask[] | null> {
+  private async tryLevel2LLM(prompt: string): Promise<Step[] | null> {
     if (!this.llm) return null;
     try {
       const userPrompt = `${LEVEL2_FEW_SHOT}\n\nInput: "${prompt}"\nOutput:`;
@@ -192,20 +246,20 @@ export class TaskDecomposer {
       };
       if (!Array.isArray(parsed.tasks) || parsed.tasks.length < 2 || parsed.tasks.length > 3) return null;
 
-      const tasks: SubTask[] = parsed.tasks.map((t, i) => ({
+      const steps: Step[] = parsed.tasks.map((t, i) => ({
         id: t.id ?? `l2-${i}`,
         description: t.description?.slice(0, 120) ?? '',
-        type: (t.type as TaskType) ?? 'UNKNOWN',
+        type: (t.type as IntentType) ?? 'UNKNOWN',
         dependencies: i > 0 ? [parsed.tasks![i - 1]?.id ?? `l2-${i - 1}`] : [],
       }));
 
-      return validateTasks(tasks) ? tasks : null;
+      return validateSteps(steps) ? steps : null;
     } catch {
       return null;
     }
   }
 }
 
-export function createTaskDecomposer(): TaskDecomposer {
-  return new TaskDecomposer();
+export function createPlanner(): Planner {
+  return new Planner();
 }

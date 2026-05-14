@@ -20,6 +20,9 @@ export enum State {
   TEST_WRITE = 'TEST_WRITE',
   REFACTOR_PLAN = 'REFACTOR_PLAN',
   ROLLBACK = 'ROLLBACK',
+  RUN = 'RUN',
+  RESEARCH = 'RESEARCH',
+  SETUP = 'SETUP',
 }
 
 /** Model capability tiers */
@@ -84,7 +87,7 @@ export interface ExitCheckResult {
 }
 
 /** Task type for decomposition classification */
-export type TaskType =
+export type IntentType =
   | 'CODING'
   | 'BUGFIX'
   | 'REFACTORING'
@@ -93,28 +96,31 @@ export type TaskType =
   | 'REVIEW'
   | 'ANALYSIS'
   | 'QUESTION'
+  | 'RUN'
+  | 'RESEARCH'
+  | 'SETUP'
   | 'UNKNOWN';
 
-/** Sub-task produced by the decomposer */
-export interface SubTask {
+/** A single execution step produced by the Planner */
+export interface Step {
   id: string;
   description: string;
-  type: TaskType;
+  type: IntentType;
   dependencies: string[];
   parallel?: boolean;
   parallelGroup?: string;
 }
 
-/** Result from the decomposer */
+/** Result from the Planner */
 export interface DecompositionResult {
-  tasks: SubTask[];
+  tasks: Step[];
   level: 1 | 2 | 3;
   confidence: number;
 }
 
-/** Queued task entry for multi-task execution */
-export interface QueuedTask {
-  subTask: SubTask;
-  route: State[];
+/** An item in the agent's agenda (step + its execution trajectory) */
+export interface AgendaItem {
+  step: Step;
+  trajectory: State[];
   status: 'pending' | 'running' | 'done' | 'failed';
 }

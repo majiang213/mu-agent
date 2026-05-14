@@ -1,4 +1,14 @@
-import type { Config, ModelConfig, SystemConfig, RuntimeConfig, StateMachineConfig, TaskConfig, SafetyConfig, DecompositionConfig, FailureHandlingConfig } from './types.js';
+import type {
+  Config,
+  ModelConfig,
+  SystemConfig,
+  RuntimeConfig,
+  StateMachineConfig,
+  TaskConfig,
+  SafetyConfig,
+  DecompositionConfig,
+  FailureHandlingConfig,
+} from './types.js';
 import type { HardwareConstraints } from '../sysinfo/types.js';
 import { getSysInfo, calculateHardwareConstraints } from '../sysinfo/collector.js';
 
@@ -80,7 +90,7 @@ function getDefaultDecompositionConfig(): DecompositionConfig {
     enableLevel1: true,
     enableLevel2: false,
     level2MaxTokens: 500,
-    maxSubTasks: 6,
+    maxSteps: 6,
   };
 }
 

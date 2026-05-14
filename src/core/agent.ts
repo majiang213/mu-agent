@@ -4,10 +4,10 @@ import { streamSimple } from '@mariozechner/pi-ai';
 import type { Model } from '@mariozechner/pi-ai';
 import { codingTools } from '@mariozechner/pi-coding-agent';
 import { StateMachineAgent } from './session.js';
-import { State, type StateResult, type QueuedTask } from './types.js';
+import { State, type StateResult, type AgendaItem } from './types.js';
 import { hasStateCompletionJson, advanceState } from './states.js';
-import { resolveRoute } from './router.js';
-import { TaskDecomposer } from './decomposer.js';
+import { plan } from './router.js';
+import { Planner } from './decomposer.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
 import { StagnationDetector } from './cognitive/index.js';
 import { FailureHandler } from './failure/handler.js';
@@ -28,7 +28,7 @@ export type ExecutionEvent =
   | { type: 'task_done'; taskIndex: number; taskTotal: number }
   | { type: 'clarification_needed'; questions: string[] };
 
-interface Task {
+interface Mission {
   id: string;
   description: string;
   state: 'pending' | 'running' | 'completed' | 'failed';
@@ -40,9 +40,9 @@ interface ExecCtx {
   currentTemperature: number;
   stagnationDetected: boolean;
   turnCount: number;
-  taskQueue: QueuedTask[];
+  agenda: AgendaItem[];
   currentTaskIndex: number;
-  currentRoute: State[];
+  trajectory: State[];
 }
 
 function buildModel(modelName: string, provider: string, baseUrl: string): Model<'openai-completions'> {
@@ -62,7 +62,7 @@ function buildModel(modelName: string, provider: string, baseUrl: string): Model
 }
 
 function buildAgentConfig(
-  task: Task,
+  mission: Mission,
   model: Model<'openai-completions'>,
   stateMachine: StateMachineAgent,
   safetyConfig: ReturnType<ConfigManager['getConfig']>['safety'],
@@ -72,7 +72,7 @@ function buildAgentConfig(
 ): ConstructorParameters<typeof Agent>[0] {
   const systemPrompt = buildSystemPrompt({
     state: State.REASON,
-    task: task.description,
+    task: mission.description,
     modelParams: stateMachine.getModelParams(),
   });
 
@@ -134,7 +134,7 @@ function buildAgentConfig(
 
 function subscribeAgentEvents(
   agent: Agent,
-  task: Task,
+  mission: Mission,
   stateMachine: StateMachineAgent,
   stagnationDetector: StagnationDetector,
   contextCompactor: ContextCompactor,
@@ -278,69 +278,69 @@ function subscribeAgentEvents(
         const needsClarify = json?.['needsClarify'] === true;
         const decompose = json?.['decompose'] === true;
         const rawType = typeof json?.['type'] === 'string' ? (json['type'] as string) : 'UNKNOWN';
-        const taskType = rawType as import('./types.js').TaskType;
+        const taskType = rawType as import('./types.js').IntentType;
 
         if (decompose) {
-          const decomposer = new TaskDecomposer();
-          decomposer
-            .decompose(task.description)
+          const planner = new Planner();
+          planner
+            .decompose(mission.description)
             .then((result) => {
-              ctx.taskQueue = result.tasks.map((st) => ({
-                subTask: st,
-                route: resolveRoute(st.type, needsClarify),
+              ctx.agenda = result.tasks.map((st) => ({
+                step: st,
+                trajectory: plan(st.type, needsClarify),
                 status: 'pending' as const,
               }));
               ctx.currentTaskIndex = 0;
-              ctx.taskQueue[0]!.status = 'running';
-              ctx.currentRoute = ctx.taskQueue[0]!.route;
+              ctx.agenda[0]!.status = 'running';
+              ctx.trajectory = ctx.agenda[0]!.trajectory;
               onEvent?.({
                 type: 'task_start',
                 taskIndex: 0,
-                taskTotal: ctx.taskQueue.length,
-                description: ctx.taskQueue[0]!.subTask.description,
+                taskTotal: ctx.agenda.length,
+                description: ctx.agenda[0]!.step.description,
               });
-              const firstState = ctx.currentRoute[0]!;
+              const firstState = ctx.trajectory[0]!;
               stateMachine.transitionTo(firstState);
               onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
               agent.setSystemPrompt(
                 buildSystemPrompt({
                   state: firstState,
-                  task: ctx.taskQueue[0]!.subTask.description,
+                  task: ctx.agenda[0]!.step.description,
                   modelParams: stateMachine.getModelParams(),
                 }),
               );
               agent.steer({
                 role: 'user',
-                content: [{ type: 'text', text: buildUserPrompt(firstState, ctx.taskQueue[0]!.subTask.description) }],
+                content: [{ type: 'text', text: buildUserPrompt(firstState, ctx.agenda[0]!.step.description) }],
                 timestamp: Date.now(),
               });
             })
             .catch(() => {});
         } else {
-          const route = resolveRoute(taskType, needsClarify);
-          ctx.taskQueue = [
+          const trajectory = plan(taskType, needsClarify);
+          ctx.agenda = [
             {
-              subTask: { id: 'task-0', description: task.description, type: taskType, dependencies: [] },
-              route,
+              step: { id: 'task-0', description: mission.description, type: taskType, dependencies: [] },
+              trajectory,
               status: 'running',
             },
           ];
           ctx.currentTaskIndex = 0;
-          ctx.currentRoute = route;
-          onEvent?.({ type: 'task_start', taskIndex: 0, taskTotal: 1, description: task.description });
-          const firstState = route[0]!;
+          ctx.trajectory = trajectory;
+          onEvent?.({ type: 'task_start', taskIndex: 0, taskTotal: 1, description: mission.description });
+          const firstState = trajectory[0]!;
           stateMachine.transitionTo(firstState);
           onEvent?.({ type: 'state_change', from: State.REASON, to: firstState });
           agent.setSystemPrompt(
             buildSystemPrompt({
               state: firstState,
-              task: task.description,
+              task: mission.description,
               modelParams: stateMachine.getModelParams(),
             }),
           );
           agent.steer({
             role: 'user',
-            content: [{ type: 'text', text: buildUserPrompt(firstState, task.description) }],
+            content: [{ type: 'text', text: buildUserPrompt(firstState, mission.description) }],
             timestamp: Date.now(),
           });
         }
@@ -356,50 +356,50 @@ function subscribeAgentEvents(
 
       const shouldAdvanceAnswer = prevState === State.ANSWER && ctx.turnCount >= 1;
       if (shouldAdvanceAnswer || hasStateCompletionJson(prevState, llmText)) {
-        const nextState = advanceState(prevState, ctx.currentRoute);
+        const nextState = advanceState(prevState, ctx.trajectory);
         if (nextState !== prevState) {
           stateMachine.transitionTo(nextState);
           onEvent?.({ type: 'state_change', from: prevState, to: nextState });
 
           if (nextState === State.DONE) {
-            onEvent?.({ type: 'task_done', taskIndex: ctx.currentTaskIndex, taskTotal: ctx.taskQueue.length });
-            ctx.taskQueue[ctx.currentTaskIndex]!.status = 'done';
+            onEvent?.({ type: 'task_done', taskIndex: ctx.currentTaskIndex, taskTotal: ctx.agenda.length });
+            ctx.agenda[ctx.currentTaskIndex]!.status = 'done';
             const nextIdx = ctx.currentTaskIndex + 1;
-            if (nextIdx < ctx.taskQueue.length) {
-              const nextQueued = ctx.taskQueue[nextIdx]!;
-              const depsOk = nextQueued.subTask.dependencies.every(
-                (dep) => ctx.taskQueue.find((t) => t.subTask.id === dep)?.status === 'done',
+            if (nextIdx < ctx.agenda.length) {
+              const nextItem = ctx.agenda[nextIdx]!;
+              const depsOk = nextItem.step.dependencies.every(
+                (dep) => ctx.agenda.find((t) => t.step.id === dep)?.status === 'done',
               );
               if (depsOk) {
                 ctx.currentTaskIndex = nextIdx;
-                ctx.currentRoute = nextQueued.route;
-                nextQueued.status = 'running';
-                const firstState = nextQueued.route[0]!;
+                ctx.trajectory = nextItem.trajectory;
+                nextItem.status = 'running';
+                const firstState = nextItem.trajectory[0]!;
                 stateMachine.resetForNextTask(firstState);
                 onEvent?.({ type: 'state_change', from: State.DONE, to: firstState });
                 onEvent?.({
                   type: 'task_start',
                   taskIndex: nextIdx,
-                  taskTotal: ctx.taskQueue.length,
-                  description: nextQueued.subTask.description,
+                  taskTotal: ctx.agenda.length,
+                  description: nextItem.step.description,
                 });
                 agent.setSystemPrompt(
                   buildSystemPrompt({
                     state: firstState,
-                    task: nextQueued.subTask.description,
+                    task: nextItem.step.description,
                     modelParams: stateMachine.getModelParams(),
                   }),
                 );
                 agent.steer({
                   role: 'user',
-                  content: [{ type: 'text', text: buildUserPrompt(firstState, nextQueued.subTask.description) }],
+                  content: [{ type: 'text', text: buildUserPrompt(firstState, nextItem.step.description) }],
                   timestamp: Date.now(),
                 });
                 return;
               }
             }
           } else {
-            const currentSubTask = ctx.taskQueue[ctx.currentTaskIndex]?.subTask.description ?? task.description;
+            const currentSubTask = ctx.agenda[ctx.currentTaskIndex]?.step.description ?? mission.description;
             agent.setSystemPrompt(
               buildSystemPrompt({ state: nextState, task: currentSubTask, modelParams: stateMachine.getModelParams() }),
             );
@@ -428,7 +428,7 @@ function extractJsonFromText(text: string): Record<string, unknown> | null {
 
 async function runAgentWithRetry(
   agent: Agent,
-  task: Task,
+  mission: Mission,
   stateMachine: StateMachineAgent,
   stagnationDetector: StagnationDetector,
   safeModifier: SafeModifier,
@@ -449,7 +449,7 @@ async function runAgentWithRetry(
 
   while (attempt < maxRetries) {
     try {
-      await agent.prompt(task.description);
+      await agent.prompt(mission.description);
       lastError = null;
       break;
     } catch (err) {
@@ -490,7 +490,7 @@ export class ReactAgent {
     onEvent?: (event: ExecutionEvent) => void,
     initialMessages?: AgentMessage[],
   ): Promise<StateResult> {
-    const task: Task = {
+    const mission: Mission = {
       id: `task-${Date.now()}`,
       description: input,
       state: 'running',
@@ -514,17 +514,17 @@ export class ReactAgent {
       currentTemperature: LLMConnector.DEFAULT_TEMPERATURE,
       stagnationDetected: false,
       turnCount: 0,
-      taskQueue: [],
+      agenda: [],
       currentTaskIndex: 0,
-      currentRoute: [State.REASON],
+      trajectory: [State.REASON],
     };
 
     const agent = new Agent(
-      buildAgentConfig(task, model, stateMachine, safetyConfig, safeModifier, ctx, initialMessages),
+      buildAgentConfig(mission, model, stateMachine, safetyConfig, safeModifier, ctx, initialMessages),
     );
     subscribeAgentEvents(
       agent,
-      task,
+      mission,
       stateMachine,
       stagnationDetector,
       contextCompactor,
@@ -537,7 +537,7 @@ export class ReactAgent {
 
     const lastError = await runAgentWithRetry(
       agent,
-      task,
+      mission,
       stateMachine,
       stagnationDetector,
       safeModifier,
@@ -559,8 +559,8 @@ export class ReactAgent {
       messages: agentMessages,
     };
 
-    task.result = result;
-    task.state = success ? 'completed' : 'failed';
+    mission.result = result;
+    mission.state = success ? 'completed' : 'failed';
     return result;
   }
 }

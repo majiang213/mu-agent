@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { LLMConnector } from '../../src/provider/llm.js';
 import { LLMService } from '../../src/provider/llm-service.js';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { TaskDecomposer } from '../../src/core/decomposer.js';
+import { Planner } from '../../src/core/decomposer.js';
 import { MetricsCollector } from '../../src/core/metrics.js';
 import { State } from '../../src/core/types.js';
 
@@ -57,11 +57,11 @@ describe('Real Ollama Integration', () => {
     expect(result.toolCalls).toBeDefined();
   }, 30000);
 
-  it('TaskDecomposer + LLMService: 分解任务后对第一个子任务调用 LLM', async () => {
+  it('Planner + LLMService: 分解任务后对第一个子任务调用 LLM', async () => {
     const running = await isOllamaRunning();
     if (!running) return;
 
-    const decomposer = new TaskDecomposer();
+    const decomposer = new Planner();
     const service = new LLMService(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
 
@@ -109,7 +109,7 @@ describe('Real Ollama Integration', () => {
     const running = await isOllamaRunning();
     if (!running) return;
 
-    const decomposer = new TaskDecomposer();
+    const decomposer = new Planner();
     const metrics = new MetricsCollector();
     const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
@@ -132,7 +132,9 @@ describe('Real Ollama Integration', () => {
     }
 
     const summary = metrics.getSummary();
-    console.log(`[E2E] summary: tasks=${summary.totalTasks} successRate=${summary.successRate} avgTokens≈${Math.round(summary.avgTokens)}`);
+    console.log(
+      `[E2E] summary: tasks=${summary.totalTasks} successRate=${summary.successRate} avgTokens≈${Math.round(summary.avgTokens)}`,
+    );
 
     expect(summary.totalTasks).toBe(tasks.length);
     expect(summary.successRate).toBe(1.0);

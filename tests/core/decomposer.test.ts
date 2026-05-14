@@ -1,42 +1,42 @@
 import { describe, it, expect } from 'vitest';
-import { TaskDecomposer, createTaskDecomposer, detectTaskType } from '../../src/core/decomposer.js';
+import { Planner, createPlanner, inferIntent } from '../../src/core/decomposer.js';
 
-describe('detectTaskType', () => {
+describe('inferIntent', () => {
   it('detects CODING from "实现登录功能"', () => {
-    expect(detectTaskType('实现登录功能')).toBe('CODING');
+    expect(inferIntent('实现登录功能')).toBe('CODING');
   });
 
   it('detects BUGFIX from "修复登录bug"', () => {
-    expect(detectTaskType('修复登录bug')).toBe('BUGFIX');
+    expect(inferIntent('修复登录bug')).toBe('BUGFIX');
   });
 
   it('detects TESTING from "写测试"', () => {
-    expect(detectTaskType('写测试')).toBe('TESTING');
+    expect(inferIntent('写测试')).toBe('TESTING');
   });
 
   it('detects DOCUMENTATION from "更新README"', () => {
-    expect(detectTaskType('更新README')).toBe('DOCUMENTATION');
+    expect(inferIntent('更新README')).toBe('DOCUMENTATION');
   });
 
   it('detects REVIEW from "代码审查"', () => {
-    expect(detectTaskType('代码审查')).toBe('REVIEW');
+    expect(inferIntent('代码审查')).toBe('REVIEW');
   });
 
   it('returns UNKNOWN for unrecognized task', () => {
-    expect(detectTaskType('zzz xyz abc')).toBe('UNKNOWN');
+    expect(inferIntent('zzz xyz abc')).toBe('UNKNOWN');
   });
 });
 
-describe('TaskDecomposer', () => {
+describe('Planner', () => {
   describe('factory', () => {
-    it('createTaskDecomposer returns TaskDecomposer instance', () => {
-      expect(createTaskDecomposer()).toBeInstanceOf(TaskDecomposer);
+    it('createPlanner returns Planner instance', () => {
+      expect(createPlanner()).toBeInstanceOf(Planner);
     });
   });
 
   describe('Level 1 — sequential patterns', () => {
     it('decomposes Chinese sequential prompt (先...然后...)', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('先修复登录bug然后写测试');
       expect(r.level).toBe(1);
       expect(r.tasks.length).toBeGreaterThanOrEqual(2);
@@ -45,14 +45,14 @@ describe('TaskDecomposer', () => {
     });
 
     it('decomposes numbered list (1. ... 2. ...)', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('1. implement login 2. write tests 3. update docs');
       expect(r.level).toBe(1);
       expect(r.tasks.length).toBeGreaterThanOrEqual(2);
     });
 
     it('sequential tasks have chained dependencies', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('先实现功能然后写测试再更新文档');
       const ids = r.tasks.map((t) => t.id);
       for (let i = 1; i < r.tasks.length; i++) {
@@ -61,7 +61,7 @@ describe('TaskDecomposer', () => {
     });
 
     it('confidence >= 0.8 for sequential', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('先修复bug然后写测试');
       expect(r.confidence).toBeGreaterThanOrEqual(0.8);
     });
@@ -69,7 +69,7 @@ describe('TaskDecomposer', () => {
 
   describe('Level 1 — parallel patterns', () => {
     it('decomposes comma-separated parallel tasks', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('实现功能、写测试、更新文档');
       expect(r.level).toBe(1);
       expect(r.tasks.every((t) => t.parallel === true)).toBe(true);
@@ -77,7 +77,7 @@ describe('TaskDecomposer', () => {
     });
 
     it('parallel tasks share same parallelGroup', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('实现功能、写测试、更新文档');
       const groups = new Set(r.tasks.map((t) => t.parallelGroup));
       expect(groups.size).toBe(1);
@@ -86,7 +86,7 @@ describe('TaskDecomposer', () => {
 
   describe('Level 1 — mixed patterns', () => {
     it('decomposes mixed sequential+parallel prompt', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('先实现功能然后写测试和更新文档');
       expect(r.level).toBe(1);
       expect(r.tasks.length).toBeGreaterThanOrEqual(3);
@@ -97,7 +97,7 @@ describe('TaskDecomposer', () => {
 
   describe('Level 3 — fallback', () => {
     it('falls back to Level 3 for unstructured prompt', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('帮我优化一下这个项目');
       expect(r.level).toBe(3);
       expect(r.tasks).toHaveLength(1);
@@ -105,13 +105,13 @@ describe('TaskDecomposer', () => {
     });
 
     it('Level 3 confidence is 1.0', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('do something');
       expect(r.confidence).toBe(1.0);
     });
 
     it('Level 3 task has empty dependencies', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('fix the bug');
       expect(r.tasks[0]!.dependencies).toHaveLength(0);
     });
@@ -119,7 +119,7 @@ describe('TaskDecomposer', () => {
 
   describe('result shape', () => {
     it('every task has required fields', async () => {
-      const d = new TaskDecomposer();
+      const d = new Planner();
       const r = await d.decompose('先修复bug然后写测试');
       for (const task of r.tasks) {
         expect(typeof task.id).toBe('string');

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { TaskDecomposer } from '../../src/core/decomposer.js';
+import { Planner } from '../../src/core/decomposer.js';
 import { MetricsCollector } from '../../src/core/metrics.js';
 import { State } from '../../src/core/types.js';
 
@@ -29,15 +29,15 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     expect(agent.getCurrentState()).toBe(State.DONE);
   });
 
-  it('TaskDecomposer decomposes sequential prompt', async () => {
-    const decomposer = new TaskDecomposer();
+  it('Planner decomposes sequential prompt', async () => {
+    const decomposer = new Planner();
     const result = await decomposer.decompose('先修复登录bug然后写测试');
     expect(result.tasks.length).toBeGreaterThanOrEqual(2);
     expect(result.tasks[0]!.description).toContain('修复登录bug');
   });
 
-  it('TaskDecomposer falls back to single task for simple prompt', async () => {
-    const decomposer = new TaskDecomposer();
+  it('Planner falls back to single task for simple prompt', async () => {
+    const decomposer = new Planner();
     const result = await decomposer.decompose('帮我看看这个项目');
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]!.description).toBe('帮我看看这个项目');
@@ -62,7 +62,7 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
 
   it('full pipeline: decompose → state machine → metrics', async () => {
     const metrics = new MetricsCollector();
-    const decomposer = new TaskDecomposer();
+    const decomposer = new Planner();
     const agent = new StateMachineAgent('qwen2.5:7b');
 
     const result = await decomposer.decompose('先修复bug然后写测试');

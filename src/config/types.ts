@@ -95,7 +95,7 @@ export interface DecompositionConfig {
   enableLevel1: boolean;
   enableLevel2: boolean;
   level2MaxTokens: number;
-  maxSubTasks: number;
+  maxSteps: number;
 }
 
 /**
