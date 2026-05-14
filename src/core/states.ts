@@ -143,6 +143,24 @@ Check:
       prompt: 'Restore files to their previous state.',
       maxIterations: 3,
     },
+    [State.RUN]: {
+      name: State.RUN,
+      allowedTools: ['bash'],
+      prompt: 'Execute the requested command and report the result.',
+      maxIterations: 5,
+    },
+    [State.RESEARCH]: {
+      name: State.RESEARCH,
+      allowedTools: ['webfetch', 'websearch'],
+      prompt: 'Research the topic using web search or URL fetch.',
+      maxIterations: 5,
+    },
+    [State.SETUP]: {
+      name: State.SETUP,
+      allowedTools: ['read', 'bash', 'write'],
+      prompt: 'Analyze the project and generate AGENTS.md.',
+      maxIterations: 8,
+    },
   };
 }
 
@@ -164,6 +182,9 @@ export function getNextState(currentState: State, _success: boolean): State {
     [State.TEST_WRITE]: State.VERIFY,
     [State.REFACTOR_PLAN]: State.LOCATE,
     [State.ROLLBACK]: State.DONE,
+    [State.RUN]: State.DONE,
+    [State.RESEARCH]: State.DONE,
+    [State.SETUP]: State.DONE,
   };
 
   return transitions[currentState];
@@ -210,7 +231,12 @@ export function hasStateCompletionJson(state: State, text: string): boolean {
       return typeof json['testFile'] === 'string';
     case State.REFACTOR_PLAN:
       return Array.isArray(json['steps']);
+    case State.RUN:
+      return typeof json['exitCode'] === 'number';
+    case State.SETUP:
+      return typeof json['created'] === 'string';
     case State.ANSWER:
+    case State.RESEARCH:
       return false;
     default:
       return false;

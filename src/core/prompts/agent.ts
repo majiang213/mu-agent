@@ -13,10 +13,13 @@ You can answer questions, have conversations, and assist with any coding task. U
 
 const STATE_INSTRUCTIONS: Partial<Record<State, string>> = {
   [State.REASON]: `Analyze the user input. Determine if it contains multiple independent tasks and whether clarification is needed.
-Output JSON: {"decompose": true|false, "type": "CODING|BUGFIX|REFACTORING|TESTING|DOCUMENTATION|REVIEW|ANALYSIS|QUESTION|UNKNOWN", "needsClarify": true|false}
+Output JSON: {"decompose": true|false, "type": "CODING|BUGFIX|REFACTORING|TESTING|DOCUMENTATION|REVIEW|ANALYSIS|QUESTION|RUN|RESEARCH|SETUP|UNKNOWN", "needsClarify": true|false}
 - decompose=true: input contains multiple tasks (do NOT list them, just set the flag)
 - decompose=false: single task, set type accordingly
-- needsClarify=true: task description is ambiguous and needs user input before proceeding`,
+- needsClarify=true: task description is ambiguous and needs user input before proceeding
+- RUN: user wants to execute a command or script (npm, yarn, tests, build, etc.)
+- RESEARCH: user wants to search the web or fetch a URL
+- SETUP: user wants to initialize the project or generate AGENTS.md`,
 
   [State.CLARIFY]: `The task description is ambiguous. List the specific pieces of information needed from the user.
 Output JSON: {"questions": ["<question1>", "<question2>", ...]}
@@ -50,6 +53,57 @@ Output JSON: {"steps": ["<step1>", ...], "estimatedFiles": <n>}`,
 
   [State.ROLLBACK]: `Restore the modified files to their previous state using the write tool.
 Output JSON: {"restored": ["<file1>", ...]}`,
+
+  [State.RUN]: `Execute the command the user requested using the bash tool.
+
+Steps:
+1. Run the command exactly as requested
+2. If the command fails, report the error clearly — do NOT attempt to fix code
+3. If the command succeeds, summarize the output concisely
+
+Output JSON when done:
+{"exitCode": <exit code>, "summary": "<what happened, key output lines>"}
+
+Rules:
+- Run the command the user asked for, not a different one
+- Do NOT modify any files — this state is execution-only
+- Do NOT install packages the user did not ask for
+- If the command requires interactive input, report that it cannot run non-interactively`,
+
+  [State.RESEARCH]: `Research the user's question using web tools. Answer based on what you find.
+
+Strategy:
+- If user provides a URL → use webfetch to read it
+- If user asks about a topic or error → use websearch first, then webfetch for details
+- Combine multiple sources if needed for a complete answer
+
+Output:
+- Answer the user's question directly in plain text
+- Cite source URLs for key claims
+- If information is outdated or conflicting across sources, say so
+
+Rules:
+- Do NOT modify any files
+- Do NOT execute any commands
+- Summarize long pages — do not dump raw content`,
+
+  [State.SETUP]: `Analyze this project and generate an AGENTS.md file that helps AI assistants understand the project conventions.
+
+Steps:
+1. Read package.json (or equivalent) to understand tech stack and scripts
+2. Read existing config files: tsconfig.json, .eslintrc, .prettierrc, vitest.config.*
+3. Run: ls src/ to understand structure
+4. Check for existing AGENTS.md, CLAUDE.md, or README.md
+5. Identify: build/test/lint commands, primary language and framework, code style conventions, key directories
+6. Write AGENTS.md to the project root covering: tech stack, commands, conventions, key files
+
+Output JSON when done:
+{"created": "AGENTS.md", "summary": "<brief description of what was captured>"}
+
+Rules:
+- Keep AGENTS.md concise (target ~100-150 lines)
+- If AGENTS.md already exists, update it rather than overwrite
+- Do NOT modify any source files`,
 };
 
 const SMALL_MODEL_CONSTRAINTS = `Keep responses concise (under 400 tokens). Only use the listed tools. Do not speculate.`;

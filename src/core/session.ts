@@ -4,6 +4,8 @@ import { State, type StateMachineConfig, type StateContext, type ToolCall, type 
 import { detectModelParams, getBaseStateConfigs } from './states.js';
 import { createStateContext } from './logic.js';
 import { buildSystemPrompt } from './prompts/index.js';
+import { webfetchTool } from '../tool/webfetch.js';
+import { websearchTool } from '../tool/websearch.js';
 
 /**
  * State machine controlled agent
@@ -30,7 +32,12 @@ export class StateMachineAgent {
     this.stateIteration = 0;
     this.toolCalls = [];
     this.fileCount = 0;
-    this.allTools = [...codingTools, ...extraTools];
+    this.allTools = [
+      ...codingTools,
+      webfetchTool as AgentTool<any, any>,
+      websearchTool as AgentTool<any, any>,
+      ...extraTools,
+    ];
   }
 
   /**
