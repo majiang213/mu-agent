@@ -7,6 +7,9 @@ import { StateMachineAgent } from './session.js';
 import { State, type StateResult, type AgendaItem, type Step } from './types.js';
 import { hasStateCompletionJson, advanceState } from './states.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
+import type { EnvContext } from './prompts/agent.js';
+import { execSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import { StagnationDetector } from './cognitive/index.js';
 import { FailureHandler } from './failure/handler.js';
 import { LLMConnector } from '../provider/llm.js';
@@ -21,6 +24,8 @@ export type ExecutionEvent =
   | { type: 'tool_result'; tool: string; isError: boolean }
   | { type: 'llm_output'; content: string }
   | { type: 'llm_thinking'; content: string }
+  | { type: 'llm_output_delta'; content: string }
+  | { type: 'llm_thinking_delta'; content: string }
   | { type: 'llm_call'; promptLen: number; responseLen: number; contextTokens: number }
   | { type: 'task_start'; taskIndex: number; taskTotal: number; description: string }
   | { type: 'task_done'; taskIndex: number; taskTotal: number }
@@ -41,6 +46,7 @@ interface ExecCtx {
   agenda: AgendaItem[];
   currentTaskIndex: number;
   trajectory: State[];
+  env: EnvContext;
 }
 
 function buildModel(modelName: string, provider: string, baseUrl: string): Model<'openai-completions'> {
@@ -72,6 +78,7 @@ function buildAgentConfig(
     state: State.REASON,
     task: mission.description,
     modelParams: stateMachine.getModelParams(),
+    env: ctx.env,
   });
 
   return {
@@ -207,6 +214,28 @@ function subscribeAgentEvents(
       }
     }
 
+    if (event.type === 'message_update') {
+      const ae = (event as any).assistantMessageEvent as { type: string };
+      const msg = (event as any).message as { content?: Array<{ type: string; text?: string; thinking?: string }> };
+      if (msg?.content) {
+        const parts = msg.content;
+        if (ae.type === 'thinking_delta' || ae.type === 'thinking_start') {
+          const thinking = parts
+            .filter((c) => c.type === 'thinking' && c.thinking)
+            .map((c) => c.thinking as string)
+            .join('');
+          if (thinking) onEvent?.({ type: 'llm_thinking_delta', content: thinking });
+        }
+        if (ae.type === 'text_delta' || ae.type === 'text_start') {
+          const text = parts
+            .filter((c) => c.type === 'text' && c.text)
+            .map((c) => c.text as string)
+            .join('');
+          if (text) onEvent?.({ type: 'llm_output_delta', content: text });
+        }
+      }
+    }
+
     if (event.type === 'turn_end') {
       ctx.turnCount++;
       const msg = event.message;
@@ -310,6 +339,7 @@ function subscribeAgentEvents(
             task: mission.description,
             focus: ctx.agenda[0]!.step.focus,
             modelParams: stateMachine.getModelParams(),
+            env: ctx.env,
           }),
         );
         agent.steer({
@@ -363,6 +393,7 @@ function subscribeAgentEvents(
                   task: mission.description,
                   focus: nextItem.step.focus,
                   modelParams: stateMachine.getModelParams(),
+                  env: ctx.env,
                 }),
               );
               agent.steer({
@@ -382,6 +413,7 @@ function subscribeAgentEvents(
                 task: mission.description,
                 focus: currentFocus,
                 modelParams: stateMachine.getModelParams(),
+                env: ctx.env,
               }),
             );
             agent.steer({
@@ -514,6 +546,18 @@ export class ReactAgent {
       preserveLastN: 6,
     });
     const safeModifier = new SafeModifier(agentConfig.system.task.checkpointDir);
+
+    const cwd = process.cwd();
+    const home = homedir();
+    const cwdDisplay = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
+    let isGitRepo: boolean;
+    try {
+      execSync('git rev-parse --git-dir', { stdio: 'ignore' });
+      isGitRepo = true;
+    } catch {
+      isGitRepo = false;
+    }
+
     const ctx: ExecCtx = {
       compactionSummary: null,
       currentTemperature: LLMConnector.DEFAULT_TEMPERATURE,
@@ -522,6 +566,12 @@ export class ReactAgent {
       agenda: [],
       currentTaskIndex: 0,
       trajectory: [State.REASON],
+      env: {
+        cwd: cwdDisplay,
+        platform: process.platform,
+        isGitRepo,
+        date: new Date().toDateString(),
+      },
     };
 
     const agent = new Agent(

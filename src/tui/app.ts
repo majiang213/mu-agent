@@ -108,9 +108,23 @@ class UserMessage implements Component {
 class ThinkingBlock implements Component {
   private content: string;
   expanded = false;
-  constructor(content: string) {
+  private streaming = false;
+
+  constructor(content: string, streaming = false) {
+    this.content = content;
+    this.streaming = streaming;
+    this.expanded = streaming;
+  }
+
+  setContent(content: string): void {
     this.content = content;
   }
+
+  finalize(): void {
+    this.streaming = false;
+    this.expanded = false;
+  }
+
   toggle(): void {
     this.expanded = !this.expanded;
   }
@@ -138,6 +152,10 @@ class LlmOutput implements Component {
   private inner: Markdown;
   constructor(content: string) {
     this.inner = new Markdown(content, 0, 0, markdownTheme);
+  }
+  setContent(content: string): void {
+    this.inner = new Markdown(content, 0, 0, markdownTheme);
+    this.inner.invalidate();
   }
   invalidate(): void {
     this.inner.invalidate();
@@ -212,6 +230,39 @@ class AssistantTurn implements Component {
   }
   setOutput(content: string): void {
     this.outputComp = new LlmOutput(content);
+  }
+
+  updateThinking(content: string): void {
+    if (!this.thinkingBlock) {
+      this.thinkingBlock = new ThinkingBlock(content, true);
+    } else {
+      this.thinkingBlock.setContent(content);
+    }
+  }
+
+  updateOutput(content: string): void {
+    if (!this.outputComp) {
+      this.outputComp = new LlmOutput(content);
+    } else {
+      this.outputComp.setContent(content);
+    }
+  }
+
+  finalizeThinking(content: string): void {
+    if (this.thinkingBlock) {
+      this.thinkingBlock.setContent(content);
+      this.thinkingBlock.finalize();
+    } else {
+      this.thinkingBlock = new ThinkingBlock(content, false);
+    }
+  }
+
+  finalizeOutput(content: string): void {
+    if (this.outputComp) {
+      this.outputComp.setContent(content);
+    } else {
+      this.outputComp = new LlmOutput(content);
+    }
   }
 
   addTool(id: string, tool: string, args?: Record<string, unknown>): void {
@@ -332,14 +383,22 @@ export class TuiApp {
         const idx = this.tui.children.indexOf(loader);
         this.tui.children.splice(idx, 0, turn);
         setCurrentTurn(turn);
+      } else if (event.type === 'llm_thinking_delta') {
+        const turn = ensureCurrentTurn();
+        turn.updateThinking(event.content);
+        if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
+          this.allThinkingBlocks.push(turn.thinkingBlock);
+        }
+      } else if (event.type === 'llm_output_delta') {
+        ensureCurrentTurn().updateOutput(event.content);
       } else if (event.type === 'llm_thinking') {
         const turn = ensureCurrentTurn();
-        turn.setThinking(event.content);
+        turn.finalizeThinking(event.content);
         if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
           this.allThinkingBlocks.push(turn.thinkingBlock);
         }
       } else if (event.type === 'llm_output') {
-        ensureCurrentTurn().setOutput(event.content);
+        ensureCurrentTurn().finalizeOutput(event.content);
       } else if (event.type === 'tool_call') {
         const turn = ensureCurrentTurn();
         const toolId = `${Date.now()}-${event.tool}`;
