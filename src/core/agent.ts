@@ -306,15 +306,7 @@ function subscribeStepEvents(
         contextTokens: inputTokens,
       });
 
-      const READ_ONLY_STATES = new Set([
-        State.REASON,
-        State.RESEARCH,
-        State.ANSWER,
-        State.REVIEW,
-        State.DIAGNOSE,
-        State.REFACTOR_PLAN,
-      ]);
-      if (cfg.smConfig.enableStagnationDetector && !READ_ONLY_STATES.has(state)) {
+      if (cfg.smConfig.enableStagnationDetector) {
         const stagnationResult = stagnationDetector.check();
         if (stagnationResult?.detected) {
           agent.steer({

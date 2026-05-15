@@ -41,7 +41,6 @@ export interface StateConfig {
   name: State;
   allowedTools: string[];
   prompt: string;
-  maxIterations: number;
 }
 
 /** State context passed to LLM */

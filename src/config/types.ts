@@ -70,9 +70,6 @@ export interface RuntimeConfig {
  * Configuration for state machine
  */
 export interface StateMachineConfig {
-  maxIterations: number;
-  maxTurnsPerState: number;
-  maxTotalTurns: number;
   enableStagnationDetector: boolean;
   enableCompaction: boolean;
   compactionThreshold: number;

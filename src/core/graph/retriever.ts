@@ -73,17 +73,12 @@ export class GraphRetriever {
       if (score > 0) scores.set(id, score);
     }
 
-    let top20 = [...scores.entries()]
+    const top20 = [...scores.entries()]
       .sort((a, b) => b[1] - a[1])
       .slice(0, 20)
       .map(([id]) => id);
 
-    if (top20.length === 0) {
-      top20 = [...this.bm25Index.entries()]
-        .filter(([, v]) => !v.node.filePath.startsWith('tests/'))
-        .slice(0, 5)
-        .map(([id]) => id);
-    }
+    if (top20.length === 0) return [];
 
     const seedIds = new Set(top20);
     const expanded = this.expandGraph(seedIds, 2);

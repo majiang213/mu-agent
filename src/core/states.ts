@@ -49,7 +49,6 @@ Output:
 1. File paths and line numbers
 2. Current code snippets that will be changed
 3. Context around the changes`,
-      maxIterations: 5,
     },
     [State.MODIFY]: {
       name: State.MODIFY,
@@ -62,7 +61,6 @@ Rules:
 1. Make minimal, focused changes
 2. Preserve existing code style
 3. Do not modify unrelated code`,
-      maxIterations: 10,
     },
     [State.VERIFY]: {
       name: State.VERIFY,
@@ -74,79 +72,66 @@ Check:
 1. Syntax errors
 2. Test results
 3. Code review of changes`,
-      maxIterations: 3,
     },
     [State.DONE]: {
       name: State.DONE,
       allowedTools: [],
       prompt: 'Task completed.',
-      maxIterations: 0,
     },
     [State.REASON]: {
       name: State.REASON,
       allowedTools: ['complete'],
       prompt: 'Reason about the task.',
-      maxIterations: 1,
     },
     [State.CLARIFY]: {
       name: State.CLARIFY,
       allowedTools: ['complete'],
       prompt: 'Ask the user for clarification.',
-      maxIterations: 1,
     },
     [State.ANSWER]: {
       name: State.ANSWER,
       allowedTools: ['complete'],
       prompt: 'Answer the question directly.',
-      maxIterations: 2,
     },
     [State.DIAGNOSE]: {
       name: State.DIAGNOSE,
       allowedTools: ['read', 'grep', 'bash', 'complete'],
       prompt: 'Diagnose the root cause of the issue.',
-      maxIterations: 5,
     },
     [State.REVIEW]: {
       name: State.REVIEW,
       allowedTools: ['read', 'grep', 'complete'],
       prompt: 'Review the code and provide feedback.',
-      maxIterations: 5,
     },
     [State.TEST_WRITE]: {
       name: State.TEST_WRITE,
       allowedTools: ['read', 'write', 'complete'],
       prompt: 'Write tests for the code.',
-      maxIterations: 8,
     },
     [State.REFACTOR_PLAN]: {
       name: State.REFACTOR_PLAN,
       allowedTools: ['read', 'complete'],
       prompt: 'Plan the refactoring steps.',
-      maxIterations: 3,
     },
     [State.ROLLBACK]: {
       name: State.ROLLBACK,
       allowedTools: ['write', 'complete'],
       prompt: 'Restore files to their previous state.',
-      maxIterations: 3,
     },
     [State.RUN]: {
       name: State.RUN,
       allowedTools: ['bash', 'complete'],
       prompt: 'Execute the requested command and report the result.',
-      maxIterations: 5,
     },
     [State.RESEARCH]: {
       name: State.RESEARCH,
       allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch', 'complete'],
       prompt: 'Research and investigate the topic. Read local files or search the web as needed.',
-      maxIterations: 8,
     },
     [State.SETUP]: {
       name: State.SETUP,
       allowedTools: ['read', 'bash', 'write', 'complete'],
       prompt: 'Analyze the project and generate AGENTS.md.',
-      maxIterations: 8,
     },
   };
 }

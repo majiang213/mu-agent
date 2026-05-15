@@ -7,6 +7,7 @@ export interface StagnationDetectorConfig {
   maxRepeatedToolCalls: number;
   maxRepeatedErrors: number;
   similarityThreshold: number;
+  cycleWindowSize: number;
   onIneffectiveLoop?: (detection: IneffectiveLoopDetection) => void;
 }
 
@@ -15,7 +16,7 @@ export interface StagnationDetectorConfig {
  */
 export interface IneffectiveLoopDetection {
   detected: boolean;
-  type: 'repeated_tool' | 'repeated_error' | 'no_progress';
+  type: 'repeated_tool' | 'repeated_error' | 'no_progress' | 'cycle';
   message: string;
   suggestion: string;
   toolCalls: ToolCall[];
@@ -34,6 +35,7 @@ export class StagnationDetector {
       maxRepeatedToolCalls: 3,
       maxRepeatedErrors: 2,
       similarityThreshold: 0.8,
+      cycleWindowSize: 4,
       ...config,
     };
     this.toolCallHistory = [];
@@ -58,23 +60,17 @@ export class StagnationDetector {
    * Check for ineffective loops
    */
   check(): IneffectiveLoopDetection {
-    // Check for repeated tool calls
     const repeatedTool = this.detectRepeatedToolCalls();
-    if (repeatedTool.detected) {
-      return repeatedTool;
-    }
+    if (repeatedTool.detected) return repeatedTool;
 
-    // Check for repeated errors
     const repeatedError = this.detectRepeatedErrors();
-    if (repeatedError.detected) {
-      return repeatedError;
-    }
+    if (repeatedError.detected) return repeatedError;
 
-    // Check for no progress
+    const cycle = this.detectCycle();
+    if (cycle.detected) return cycle;
+
     const noProgress = this.detectNoProgress();
-    if (noProgress.detected) {
-      return noProgress;
-    }
+    if (noProgress.detected) return noProgress;
 
     return {
       detected: false,
@@ -98,8 +94,7 @@ export class StagnationDetector {
     if (!first) return { detected: false } as IneffectiveLoopDetection;
 
     const allSame = recent.every(
-      (call) => call.tool === first.tool &&
-        JSON.stringify(call.input) === JSON.stringify(first.input)
+      (call) => call.tool === first.tool && JSON.stringify(call.input) === JSON.stringify(first.input),
     );
 
     if (allSame) {
@@ -110,6 +105,36 @@ export class StagnationDetector {
         suggestion: 'Try a different approach or ask for clarification',
         toolCalls: recent,
       };
+    }
+
+    return { detected: false } as IneffectiveLoopDetection;
+  }
+
+  private detectCycle(): IneffectiveLoopDetection {
+    const w = this.config.cycleWindowSize;
+    if (this.toolCallHistory.length < w * 2) {
+      return { detected: false } as IneffectiveLoopDetection;
+    }
+
+    const history = this.toolCallHistory;
+    const len = history.length;
+
+    for (let size = 2; size <= w; size++) {
+      const a = history.slice(len - size * 2, len - size);
+      const b = history.slice(len - size, len);
+      const isCycle = a.every(
+        (call, i) => call.tool === b[i]!.tool && JSON.stringify(call.input) === JSON.stringify(b[i]!.input),
+      );
+      if (isCycle) {
+        const toolNames = a.map((c) => c.tool).join(' → ');
+        return {
+          detected: true,
+          type: 'cycle',
+          message: `Repeating tool sequence detected (${size} steps): ${toolNames}`,
+          suggestion: 'Break the cycle: try a different tool, different input, or call complete()',
+          toolCalls: [...a, ...b],
+        };
+      }
     }
 
     return { detected: false } as IneffectiveLoopDetection;

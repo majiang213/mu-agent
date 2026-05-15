@@ -21,7 +21,6 @@ describe('config defaults', () => {
       expect(config.runtime).toHaveProperty('pauseNewTasks');
       expect(config.runtime).toHaveProperty('adjustedContextLength');
 
-      expect(config.stateMachine).toHaveProperty('maxIterations');
       expect(config.stateMachine).toHaveProperty('enableStagnationDetector');
       expect(config.stateMachine).toHaveProperty('enableCompaction');
       expect(config.stateMachine).toHaveProperty('compactionThreshold');
@@ -54,7 +53,7 @@ describe('config defaults', () => {
       const config = mergeWithDefaults({});
 
       expect(config.system.logLevel).toBe('info');
-      expect(config.stateMachine.maxIterations).toBe(50);
+      expect(config.stateMachine.enableStagnationDetector).toBe(true);
     });
   });
 });
