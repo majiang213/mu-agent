@@ -32,12 +32,12 @@ describe('buildSystemPrompt', () => {
 
   it('includes state-specific instruction for LOCATE', () => {
     const prompt = buildSystemPrompt({ state: State.LOCATE, task: 'task', modelParams: SMALL_PARAMS });
-    expect(prompt).toContain('JSON');
+    expect(prompt).toContain('complete');
   });
 
   it('includes state-specific instruction for LOCATE', () => {
     const prompt = buildSystemPrompt({ state: State.LOCATE, task: 'task', modelParams: SMALL_PARAMS });
-    expect(prompt).toContain('JSON');
+    expect(prompt).toContain('complete');
   });
 
   it('adds small model constraints for SMALL tier', () => {

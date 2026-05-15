@@ -3,7 +3,6 @@ import {
   Loader,
   matchesKey,
   ProcessTerminal,
-  Spacer,
   Text,
   TUI,
   truncateToWidth,
@@ -39,6 +38,9 @@ class HintLine implements Component {
       '  ' +
         C.hintKey('Ctrl+C') +
         C.dim(' 退出') +
+        '   ' +
+        C.hintKey('Esc') +
+        C.dim(' 中断') +
         '   ' +
         C.hintKey('Tab') +
         C.dim(' 展开/折叠思考') +
@@ -363,6 +365,7 @@ export class TuiApp {
   private allThinkingBlocks: ThinkingBlock[] = [];
   private allDebugBlocks: DebugBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
+  private currentAgent: import('../core/agent.js').ReactAgent | null = null;
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
@@ -370,15 +373,19 @@ export class TuiApp {
     this.header = new HeaderLine(options.model);
     this.hintLine = new HintLine();
 
-    this.tui.addChild(this.header);
-    this.tui.addChild(new Spacer(1));
-
     this.editor = new Editor(this.tui, editorTheme, { paddingX: 1 });
     this.editor.onSubmit = (value) => this.handleSubmit(value);
 
     this.tui.addInputListener((data) => {
       if (data === '\x03' || matchesKey(data, 'ctrl+c')) {
         this.stop();
+        return { consume: true };
+      }
+      if (data === '\x1b') {
+        if (this.currentAgent) {
+          this.currentAgent.abort();
+          this.currentAgent = null;
+        }
         return { consume: true };
       }
       if (data === '\t') {
@@ -400,6 +407,7 @@ export class TuiApp {
     });
 
     this.tui.addChild(this.editor);
+    this.tui.addChild(this.header);
     this.tui.addChild(this.hintLine);
   }
 
@@ -487,7 +495,9 @@ export class TuiApp {
         const block = new DebugBlock(event.systemPrompt, event.userPrompt);
         block.setExpanded(this.debugMode);
         this.allDebugBlocks.push(block);
-        const idx = this.tui.children.indexOf(loader);
+        const turn = getCurrentTurn();
+        const anchor = turn ?? loader;
+        const idx = this.tui.children.indexOf(anchor);
         this.tui.children.splice(idx, 0, block);
       } else if (event.type === 'llm_call') {
         this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
@@ -545,6 +555,8 @@ export class TuiApp {
     );
 
     const agent = new ReactAgent();
+    this.currentAgent = agent;
+    let aborted = false;
     try {
       const result = await agent.run(
         input,
@@ -564,14 +576,29 @@ export class TuiApp {
     } catch (err) {
       loader.stop();
       this.tui.removeChild(loader);
-      this.metrics.finishTask(taskId, false);
-      this.insertBefore(new Text(C.err(`  ✗  错误: ${String(err)}`), 0, 0));
+      const isAbort =
+        err instanceof Error &&
+        (err.name === 'AbortError' || err.message.includes('abort') || err.message.includes('Abort'));
+      if (isAbort) {
+        aborted = true;
+        this.metrics.finishTask(taskId, false);
+        this.insertBefore(new Text(C.dim('  ⊘  已中断'), 0, 0));
+      } else {
+        this.metrics.finishTask(taskId, false);
+        this.insertBefore(new Text(C.err(`  ✗  错误: ${String(err)}`), 0, 0));
+      }
+    } finally {
+      this.currentAgent = null;
     }
 
-    const summary = this.metrics.getSummary();
-    const tokens = Math.round(summary.avgTokens);
-    const rate = Math.round(summary.successRate * 100);
-    this.insertBefore(new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`), 0, 0));
+    if (!aborted) {
+      const summary = this.metrics.getSummary();
+      const tokens = Math.round(summary.avgTokens);
+      const rate = Math.round(summary.successRate * 100);
+      this.insertBefore(
+        new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`), 0, 0),
+      );
+    }
     this.header.setState('IDLE');
     this.editor.disableSubmit = false;
     this.tui.requestRender();

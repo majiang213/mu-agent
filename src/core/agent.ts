@@ -5,7 +5,7 @@ import type { Model } from '@mariozechner/pi-ai';
 import { codingTools } from '@mariozechner/pi-coding-agent';
 import { StateMachineAgent } from './session.js';
 import { State, type StateResult, type Step, type StepHandoff } from './types.js';
-import { hasStateCompletionJson, advanceState } from './states.js';
+import { advanceState } from './states.js';
 import { buildSystemPrompt, buildUserPrompt } from './prompts/index.js';
 import type { EnvContext } from './prompts/agent.js';
 import { execSync } from 'node:child_process';
@@ -17,6 +17,7 @@ import { astLocatorTool } from '../tool/locator.js';
 import { SafeModifier, syntaxCheckHook, damageCheckHook } from '../tool/safety/index.js';
 import { ConfigManager } from '../config/manager.js';
 import { CodeGraphLocator } from './graph/locator.js';
+import { buildCompleteTool } from '../tool/complete.js';
 
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
@@ -49,6 +50,8 @@ interface RunConfig {
   env: EnvContext;
   temperature: number;
   projectRoot: string;
+  registerAgent?: (agent: Agent) => void;
+  unregisterAgent?: (agent: Agent) => void;
 }
 
 function buildModel(modelName: string, provider: string, baseUrl: string): Model<'openai-completions'> {
@@ -89,17 +92,6 @@ function compressConversationHistory(messages: AgentMessage[], tokenBudget = 600
   return [anchor, ...recent];
 }
 
-function extractJsonFromText(text: string): Record<string, unknown> | null {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function parseReasonSteps(json: Record<string, unknown> | null): Step[] | null {
   if (!json || !Array.isArray(json['steps'])) return null;
   const validStates = new Set(Object.values(State));
@@ -130,7 +122,9 @@ function buildStepAgent(
   onEvent: ((event: ExecutionEvent) => void) | undefined,
   tools = [...codingTools, astLocatorTool],
 ): Agent {
-  return new Agent({
+  let agentRef: Agent | null = null;
+
+  const agent = new Agent({
     initialState: {
       systemPrompt,
       model: cfg.model,
@@ -177,7 +171,16 @@ function buildStepAgent(
       }
       return undefined;
     },
+    afterToolCall: async (toolCtx) => {
+      if (toolCtx.toolCall.name === 'complete' && !toolCtx.isError) {
+        agentRef?.abort();
+      }
+      return undefined;
+    },
   });
+
+  agentRef = agent;
+  return agent;
 }
 
 function subscribeStepEvents(
@@ -327,6 +330,7 @@ async function runStepAgent(
   input: string,
   cfg: RunConfig,
   stagnationDetector: StagnationDetector,
+  isCompleted?: () => boolean,
 ): Promise<Error | null> {
   const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, cfg.failureConfig.maxRetries);
   const failureHandler = new FailureHandler({
@@ -346,6 +350,13 @@ async function runStepAgent(
       break;
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
+      const isAbort = lastError.name === 'AbortError' || lastError.message.includes('aborted');
+      if (isAbort) {
+        if (isCompleted?.()) {
+          lastError = null;
+        }
+        break;
+      }
       const failureCtx = failureHandler.createContext(
         'llm_error',
         lastError,
@@ -383,30 +394,44 @@ async function runReasonStep(
   });
 
   const stagnationDetector = new StagnationDetector();
-  let llmText = '';
-  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, []);
-  subscribeStepEvents(
-    agent,
-    State.REASON,
-    stagnationDetector,
-    cfg,
-    (text) => {
-      llmText = text;
-    },
-    onEvent,
-  );
+  let capturedComplete: Record<string, unknown> | null = null;
+  const completeTool = buildCompleteTool(State.REASON, (args) => {
+    capturedComplete = args;
+  });
 
-  onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
-  await runStepAgent(agent, mission.description, cfg, stagnationDetector);
+  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool]);
+  subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
 
-  const json = extractJsonFromText(llmText);
-  if (json?.['needsClarify'] === true) {
-    const questions = Array.isArray(json['questions']) ? (json['questions'] as string[]) : [];
-    return { steps: [], needsClarify: true, questions };
+  cfg.registerAgent?.(agent);
+  try {
+    onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
+    await runStepAgent(agent, mission.description, cfg, stagnationDetector, () => capturedComplete !== null);
+
+    if (capturedComplete === null) {
+      agent.steer({
+        role: 'user',
+        content: [{ type: 'text', text: '[REMINDER] You must call complete() to submit your execution plan.' }],
+        timestamp: Date.now(),
+      });
+      await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    }
+  } finally {
+    cfg.unregisterAgent?.(agent);
   }
-  const parsedSteps = parseReasonSteps(json);
-  const steps = parsedSteps ?? DEFAULT_FALLBACK_STEPS(mission.description);
-  return { steps, needsClarify: false, questions: [] };
+
+  if (capturedComplete !== null) {
+    const c = capturedComplete;
+    if (c['needsClarify'] === true) {
+      const questions = Array.isArray(c['questions']) ? (c['questions'] as string[]) : [];
+      return { steps: [], needsClarify: true, questions };
+    }
+    const parsedSteps = parseReasonSteps(c);
+    if (parsedSteps) {
+      return { steps: parsedSteps, needsClarify: false, questions: [] };
+    }
+  }
+
+  return { steps: DEFAULT_FALLBACK_STEPS(mission.description), needsClarify: false, questions: [] };
 }
 
 async function runStep(
@@ -452,11 +477,15 @@ async function runStep(
     env: stepEnv,
   });
 
-  const allowedTools = cfg.stateMachine.getAllowedTools();
+  const allowedTools = cfg.stateMachine.getAllowedTools().filter((t) => t.name !== 'complete');
   const stagnationDetector = new StagnationDetector();
   let llmText = '';
+  let capturedComplete: Record<string, unknown> | null = null;
 
-  const agent = buildStepAgent(systemPrompt, [], cfg, onEvent, allowedTools);
+  const completeTool = buildCompleteTool(step.state, (args) => {
+    capturedComplete = args;
+  });
+  const agent = buildStepAgent(systemPrompt, [], cfg, onEvent, [...allowedTools, completeTool]);
 
   subscribeStepEvents(
     agent,
@@ -470,25 +499,11 @@ async function runStep(
   );
 
   agent.subscribe((event: AgentEvent) => {
-    if (event.type === 'turn_end') {
-      const msg = event.message;
-      const text =
-        msg && 'content' in msg && Array.isArray(msg.content)
-          ? (msg.content as Array<{ type: string; text?: string }>)
-              .filter((c) => c.type === 'text' && c.text)
-              .map((c) => c.text as string)
-              .join('\n')
-          : '';
-
-      const isTextOnlyState = step.state === State.ANSWER || step.state === State.RESEARCH;
-      const shouldAdvance = (isTextOnlyState && text.trim().length > 0) || hasStateCompletionJson(step.state, text);
-
-      if (shouldAdvance) {
-        const nextState = advanceState(step.state, trajectory);
-        if (nextState !== step.state) {
-          cfg.stateMachine.transitionTo(nextState);
-          onEvent?.({ type: 'state_change', from: step.state, to: nextState });
-        }
+    if (event.type === 'tool_execution_end' && event.toolName === 'complete' && !event.isError) {
+      const nextState = advanceState(step.state, trajectory);
+      if (nextState !== step.state) {
+        cfg.stateMachine.transitionTo(nextState);
+        onEvent?.({ type: 'state_change', from: step.state, to: nextState });
       }
     }
   });
@@ -497,14 +512,32 @@ async function runStep(
   onEvent?.({ type: 'state_change', from: State.REASON, to: step.state });
 
   const input = buildUserPrompt(step.state, mission.description, step.focus);
-  await runStepAgent(agent, input, cfg, stagnationDetector);
+  cfg.registerAgent?.(agent);
+  try {
+    await runStepAgent(agent, input, cfg, stagnationDetector, () => capturedComplete !== null);
+
+    if (capturedComplete === null) {
+      agent.steer({
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '[REMINDER] You finished your work but did not call complete(). Call complete() now with your findings.',
+          },
+        ],
+        timestamp: Date.now(),
+      });
+      await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    }
+  } finally {
+    cfg.unregisterAgent?.(agent);
+  }
 
   onEvent?.({ type: 'task_done', taskIndex: stepIndex, taskTotal: stepTotal });
 
-  if (step.state === State.MODIFY) {
+  if (step.state === State.MODIFY && capturedComplete !== null) {
     try {
-      const json = extractJsonFromText(llmText);
-      const edited = Array.isArray(json?.['edited']) ? (json['edited'] as string[]) : [];
+      const edited = Array.isArray(capturedComplete['edited']) ? (capturedComplete['edited'] as string[]) : [];
       if (edited.length > 0) {
         const locator = new CodeGraphLocator(cfg.projectRoot);
         const absPaths = edited.map((f) => (f.startsWith('/') ? f : `${cfg.projectRoot}/${f}`));
@@ -515,11 +548,20 @@ async function runStep(
     }
   }
 
-  return { state: step.state, focus: step.focus, output: llmText };
+  const output = capturedComplete !== null ? JSON.stringify(capturedComplete) : llmText;
+  return { state: step.state, focus: step.focus, output };
 }
 
 export class ReactAgent {
   private _pendingClarification: ((answer: string) => void) | null = null;
+  private _activeAgents: Set<Agent> = new Set();
+
+  abort(): void {
+    for (const agent of this._activeAgents) {
+      agent.abort();
+    }
+    this._activeAgents.clear();
+  }
 
   provideClarification(answer: string): void {
     if (this._pendingClarification) {
@@ -574,6 +616,8 @@ export class ReactAgent {
       env,
       temperature: LLMConnector.DEFAULT_TEMPERATURE,
       projectRoot: cwd,
+      registerAgent: (a) => this._activeAgents.add(a),
+      unregisterAgent: (a) => this._activeAgents.delete(a),
     };
 
     const conversationHistory = compressConversationHistory(initialMessages ?? []);

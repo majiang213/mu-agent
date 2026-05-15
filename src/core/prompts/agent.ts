@@ -61,32 +61,26 @@ function buildBasePrompt(env?: EnvContext, state?: State): string {
 }
 
 const STATE_INSTRUCTIONS: Partial<Record<State, string>> = {
-  [State.REASON]: `Analyze the user request and output a JSON execution plan. Do NOT call any tools. Output JSON ONLY.
+  [State.REASON]: `Analyze the task and choose the MINIMUM steps needed:
 
-Choose the MINIMUM steps needed:
-- Pure Q&A (no files needed, e.g. "what is X?") → [ANSWER]
+- Greeting / chitchat / pure Q&A (no files needed) → [ANSWER]
 - Understand / explain / summarize / report code → [RESEARCH]
-- Web search / URL / external topic → [RESEARCH]
+- Web search / URL / external info → [RESEARCH]
 - Code quality review / find issues → [REVIEW]
-- Simple edit (location obvious) → [MODIFY, VERIFY]
-- Edit requiring search → [LOCATE, MODIFY, VERIFY]
-- Complex edit → [LOCATE, MODIFY, VERIFY]
+- Simple edit (file and location obvious) → [MODIFY, VERIFY]
+- Edit requiring search first → [LOCATE, MODIFY, VERIFY]
 - Bug investigation → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
 - Run a command → [RUN]
-- Project init → [SETUP]
+- Project setup / generate AGENTS.md → [SETUP]
 
-Each step needs a specific "focus" — exactly what to do in that step.
-Maximum 6 steps.
+Each step needs a specific "focus" describing exactly what to do. Maximum 6 steps.
 
-Output JSON:
-{"steps": [{"state": "<STATE>", "focus": "<specific goal>"}], "needsClarify": false}
+When done, call complete(steps=[...], needsClarify=false).
+If intent is genuinely unclear, call complete(steps=[], needsClarify=true, questions=["<question>"]).`,
 
-If the request is ambiguous:
-{"steps": [], "needsClarify": true, "questions": ["<q1>", "<q2>"]}`,
+  [State.CLARIFY]: `The task is ambiguous. List what you need from the user. Maximum 3 questions.
 
-  [State.CLARIFY]: `The task is ambiguous. List what you need from the user.
-Output JSON: {"questions": ["<q1>", "<q2>"]}
-Maximum 3 questions. Be specific.`,
+When done, call complete(questions=["<q1>", "<q2>"]).`,
 
   [State.LOCATE]: `Locate the exact code positions that need to change.
 
@@ -95,8 +89,7 @@ Steps:
 2. Use grep/find if you need to search across files
 3. Identify the precise lines and snippets
 
-Output JSON:
-{"locations": [{"file": "<path>", "startLine": <n>, "endLine": <n>, "snippet": "<current code>"}]}`,
+When done, call complete(locations=[{file, startLine, endLine, snippet}]).`,
 
   [State.MODIFY]: `Apply the code changes.
 
@@ -106,45 +99,37 @@ Rules:
 - Do not modify unrelated code
 - Prefer edit over write for existing files
 
-After all changes, output JSON:
-{"edited": ["<file1>", "<file2>"], "linesChanged": <total>}`,
+When done, call complete(edited=["<file1>", ...], linesChanged=<n>).`,
 
-  [State.VERIFY]: `Verify the changes are correct.
+  [State.VERIFY]: `Verify the changes are correct by reading the modified files.
 
 Steps:
-1. Read the modified files to confirm changes look right
-2. Run type checks or tests if available (bash: npx tsc --noEmit, npm test, etc.)
-3. Report results
+1. Read each modified file and confirm the changes look right
+2. Do NOT run any commands unless the task explicitly says to run tests or check syntax
 
-Output JSON:
-{"passed": true|false, "issues": ["<issue>", ...], "summary": "<result>"}`,
+When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
 
-  [State.ANSWER]: `Answer the question directly. No tools needed. Reply in plain text.`,
+  [State.ANSWER]: `Answer the question directly. When done, call complete(answer="<your answer>").`,
 
   [State.DIAGNOSE]: `Investigate the root cause. Read files and search code — do NOT modify anything.
 
-Output JSON:
-{"rootCause": "<explanation>", "location": "<file:line>", "fix": "<suggested fix>"}`,
+When done, call complete(rootCause="<explanation>", location="<file:line>", fix="<suggested fix>").`,
 
   [State.REVIEW]: `Review the code for quality, correctness, and issues. Read files only — do NOT modify anything.
 
-Output JSON:
-{"issues": ["<issue>", ...], "suggestions": ["<suggestion>", ...], "verdict": "pass|fail"}`,
+When done, call complete(issues=[...], suggestions=[...], verdict="pass"|"fail").`,
 
   [State.TEST_WRITE]: `Write tests for the specified code. Do NOT modify business logic files.
 
-Output JSON:
-{"testFile": "<path>", "cases": <number of test cases>}`,
+When done, call complete(testFile="<path>", cases=<number>).`,
 
   [State.REFACTOR_PLAN]: `Plan the refactoring without making any changes. Read files to understand scope.
 
-Output JSON:
-{"refactorSteps": ["<step1>", ...], "estimatedFiles": <n>}`,
+When done, call complete(refactorSteps=["<step1>", ...], estimatedFiles=<n>).`,
 
   [State.ROLLBACK]: `Restore the modified files to their previous state using the write tool.
 
-Output JSON:
-{"restored": ["<file1>", ...]}`,
+When done, call complete(restored=["<file1>", ...]).`,
 
   [State.RUN]: `Execute the requested command using bash.
 
@@ -154,8 +139,7 @@ Rules:
 - Do NOT install packages the user did not ask for
 - If the command needs interactive input, report it cannot run non-interactively
 
-Output JSON when done:
-{"exitCode": <n>, "summary": "<what happened, key output>"}`,
+When done, call complete(exitCode=<n>, summary="<what happened, key output>").`,
 
   [State.RESEARCH]: `Research and investigate the topic. Read local files or search the web as needed.
 
@@ -165,8 +149,8 @@ Strategy:
 - Web topic or error → websearch first, then webfetch top results for detail
 - Mixed (local + web) → read local files first, then supplement with web search
 
-Output: plain text report with findings. Cite file paths or source URLs.
-Do NOT modify files or run commands.`,
+Do NOT modify files or run commands.
+When done, call complete(report="<your findings, cite file paths or URLs>").`,
 
   [State.SETUP]: `Analyze this project and generate AGENTS.md.
 
@@ -177,13 +161,12 @@ Steps:
 4. Check for existing AGENTS.md, CLAUDE.md, README.md
 5. Write AGENTS.md covering: tech stack, build/test/lint commands, conventions, key files
 
-Output JSON when done:
-{"created": "AGENTS.md", "summary": "<what was captured>"}
-
 Rules:
 - Target ~100-150 lines. Be concise.
 - If AGENTS.md already exists, update it.
-- Do NOT modify source files.`,
+- Do NOT modify source files.
+
+When done, call complete(created="AGENTS.md", summary="<what was captured>").`,
 };
 
 const SMALL_MODEL_CONSTRAINTS = `Keep responses under 400 tokens. Use only the listed tools. Do not speculate.`;

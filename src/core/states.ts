@@ -41,7 +41,7 @@ export function getBaseStateConfigs(): Record<State, StateConfig> {
   return {
     [State.LOCATE]: {
       name: State.LOCATE,
-      allowedTools: ['read', 'grep', 'find', 'ls', 'ast_code_locator'],
+      allowedTools: ['read', 'grep', 'find', 'ls', 'ast_code_locator', 'complete'],
       prompt: `Locate the exact positions in the code that need to be modified.
 Read the relevant files and identify specific functions, classes, or lines.
 
@@ -53,7 +53,7 @@ Output:
     },
     [State.MODIFY]: {
       name: State.MODIFY,
-      allowedTools: ['read', 'edit', 'write'],
+      allowedTools: ['read', 'edit', 'write', 'complete'],
       prompt: `Make the necessary code changes.
 Use edit tool for small changes, write tool for new files.
 Always read the file first before editing.
@@ -66,7 +66,7 @@ Rules:
     },
     [State.VERIFY]: {
       name: State.VERIFY,
-      allowedTools: ['read', 'bash'],
+      allowedTools: ['read', 'bash', 'complete'],
       prompt: `Verify the changes are correct.
 Run tests, check syntax, review the modifications.
 
@@ -84,67 +84,67 @@ Check:
     },
     [State.REASON]: {
       name: State.REASON,
-      allowedTools: [],
+      allowedTools: ['complete'],
       prompt: 'Reason about the task.',
       maxIterations: 1,
     },
     [State.CLARIFY]: {
       name: State.CLARIFY,
-      allowedTools: [],
+      allowedTools: ['complete'],
       prompt: 'Ask the user for clarification.',
       maxIterations: 1,
     },
     [State.ANSWER]: {
       name: State.ANSWER,
-      allowedTools: [],
+      allowedTools: ['complete'],
       prompt: 'Answer the question directly.',
       maxIterations: 2,
     },
     [State.DIAGNOSE]: {
       name: State.DIAGNOSE,
-      allowedTools: ['read', 'grep', 'bash'],
+      allowedTools: ['read', 'grep', 'bash', 'complete'],
       prompt: 'Diagnose the root cause of the issue.',
       maxIterations: 5,
     },
     [State.REVIEW]: {
       name: State.REVIEW,
-      allowedTools: ['read', 'grep'],
+      allowedTools: ['read', 'grep', 'complete'],
       prompt: 'Review the code and provide feedback.',
       maxIterations: 5,
     },
     [State.TEST_WRITE]: {
       name: State.TEST_WRITE,
-      allowedTools: ['read', 'write'],
+      allowedTools: ['read', 'write', 'complete'],
       prompt: 'Write tests for the code.',
       maxIterations: 8,
     },
     [State.REFACTOR_PLAN]: {
       name: State.REFACTOR_PLAN,
-      allowedTools: ['read'],
+      allowedTools: ['read', 'complete'],
       prompt: 'Plan the refactoring steps.',
       maxIterations: 3,
     },
     [State.ROLLBACK]: {
       name: State.ROLLBACK,
-      allowedTools: ['write'],
+      allowedTools: ['write', 'complete'],
       prompt: 'Restore files to their previous state.',
       maxIterations: 3,
     },
     [State.RUN]: {
       name: State.RUN,
-      allowedTools: ['bash'],
+      allowedTools: ['bash', 'complete'],
       prompt: 'Execute the requested command and report the result.',
       maxIterations: 5,
     },
     [State.RESEARCH]: {
       name: State.RESEARCH,
-      allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch'],
+      allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch', 'complete'],
       prompt: 'Research and investigate the topic. Read local files or search the web as needed.',
       maxIterations: 8,
     },
     [State.SETUP]: {
       name: State.SETUP,
-      allowedTools: ['read', 'bash', 'write'],
+      allowedTools: ['read', 'bash', 'write', 'complete'],
       prompt: 'Analyze the project and generate AGENTS.md.',
       maxIterations: 8,
     },
