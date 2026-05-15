@@ -244,11 +244,11 @@ class ToolLine implements Component {
 
   constructor(tool: string, args?: Record<string, unknown>) {
     this.tool = tool;
-    this.argStr = ToolLine.fmtArgs(args);
+    this.argStr = ToolLine.fmtArgs(tool, args);
   }
 
-  private static fmtArgs(args?: Record<string, unknown>): string {
-    if (!args) return '';
+  private static fmtArgs(tool: string, args?: Record<string, unknown>): string {
+    if (!args || tool === 'complete') return '';
     for (const key of ['filePath', 'path', 'file', 'command', 'cmd', 'query']) {
       const v = args[key];
       if (typeof v === 'string') return v.slice(0, 50);
@@ -265,10 +265,13 @@ class ToolLine implements Component {
   render(width: number): string[] {
     const bullet = C.dim('  › ');
     const name = C.toolName((this.tool + '    ').slice(0, 16));
-    const arg = this.argStr ? C.toolArg(this.argStr) : '';
     const mark = this.status === 'ok' ? C.ok('✓') : this.status === 'error' ? C.err('✗') : C.pending('…');
+    const markW = 1;
+    const maxArgW = Math.max(0, width - visibleWidth(bullet + name) - markW - 4);
+    const argRaw = this.argStr ? truncateToWidth(this.argStr, maxArgW) : '';
+    const arg = argRaw ? C.toolArg(argRaw) : '';
     const left = bullet + name + arg;
-    const gap = Math.max(2, width - visibleWidth(left) - 2);
+    const gap = Math.max(2, width - visibleWidth(left) - markW);
     return [left + ' '.repeat(gap) + mark];
   }
 }
@@ -457,10 +460,12 @@ export class TuiApp {
         loader.setMessage(`[${event.to}]`);
         this.metrics.recordStateExit(taskId, event.from);
         this.metrics.recordStateEntry(taskId, event.to);
-        const turn = new AssistantTurn(event.to);
-        const idx = this.tui.children.indexOf(loader);
-        this.tui.children.splice(idx, 0, turn);
-        setCurrentTurn(turn);
+        if (event.to !== 'DONE') {
+          const turn = new AssistantTurn(event.to);
+          const idx = this.tui.children.indexOf(loader);
+          this.tui.children.splice(idx, 0, turn);
+          setCurrentTurn(turn);
+        }
       } else if (event.type === 'llm_thinking_delta') {
         const turn = ensureCurrentTurn();
         turn.updateThinking(event.content);

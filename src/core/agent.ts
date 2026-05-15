@@ -144,7 +144,9 @@ function buildStepAgent(
               ? lastUserMsg.content
               : ''
           : '';
-      onEvent?.({ type: 'llm_prompt', systemPrompt: agentCtx.systemPrompt ?? '', userPrompt: userPromptText });
+      if (!(opts as { signal?: AbortSignal })?.signal?.aborted) {
+        onEvent?.({ type: 'llm_prompt', systemPrompt: agentCtx.systemPrompt ?? '', userPrompt: userPromptText });
+      }
       return streamSimple(m, agentCtx, { ...opts, apiKey: 'ollama', temperature: cfg.temperature });
     },
     getApiKey: () => 'ollama',
@@ -270,7 +272,8 @@ function subscribeStepEvents(
           const text = parts
             .filter((c) => c.type === 'text' && c.text)
             .map((c) => c.text as string)
-            .join('');
+            .join('')
+            .replace(/<\/think>/g, '');
           if (text) onEvent?.({ type: 'llm_output_delta', content: text });
         }
       }
@@ -284,9 +287,14 @@ function subscribeStepEvents(
         const text = parts.filter((c) => c.type === 'text' && c.text).map((c) => c.text as string);
         if (thinking.length > 0) onEvent?.({ type: 'llm_thinking', content: thinking.join('\n') });
         if (text.length > 0) {
-          const joined = text.join('\n');
-          onEvent?.({ type: 'llm_output', content: joined });
-          onLlmText(joined);
+          const joined = text
+            .join('\n')
+            .replace(/<\/think>/g, '')
+            .trim();
+          if (joined) {
+            onEvent?.({ type: 'llm_output', content: joined });
+            onLlmText(joined);
+          }
         }
       }
       const usage = msg && 'usage' in msg ? (msg as { usage?: { input?: number; output?: number } }).usage : null;
@@ -499,7 +507,7 @@ async function runStep(
   );
 
   agent.subscribe((event: AgentEvent) => {
-    if (event.type === 'tool_execution_end' && event.toolName === 'complete' && !event.isError) {
+    if (event.type === 'turn_end' && capturedComplete !== null) {
       const nextState = advanceState(step.state, trajectory);
       if (nextState !== step.state) {
         cfg.stateMachine.transitionTo(nextState);
@@ -642,8 +650,6 @@ export class ReactAgent {
       const handoff = await runStep(step, i, steps.length, mission, stepResults, cfg, onEvent);
       stepResults.push(handoff);
     }
-
-    onEvent?.({ type: 'state_change', from: steps[steps.length - 1]?.state ?? State.REASON, to: State.DONE });
 
     mission.state = 'completed';
     return {
