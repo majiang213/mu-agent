@@ -5,6 +5,18 @@
 
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 
+export interface SteerMessage {
+  role: 'steer';
+  content: string;
+  timestamp: number;
+}
+
+declare module '@mariozechner/pi-agent-core' {
+  interface CustomAgentMessages {
+    steer: SteerMessage;
+  }
+}
+
 /** Core states for coding tasks */
 export enum State {
   LOCATE = 'LOCATE',

@@ -18,6 +18,7 @@ import { SafeModifier, syntaxCheckHook, damageCheckHook } from '../tool/safety/i
 import { ConfigManager } from '../config/manager.js';
 import { CodeGraphLocator } from './graph/locator.js';
 import { buildCompleteTool } from '../tool/complete.js';
+import { ContextCompactor } from './compaction/index.js';
 
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
@@ -70,41 +71,43 @@ function buildModel(modelName: string, provider: string, baseUrl: string): Model
   };
 }
 
-function msgContent(msg: AgentMessage): string {
-  if (!('content' in msg)) return '';
-  const c = (msg as { content?: unknown }).content;
-  return typeof c === 'string' ? c : JSON.stringify(c ?? '');
-}
-
-function compressConversationHistory(messages: AgentMessage[], tokenBudget = 6000): AgentMessage[] {
+function compressConversationHistory(
+  messages: AgentMessage[],
+  cfg?: { enableCompaction?: boolean; compactionThreshold?: number },
+): AgentMessage[] {
   if (messages.length === 0) return [];
-  const anchor = messages[0]!;
-  if (messages.length === 1) return [anchor];
-  const recent: AgentMessage[] = [];
-  let tokens = Math.ceil(msgContent(anchor).length / 4);
-  for (let i = messages.length - 1; i > 0; i--) {
-    const msg = messages[i]!;
-    const t = Math.ceil(msgContent(msg).length / 4);
-    if (tokens + t > tokenBudget) break;
-    recent.unshift(msg);
-    tokens += t;
-  }
-  return [anchor, ...recent];
+  if (cfg?.enableCompaction === false) return messages;
+  const compactor = new ContextCompactor({ maxTokens: cfg?.compactionThreshold ?? 3000 });
+  return compactor.compact(messages).messages;
 }
 
-function parseReasonSteps(json: Record<string, unknown> | null): Step[] | null {
-  if (!json || !Array.isArray(json['steps'])) return null;
+function parseReasonSteps(json: Record<string, unknown> | null): { steps: Step[]; error: string | null } {
+  if (!json) return { steps: [], error: 'complete() was not called or returned no data.' };
+  if (!Array.isArray(json['steps']))
+    return { steps: [], error: 'steps must be an array. Got: ' + JSON.stringify(json['steps']) };
   const validStates = new Set(Object.values(State));
-  const steps = (json['steps'] as unknown[]).filter(
-    (s): s is Step =>
-      typeof s === 'object' &&
-      s !== null &&
-      typeof (s as Record<string, unknown>)['state'] === 'string' &&
-      validStates.has((s as Record<string, unknown>)['state'] as State) &&
-      typeof (s as Record<string, unknown>)['focus'] === 'string' &&
-      ((s as Record<string, unknown>)['focus'] as string).length > 0,
-  );
-  return steps.length > 0 ? steps.slice(0, 6) : null;
+  const invalid: string[] = [];
+  const steps = (json['steps'] as unknown[]).filter((s): s is Step => {
+    if (typeof s !== 'object' || s === null) {
+      invalid.push(String(s));
+      return false;
+    }
+    const r = s as Record<string, unknown>;
+    if (typeof r['state'] !== 'string' || !validStates.has(r['state'] as State)) {
+      invalid.push(`invalid state "${r['state']}"`);
+      return false;
+    }
+    if (typeof r['focus'] !== 'string' || (r['focus'] as string).length === 0) {
+      invalid.push(`missing focus for state "${r['state']}"`);
+      return false;
+    }
+    return true;
+  });
+  if (steps.length === 0) {
+    const reason = invalid.length > 0 ? `Invalid entries: ${invalid.join(', ')}` : 'steps array is empty.';
+    return { steps: [], error: reason };
+  }
+  return { steps: steps.slice(0, 6), error: null };
 }
 
 function DEFAULT_FALLBACK_STEPS(description: string): Step[] {
@@ -193,6 +196,24 @@ function buildStepAgent(
       }
       return undefined;
     },
+    transformContext: async (messages) => {
+      const steerIndices: number[] = [];
+      messages.forEach((m, i) => {
+        if (m.role === 'steer') steerIndices.push(i);
+      });
+      if (steerIndices.length <= 1) return messages;
+      const latestSteer = steerIndices[steerIndices.length - 1]!;
+      return messages.filter((m, i) => m.role !== 'steer' || i === latestSteer);
+    },
+    convertToLlm: (messages) => {
+      return messages.flatMap((m) => {
+        if (m.role === 'steer') {
+          const sm = m as import('./types.js').SteerMessage;
+          return [{ role: 'user' as const, content: sm.content, timestamp: sm.timestamp }];
+        }
+        return [m as import('@mariozechner/pi-ai').Message];
+      });
+    },
   });
 
   agentRef = agent;
@@ -254,13 +275,8 @@ function subscribeStepEvents(
                 .restore(filePath)
                 .then(() => {
                   agent.steer({
-                    role: 'user',
-                    content: [
-                      {
-                        type: 'text',
-                        text: `[SAFE MODIFIER] Post-check failed for ${filePath} (syntax=${syntaxOk}, damage=${damageOk}). File restored.`,
-                      },
-                    ],
+                    role: 'steer',
+                    content: `[SAFE MODIFIER] Post-check failed for ${filePath} (syntax=${syntaxOk}, damage=${damageOk}). File restored.`,
                     timestamp: Date.now(),
                   });
                 })
@@ -338,13 +354,8 @@ function subscribeStepEvents(
             stagnationWarnings++;
             stagnationDetector.reset();
             agent.steer({
-              role: 'user',
-              content: [
-                {
-                  type: 'text',
-                  text: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}.`,
-                },
-              ],
+              role: 'steer',
+              content: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}.`,
               timestamp: Date.now(),
             });
           }
@@ -438,8 +449,8 @@ async function runReasonStep(
 
     if (capturedComplete === null) {
       agent.steer({
-        role: 'user',
-        content: [{ type: 'text', text: '[REMINDER] You must call complete() to submit your execution plan.' }],
+        role: 'steer',
+        content: '[REMINDER] You must call complete() to submit your execution plan.',
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
@@ -454,9 +465,35 @@ async function runReasonStep(
       const questions = Array.isArray(c['questions']) ? (c['questions'] as string[]) : [];
       return { steps: [], needsClarify: true, questions };
     }
-    const parsedSteps = parseReasonSteps(c);
-    if (parsedSteps) {
-      return { steps: parsedSteps, needsClarify: false, questions: [] };
+    const { steps, error } = parseReasonSteps(c);
+    if (steps.length > 0) {
+      return { steps, needsClarify: false, questions: [] };
+    }
+    capturedComplete = null;
+    agent.steer({
+      role: 'steer',
+      content: `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
+      timestamp: Date.now(),
+    });
+    await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    if (capturedComplete !== null) {
+      const { steps: retrySteps } = parseReasonSteps(capturedComplete);
+      if (retrySteps.length > 0) {
+        return { steps: retrySteps, needsClarify: false, questions: [] };
+      }
+    }
+  } else {
+    agent.steer({
+      role: 'steer',
+      content: '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
+      timestamp: Date.now(),
+    });
+    await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    if (capturedComplete !== null) {
+      const { steps } = parseReasonSteps(capturedComplete);
+      if (steps.length > 0) {
+        return { steps, needsClarify: false, questions: [] };
+      }
     }
   }
 
@@ -551,13 +588,9 @@ async function runStep(
 
     if (capturedComplete === null) {
       agent.steer({
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: '[REMINDER] You finished your work but did not call complete(). Call complete() now with your findings.',
-          },
-        ],
+        role: 'steer',
+        content:
+          '[REMINDER] You finished your work but did not call complete(). Call complete() now with your findings.',
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
@@ -653,7 +686,7 @@ export class ReactAgent {
       unregisterAgent: (a) => this._activeAgents.delete(a),
     };
 
-    const conversationHistory = compressConversationHistory(initialMessages ?? []);
+    const conversationHistory = compressConversationHistory(initialMessages ?? [], cfg.smConfig);
 
     const { steps, needsClarify, questions } = await runReasonStep(mission, cfg, conversationHistory, onEvent);
 

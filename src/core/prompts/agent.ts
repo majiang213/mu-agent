@@ -152,6 +152,7 @@ When done, call complete(exitCode=<n>, summary="<what happened, key output>").`,
 
 Available tools: read, ls, grep, find, webfetch, websearch, complete.
 You do NOT have bash. To read a file use the read tool, NOT cat or shell commands.
+To list a directory use ls with path parameter: ls(path="src") NOT ls("src") or ls src.
 
 Strategy:
 - Understand/explain/report local code → use read/ls/grep/find to explore
@@ -167,7 +168,7 @@ When done, call complete(report="<your findings, cite file paths or URLs>").`,
 Steps:
 1. Read package.json (or equivalent) for tech stack and scripts
 2. Read config files: tsconfig.json, .eslintrc, .prettierrc, vitest.config.*
-3. Run ls src/ to understand structure
+3. List src/ directory: ls(path="src")
 4. Check for existing AGENTS.md, CLAUDE.md, README.md
 5. Write AGENTS.md covering: tech stack, build/test/lint commands, conventions, key files
 

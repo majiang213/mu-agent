@@ -1,47 +1,178 @@
 import { describe, it, expect } from 'vitest';
 import { createContextCompactor } from '../../../src/core/compaction/index.js';
+import type { AgentMessage } from '@mariozechner/pi-agent-core';
+
+function userMsg(content: string): AgentMessage {
+  return { role: 'user', content, timestamp: Date.now() } as AgentMessage;
+}
+
+function assistantMsg(text: string): AgentMessage {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text }],
+    timestamp: Date.now(),
+    api: 'ollama' as any,
+    provider: 'ollama' as any,
+    model: 'test',
+    usage: { input: 0, output: 0, cacheRead: 0 },
+    stopReason: 'stop',
+  } as AgentMessage;
+}
+
+function toolResultMsg(toolName: string, isError = false): AgentMessage {
+  return {
+    role: 'toolResult',
+    toolCallId: 'id1',
+    toolName,
+    content: [{ type: 'text', text: 'file content here '.repeat(20) }],
+    isError,
+    timestamp: Date.now(),
+  } as AgentMessage;
+}
+
+function steerMsg(prefix: string): AgentMessage {
+  return { role: 'steer', content: `${prefix} some steer message content`, timestamp: Date.now() } as AgentMessage;
+}
 
 describe('ContextCompactor', () => {
   describe('shouldCompact', () => {
-    it('should not compact small message list', () => {
-      const compactor = createContextCompactor();
-      const messages = Array(5).fill({ role: 'user', content: 'test' });
-      expect(compactor.shouldCompact(messages)).toBe(false);
+    it('does not compact small message list', () => {
+      const c = createContextCompactor();
+      const msgs = Array(5).fill(userMsg('test'));
+      expect(c.shouldCompact(msgs)).toBe(false);
     });
 
-    it('should compact large message list', () => {
-      const compactor = createContextCompactor({ maxTokens: 100 });
-      const messages = Array(15).fill({
-        role: 'user',
-        content: 'a'.repeat(100),
-      });
-      expect(compactor.shouldCompact(messages)).toBe(true);
+    it('does not compact when under token limit', () => {
+      const c = createContextCompactor({ maxTokens: 10000, minMessagesToCompact: 3 });
+      const msgs = Array(5).fill(userMsg('short'));
+      expect(c.shouldCompact(msgs)).toBe(false);
+    });
+
+    it('compacts when over token limit', () => {
+      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 3 });
+      const msgs = Array(10).fill(userMsg('a'.repeat(100)));
+      expect(c.shouldCompact(msgs)).toBe(true);
     });
   });
 
   describe('compact', () => {
-    it('should return original if no compaction needed', () => {
-      const compactor = createContextCompactor();
-      const messages = Array(5).fill({ role: 'user', content: 'test' });
-
-      const result = compactor.compact(messages);
+    it('returns original messages when no compaction needed', () => {
+      const c = createContextCompactor();
+      const msgs = Array(5).fill(userMsg('test'));
+      const result = c.compact(msgs);
       expect(result.compacted).toBe(false);
-      expect(result.originalCount).toBe(5);
-      expect(result.compactedCount).toBe(5);
+      expect(result.messages).toHaveLength(5);
     });
 
-    it('should compact large message list', () => {
-      const compactor = createContextCompactor({ maxTokens: 50 });
-      const messages = Array(15).fill({
-        role: 'user',
-        content: 'this is a test message with more content to exceed token limit',
-      });
-
-      const result = compactor.compact(messages);
+    it('preserves head and tail, compresses middle steer messages', () => {
+      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 2, preserveLastN: 2 });
+      const msgs: AgentMessage[] = [
+        userMsg('first'),
+        userMsg('second'),
+        steerMsg('[STAGNATION'),
+        steerMsg('[REMINDER]'),
+        steerMsg('[STAGNATION'),
+        steerMsg('[REMINDER]'),
+        userMsg('a'.repeat(200)),
+        userMsg('a'.repeat(200)),
+        userMsg('tail1'),
+        userMsg('tail2'),
+      ];
+      const result = c.compact(msgs);
       expect(result.compacted).toBe(true);
-      expect(result.originalCount).toBe(15);
-      expect(result.compactedCount).toBe(7);
-      expect(result.removedCount).toBe(9);
+      expect(result.originalCount).toBe(10);
+      expect(result.messages.length).toBeLessThan(10);
+    });
+
+    it('removes steer messages from middle', () => {
+      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
+      const msgs: AgentMessage[] = [
+        userMsg('first'),
+        steerMsg('[STAGNATION'),
+        steerMsg('[REMINDER]'),
+        steerMsg('[ALREADY READ]'),
+        steerMsg('[ERROR]'),
+        userMsg('a'.repeat(200)),
+        userMsg('last'),
+      ];
+      const result = c.compact(msgs);
+      const contents = result.messages.map((m) => {
+        const c = (m as { content?: unknown }).content;
+        return typeof c === 'string' ? c : JSON.stringify(c);
+      });
+      expect(contents.some((t) => t.includes('[STAGNATION'))).toBe(false);
+      expect(contents.some((t) => t.includes('[REMINDER]'))).toBe(false);
+    });
+
+    it('compresses toolResult to name+status', () => {
+      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
+      const msgs: AgentMessage[] = [
+        userMsg('first'),
+        toolResultMsg('read', false),
+        toolResultMsg('bash', true),
+        userMsg('a'.repeat(200)),
+        userMsg('last'),
+      ];
+      const result = c.compact(msgs);
+      const texts = result.messages.flatMap((m) => {
+        const c = (m as { content?: unknown }).content;
+        if (Array.isArray(c)) return c.map((b: any) => b.text ?? '');
+        return [typeof c === 'string' ? c : ''];
+      });
+      expect(texts.some((t) => t.includes('read✓'))).toBe(true);
+      expect(texts.some((t) => t.includes('bash✗'))).toBe(true);
+    });
+
+    it('truncates long user messages in middle', () => {
+      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
+      const longContent = 'x'.repeat(1000);
+      const msgs: AgentMessage[] = [
+        userMsg('first'),
+        userMsg(longContent),
+        userMsg(longContent),
+        userMsg(longContent),
+        userMsg('last'),
+      ];
+      const result = c.compact(msgs);
+      const middleMsgs = result.messages.slice(1, -1);
+      for (const m of middleMsgs) {
+        const c = (m as { content?: unknown }).content;
+        const text = typeof c === 'string' ? c : '';
+        expect(text.length).toBeLessThanOrEqual(305);
+      }
+    });
+
+    it('compresses assistant tool calls in middle', () => {
+      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 3, preserveFirstN: 1, preserveLastN: 1 });
+      const assistantWithTool: AgentMessage = {
+        role: 'assistant',
+        content: [
+          { type: 'text', text: 'I will read the file' },
+          { type: 'toolCall', id: '1', name: 'read', arguments: { filePath: 'src/foo.ts' } },
+        ],
+        timestamp: Date.now(),
+        api: 'ollama' as any,
+        provider: 'ollama' as any,
+        model: 'test',
+        usage: { input: 0, output: 0, cacheRead: 0 },
+        stopReason: 'toolUse',
+      } as AgentMessage;
+      const msgs: AgentMessage[] = [userMsg('first'), assistantWithTool, userMsg('a'.repeat(200)), userMsg('last')];
+      const result = c.compact(msgs);
+      const texts = result.messages.flatMap((m) => {
+        const c = (m as { content?: unknown }).content;
+        if (Array.isArray(c)) return c.map((b: any) => b.text ?? '');
+        return [typeof c === 'string' ? c : ''];
+      });
+      expect(texts.some((t) => t.includes('[tool:read]'))).toBe(true);
+    });
+  });
+
+  describe('estimateTokens', () => {
+    it('estimates tokens roughly as chars/4', () => {
+      const c = createContextCompactor();
+      const msgs = [userMsg('a'.repeat(400))];
+      expect(c.estimateTokens(msgs)).toBe(100);
     });
   });
 });
