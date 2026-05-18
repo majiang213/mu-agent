@@ -8,6 +8,7 @@ export interface StagnationDetectorConfig {
   maxRepeatedErrors: number;
   similarityThreshold: number;
   cycleWindowSize: number;
+  checkNoProgress: boolean;
   onIneffectiveLoop?: (detection: IneffectiveLoopDetection) => void;
 }
 
@@ -36,6 +37,7 @@ export class StagnationDetector {
       maxRepeatedErrors: 2,
       similarityThreshold: 0.8,
       cycleWindowSize: 4,
+      checkNoProgress: true,
       ...config,
     };
     this.toolCallHistory = [];
@@ -69,8 +71,10 @@ export class StagnationDetector {
     const cycle = this.detectCycle();
     if (cycle.detected) return cycle;
 
-    const noProgress = this.detectNoProgress();
-    if (noProgress.detected) return noProgress;
+    if (this.config.checkNoProgress) {
+      const noProgress = this.detectNoProgress();
+      if (noProgress.detected) return noProgress;
+    }
 
     return {
       detected: false,

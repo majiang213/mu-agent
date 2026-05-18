@@ -278,22 +278,15 @@ class ToolLine implements Component {
 
 // ─── AssistantTurn ────────────────────────────────────────────────────────────
 
-class AssistantTurn implements Component {
-  private state: string;
+class LlmTurn {
+  debugBlock: DebugBlock | null = null;
   thinkingBlock: ThinkingBlock | null = null;
-  private outputComp: LlmOutput | null = null;
-  private toolLines: ToolLine[] = [];
-  private toolMap = new Map<string, ToolLine>();
+  outputComp: LlmOutput | null = null;
+  toolLines: ToolLine[] = [];
+  toolMap = new Map<string, ToolLine>();
 
-  constructor(state: string) {
-    this.state = state;
-  }
-
-  setThinking(content: string): void {
-    this.thinkingBlock = new ThinkingBlock(content);
-  }
-  setOutput(content: string): void {
-    this.outputComp = new LlmOutput(content);
+  setDebug(systemPrompt: string, userPrompt: string): void {
+    this.debugBlock = new DebugBlock(systemPrompt, userPrompt);
   }
 
   updateThinking(content: string): void {
@@ -346,11 +339,84 @@ class AssistantTurn implements Component {
   }
 
   render(width: number): string[] {
-    const colorFn = stateColor(this.state);
-    const lines: string[] = ['', '  ' + colorFn(this.state)];
+    const lines: string[] = [];
+    if (this.debugBlock) lines.push(...this.debugBlock.render(width));
     if (this.thinkingBlock) lines.push(...this.thinkingBlock.render(width));
     if (this.outputComp) lines.push(...this.outputComp.render(width));
     for (const tl of this.toolLines) lines.push(...tl.render(width));
+    return lines;
+  }
+}
+
+class AssistantTurn implements Component {
+  private state: string;
+  private llmTurns: LlmTurn[] = [];
+  private currentLlmTurn: LlmTurn | null = null;
+
+  constructor(state: string) {
+    this.state = state;
+  }
+
+  private ensureLlmTurn(): LlmTurn {
+    if (!this.currentLlmTurn) {
+      this.currentLlmTurn = new LlmTurn();
+      this.llmTurns.push(this.currentLlmTurn);
+    }
+    return this.currentLlmTurn;
+  }
+
+  startLlmTurn(systemPrompt: string, userPrompt: string, debugMode: boolean): DebugBlock | null {
+    this.currentLlmTurn = new LlmTurn();
+    this.llmTurns.push(this.currentLlmTurn);
+    this.currentLlmTurn.setDebug(systemPrompt, userPrompt);
+    if (this.currentLlmTurn.debugBlock) {
+      this.currentLlmTurn.debugBlock.setExpanded(debugMode);
+      return this.currentLlmTurn.debugBlock;
+    }
+    return null;
+  }
+
+  get thinkingBlock(): ThinkingBlock | null {
+    return this.currentLlmTurn?.thinkingBlock ?? null;
+  }
+
+  updateThinking(content: string): void {
+    this.ensureLlmTurn().updateThinking(content);
+  }
+
+  updateOutput(content: string): void {
+    this.ensureLlmTurn().updateOutput(content);
+  }
+
+  finalizeThinking(content: string): void {
+    this.ensureLlmTurn().finalizeThinking(content);
+  }
+
+  finalizeOutput(content: string): void {
+    this.ensureLlmTurn().finalizeOutput(content);
+  }
+
+  addTool(id: string, tool: string, args?: Record<string, unknown>): void {
+    this.ensureLlmTurn().addTool(id, tool, args);
+  }
+
+  resolveTool(id: string, isError: boolean): void {
+    for (const t of this.llmTurns) {
+      if (t.toolMap.has(id)) {
+        t.resolveTool(id, isError);
+        return;
+      }
+    }
+  }
+
+  invalidate(): void {
+    for (const t of this.llmTurns) t.invalidate();
+  }
+
+  render(width: number): string[] {
+    const colorFn = stateColor(this.state);
+    const lines: string[] = ['', '  ' + colorFn(this.state)];
+    for (const t of this.llmTurns) lines.push(...t.render(width));
     return lines;
   }
 }
@@ -466,6 +532,10 @@ export class TuiApp {
           this.tui.children.splice(idx, 0, turn);
           setCurrentTurn(turn);
         }
+      } else if (event.type === 'llm_prompt') {
+        const turn = ensureCurrentTurn();
+        const debugBlock = turn.startLlmTurn(event.systemPrompt, event.userPrompt, this.debugMode);
+        if (debugBlock) this.allDebugBlocks.push(debugBlock);
       } else if (event.type === 'llm_thinking_delta') {
         const turn = ensureCurrentTurn();
         turn.updateThinking(event.content);
@@ -496,14 +566,6 @@ export class TuiApp {
           turn.resolveTool(entry[0], event.isError);
           pendingTools.delete(entry[0]);
         }
-      } else if (event.type === 'llm_prompt') {
-        const block = new DebugBlock(event.systemPrompt, event.userPrompt);
-        block.setExpanded(this.debugMode);
-        this.allDebugBlocks.push(block);
-        const turn = getCurrentTurn();
-        const anchor = turn ?? loader;
-        const idx = this.tui.children.indexOf(anchor);
-        this.tui.children.splice(idx, 0, block);
       } else if (event.type === 'llm_call') {
         this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
         this.header.setContextTokens(event.contextTokens);
@@ -577,6 +639,24 @@ export class TuiApp {
       this.metrics.finishTask(taskId, result.success);
       if (result.messages && result.messages.length > 0) {
         this.conversationHistory = result.messages;
+      }
+      if (result.output && result.output !== 'Task completed') {
+        let display = result.output;
+        try {
+          const parsed = JSON.parse(result.output) as Record<string, unknown>;
+          const text =
+            typeof parsed['report'] === 'string'
+              ? parsed['report']
+              : typeof parsed['answer'] === 'string'
+                ? parsed['answer']
+                : typeof parsed['summary'] === 'string'
+                  ? parsed['summary']
+                  : null;
+          if (text) display = text;
+        } catch (_) {
+          void _;
+        }
+        this.insertBefore(new Text(display, 0, 0));
       }
     } catch (err) {
       loader.stop();

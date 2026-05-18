@@ -115,7 +115,11 @@ When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
 
 When done, call complete(rootCause="<explanation>", location="<file:line>", fix="<suggested fix>").`,
 
-  [State.REVIEW]: `Review the code for quality, correctness, and issues. Read files only — do NOT modify anything.
+  [State.REVIEW]: `Review the code for quality, correctness, and issues.
+
+Available tools: read, grep, complete. You do NOT have bash.
+To read a file use the read tool, NOT cat or shell commands.
+Do NOT modify anything.
 
 When done, call complete(issues=[...], suggestions=[...], verdict="pass"|"fail").`,
 
@@ -123,7 +127,10 @@ When done, call complete(issues=[...], suggestions=[...], verdict="pass"|"fail")
 
 When done, call complete(testFile="<path>", cases=<number>).`,
 
-  [State.REFACTOR_PLAN]: `Plan the refactoring without making any changes. Read files to understand scope.
+  [State.REFACTOR_PLAN]: `Plan the refactoring without making any changes.
+
+Available tools: read, complete. You do NOT have bash.
+To read a file use the read tool, NOT cat or shell commands.
 
 When done, call complete(refactorSteps=["<step1>", ...], estimatedFiles=<n>).`,
 
@@ -141,15 +148,18 @@ Rules:
 
 When done, call complete(exitCode=<n>, summary="<what happened, key output>").`,
 
-  [State.RESEARCH]: `Research and investigate the topic. Read local files or search the web as needed.
+  [State.RESEARCH]: `Research and investigate the topic.
+
+Available tools: read, ls, grep, find, webfetch, websearch, complete.
+You do NOT have bash. To read a file use the read tool, NOT cat or shell commands.
 
 Strategy:
-- Understand/explain/report local code → read files, ls, grep to explore the codebase
+- Understand/explain/report local code → use read/ls/grep/find to explore
 - URL provided → webfetch it directly
-- Web topic or error → websearch first, then webfetch top results for detail
+- Web topic or error → websearch first, then webfetch top results
 - Mixed (local + web) → read local files first, then supplement with web search
 
-Do NOT modify files or run commands.
+Do NOT modify files.
 When done, call complete(report="<your findings, cite file paths or URLs>").`,
 
   [State.SETUP]: `Analyze this project and generate AGENTS.md.

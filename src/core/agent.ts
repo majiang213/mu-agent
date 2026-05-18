@@ -121,6 +121,7 @@ function buildStepAgent(
   cfg: RunConfig,
   onEvent: ((event: ExecutionEvent) => void) | undefined,
   tools = [...codingTools, astLocatorTool],
+  readFiles?: Set<string>,
 ): Agent {
   let agentRef: Agent | null = null;
 
@@ -152,6 +153,19 @@ function buildStepAgent(
     getApiKey: () => 'ollama',
     beforeToolCall: async (toolCtx) => {
       const toolName = toolCtx.toolCall.name;
+      if (toolName === 'read' && readFiles) {
+        const args = toolCtx.args as Record<string, unknown>;
+        const fp = typeof args['filePath'] === 'string' ? args['filePath'] : null;
+        if (fp) {
+          if (readFiles.has(fp)) {
+            return {
+              block: true,
+              reason: `Already read: ${fp}. Do not re-read. Already read files: ${[...readFiles].join(', ')}.`,
+            };
+          }
+          readFiles.add(fp);
+        }
+      }
       if (toolName === 'edit' || toolName === 'write') {
         if (!cfg.stateMachine.canModifyMoreFiles(cfg.safetyConfig.maxFilesPerTask)) {
           return {
@@ -194,6 +208,9 @@ function subscribeStepEvents(
   onEvent?: (event: ExecutionEvent) => void,
 ): void {
   const pendingModifyPaths = new Map<string, string>();
+  let stagnationWarnings = 0;
+  let llmTurnCount = 0;
+  const MAX_LLM_TURNS = 10;
 
   agent.subscribe((event: AgentEvent) => {
     if (event.type === 'tool_execution_start') {
@@ -306,19 +323,31 @@ function subscribeStepEvents(
         contextTokens: inputTokens,
       });
 
+      llmTurnCount++;
+      if (llmTurnCount >= MAX_LLM_TURNS) {
+        agent.abort();
+        return;
+      }
+
       if (cfg.smConfig.enableStagnationDetector) {
         const stagnationResult = stagnationDetector.check();
         if (stagnationResult?.detected) {
-          agent.steer({
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}.`,
-              },
-            ],
-            timestamp: Date.now(),
-          });
+          if (stagnationWarnings >= 1) {
+            agent.abort();
+          } else {
+            stagnationWarnings++;
+            stagnationDetector.reset();
+            agent.steer({
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion}.`,
+                },
+              ],
+              timestamp: Date.now(),
+            });
+          }
         }
       }
     }
@@ -478,14 +507,18 @@ async function runStep(
   });
 
   const allowedTools = cfg.stateMachine.getAllowedTools().filter((t) => t.name !== 'complete');
-  const stagnationDetector = new StagnationDetector();
+  const READ_ONLY_STATES = new Set([State.RESEARCH, State.REVIEW, State.DIAGNOSE, State.REFACTOR_PLAN]);
+  const stagnationDetector = new StagnationDetector({
+    checkNoProgress: !READ_ONLY_STATES.has(step.state),
+  });
   let llmText = '';
   let capturedComplete: Record<string, unknown> | null = null;
 
   const completeTool = buildCompleteTool(step.state, (args) => {
     capturedComplete = args;
   });
-  const agent = buildStepAgent(systemPrompt, [], cfg, onEvent, [...allowedTools, completeTool]);
+  const readFiles = new Set<string>();
+  const agent = buildStepAgent(systemPrompt, [], cfg, onEvent, [...allowedTools, completeTool], readFiles);
 
   subscribeStepEvents(
     agent,
