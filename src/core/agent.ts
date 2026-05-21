@@ -15,7 +15,8 @@ import { FailureHandler } from './failure/handler.js';
 import { LLMConnector } from '../provider/llm.js';
 import { astLocatorTool } from '../tool/locator.js';
 import { SafeModifier, syntaxCheckHook, damageCheckHook } from '../tool/safety/index.js';
-import { ConfigManager } from '../config/manager.js';
+import { loadConfig } from '../config/index.js';
+import type { SafetyConfig } from '../config/types.js';
 import { CodeGraphLocator } from './graph/locator.js';
 import { buildCompleteTool } from '../tool/complete.js';
 import { ContextCompactor } from './compaction/index.js';
@@ -44,9 +45,7 @@ interface Mission {
 interface RunConfig {
   model: Model<'openai-completions'>;
   stateMachine: StateMachineAgent;
-  safetyConfig: ReturnType<ConfigManager['getConfig']>['safety'];
-  smConfig: ReturnType<ConfigManager['getConfig']>['stateMachine'];
-  failureConfig: ReturnType<ConfigManager['getConfig']>['failureHandling'];
+  safetyConfig: SafetyConfig;
   safeModifier: SafeModifier;
   env: EnvContext;
   temperature: number;
@@ -173,14 +172,15 @@ function buildStepAgent(
         }
       }
       if (toolName === 'edit' || toolName === 'write') {
-        if (!cfg.stateMachine.canModifyMoreFiles(cfg.safetyConfig.maxFilesPerTask)) {
+        const maxFiles = cfg.safetyConfig.maxFilesPerTask ?? 5;
+        if (!cfg.stateMachine.canModifyMoreFiles(maxFiles)) {
           return {
             block: true,
-            reason: `File modification limit reached (max ${cfg.safetyConfig.maxFilesPerTask} files per task).`,
+            reason: `File modification limit reached (max ${maxFiles} files per task).`,
           };
         }
       }
-      if ((toolName === 'edit' || toolName === 'write') && cfg.safetyConfig.enableCheckpoint) {
+      if ((toolName === 'edit' || toolName === 'write') && (cfg.safetyConfig.enableCheckpoint ?? true)) {
         const args = toolCtx.args as Record<string, unknown>;
         const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null;
         if (filePath) {
@@ -263,8 +263,7 @@ function subscribeStepEvents(
       if (
         filePath &&
         !event.isError &&
-        cfg.safetyConfig.enableCheckpoint &&
-        cfg.safetyConfig.enablePostCheck &&
+        (cfg.safetyConfig.enableCheckpoint ?? true) &&
         cfg.safeModifier.hasCheckpoint(filePath)
       ) {
         const checkpoint = cfg.safeModifier.getCheckpoint(filePath);
@@ -344,7 +343,7 @@ function subscribeStepEvents(
         contextTokens: inputTokens,
       });
 
-      if (cfg.smConfig.enableStagnationDetector) {
+      {
         const stagnationResult = stagnationDetector.check();
         if (stagnationResult?.detected) {
           if (stagnationWarnings >= 1) {
@@ -371,14 +370,12 @@ async function runStepAgent(
   stagnationDetector: StagnationDetector,
   isCompleted?: () => boolean,
 ): Promise<Error | null> {
-  const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, cfg.failureConfig.maxRetries);
+  const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, 3);
   const failureHandler = new FailureHandler({
     maxRetries,
-    onHumanIntervention: cfg.failureConfig.enableHumanIntervention
-      ? (fCtx) => {
-          console.error(`[HUMAN INTERVENTION REQUIRED] ${fCtx.error.message}`);
-        }
-      : undefined,
+    onHumanIntervention: (fCtx) => {
+      console.error(`[HUMAN INTERVENTION REQUIRED] ${fCtx.error.message}`);
+    },
   });
   let attempt = 0;
   let lastError: Error | null = null;
@@ -651,7 +648,7 @@ export class ReactAgent {
 
     const stateMachine = new StateMachineAgent(modelName, [astLocatorTool]);
     const model = buildModel(modelName, provider, baseUrl);
-    const agentConfig = ConfigManager.getInstance().getConfig();
+    const agentConfig = loadConfig();
 
     const cwd = process.cwd();
     const home = homedir();
@@ -674,10 +671,8 @@ export class ReactAgent {
     const cfg: RunConfig = {
       model,
       stateMachine,
-      safetyConfig: agentConfig.safety,
-      smConfig: agentConfig.stateMachine,
-      failureConfig: agentConfig.failureHandling,
-      safeModifier: new SafeModifier(agentConfig.system.task.checkpointDir),
+      safetyConfig: agentConfig.safety ?? {},
+      safeModifier: new SafeModifier(),
       env,
       temperature: LLMConnector.DEFAULT_TEMPERATURE,
       projectRoot: cwd,
@@ -685,7 +680,10 @@ export class ReactAgent {
       unregisterAgent: (a) => this._activeAgents.delete(a),
     };
 
-    const conversationHistory = compressConversationHistory(initialMessages ?? [], cfg.smConfig);
+    const conversationHistory = compressConversationHistory(initialMessages ?? [], {
+      enableCompaction: true,
+      compactionThreshold: 3000,
+    });
 
     const { steps, needsClarify, questions } = await runReasonStep(mission, cfg, conversationHistory, onEvent);
 

@@ -1,65 +1,84 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { ConfigManager, initializeConfig } from '../../src/config/manager.js';
+import { describe, it, expect } from 'vitest';
+import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { loadConfig } from '../../src/config/loader.js';
 
-describe('ConfigManager', () => {
-  beforeEach(() => {
-    ConfigManager.getInstance().destroy();
+function makeTmpDir(): string {
+  const dir = join(tmpdir(), `local-agent-test-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeConfig(dir: string, cfg: object): void {
+  const configDir = join(dir, '.local-agent');
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(join(configDir, 'config.json'), JSON.stringify(cfg), 'utf-8');
+}
+
+describe('loadConfig', () => {
+  it('returns defaults when no config file exists', () => {
+    const dir = makeTmpDir();
+    try {
+      const config = loadConfig(dir);
+      expect(config.model.provider).toBe('ollama');
+      expect(config.model.name).toBe('qwen2.5:7b');
+      expect(config.logLevel).toBe('info');
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
-  afterEach(() => {
-    ConfigManager.getInstance().destroy();
+  it('merges project config over defaults', () => {
+    const dir = makeTmpDir();
+    try {
+      writeConfig(dir, {
+        model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434', contextLength: 8192 },
+        logLevel: 'debug',
+      });
+      const config = loadConfig(dir);
+      expect(config.model.name).toBe('llama3:8b');
+      expect(config.logLevel).toBe('debug');
+      expect(config.model.temperature).toBe(0.1);
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
-  describe('getInstance', () => {
-    it('should return singleton instance', () => {
-      const instance1 = ConfigManager.getInstance();
-      const instance2 = ConfigManager.getInstance();
-
-      expect(instance1).toBe(instance2);
-    });
+  it('throws on invalid model.name', () => {
+    const dir = makeTmpDir();
+    try {
+      writeConfig(dir, {
+        model: { provider: 'ollama', name: '', baseUrl: 'http://localhost:11434', contextLength: 4096 },
+      });
+      expect(() => loadConfig(dir)).toThrow('model.name');
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
-  describe('initialize', () => {
-    it('should initialize with defaults', () => {
-      const manager = ConfigManager.getInstance();
-      const config = manager.initialize();
-
-      expect(config).toBeDefined();
-      expect(config.system).toBeDefined();
-      expect(config.runtime).toBeDefined();
-    });
+  it('throws on invalid contextLength', () => {
+    const dir = makeTmpDir();
+    try {
+      writeConfig(dir, {
+        model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434', contextLength: -1 },
+      });
+      expect(() => loadConfig(dir)).toThrow('contextLength');
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 
-  describe('getConfig', () => {
-    it('should return current config', () => {
-      const manager = ConfigManager.getInstance();
-      manager.initialize();
-
-      const config = manager.getConfig();
-      expect(config).toBeDefined();
-    });
-  });
-
-  describe('updateRuntimeConfig', () => {
-    it('should update runtime config', () => {
-      const manager = ConfigManager.getInstance();
-      manager.initialize();
-
-      manager.updateRuntimeConfig({ currentVramUsage: 50 });
-
-      const config = manager.getConfig();
-      expect(config.runtime.currentVramUsage).toBe(50);
-    });
-  });
-});
-
-describe('initializeConfig', () => {
-  it('should initialize and return config', () => {
-    ConfigManager.getInstance().destroy();
-
-    const config = initializeConfig();
-
-    expect(config).toBeDefined();
-    expect(config.system).toBeDefined();
+  it('throws on invalid logLevel', () => {
+    const dir = makeTmpDir();
+    try {
+      writeConfig(dir, {
+        model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434', contextLength: 4096 },
+        logLevel: 'verbose',
+      });
+      expect(() => loadConfig(dir)).toThrow('logLevel');
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 });

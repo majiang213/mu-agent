@@ -1,59 +1,54 @@
 import { describe, it, expect } from 'vitest';
 import { getDefaultConfig, mergeWithDefaults } from '../../src/config/defaults.js';
-import type { Config } from '../../src/config/types.js';
 
-describe('config defaults', () => {
-  describe('getDefaultConfig', () => {
-    it('should return default configuration', () => {
-      const config = getDefaultConfig();
-
-      expect(config).toHaveProperty('system');
-      expect(config).toHaveProperty('runtime');
-      expect(config).toHaveProperty('stateMachine');
-
-      expect(config.system).toHaveProperty('model');
-      expect(config.system).toHaveProperty('task');
-      expect(config.system).toHaveProperty('hardware');
-      expect(config.system).toHaveProperty('logLevel');
-
-      expect(config.runtime).toHaveProperty('currentVramUsage');
-      expect(config.runtime).toHaveProperty('currentRamUsage');
-      expect(config.runtime).toHaveProperty('pauseNewTasks');
-      expect(config.runtime).toHaveProperty('adjustedContextLength');
-
-      expect(config.stateMachine).toHaveProperty('enableStagnationDetector');
-      expect(config.stateMachine).toHaveProperty('enableCompaction');
-      expect(config.stateMachine).toHaveProperty('compactionThreshold');
-    });
-
-    it('should have valid hardware constraints', () => {
-      const config = getDefaultConfig();
-
-      expect(config.system.hardware.maxRamBytes).toBeGreaterThan(0);
-      expect(config.system.hardware.recommendedContextLength).toBeGreaterThan(0);
-      expect(['3B', '7B', '8B', '13B']).toContain(config.system.hardware.recommendedModelSize);
-    });
+describe('getDefaultConfig', () => {
+  it('returns a valid config with required fields', () => {
+    const config = getDefaultConfig();
+    expect(config.model.provider).toBe('ollama');
+    expect(config.model.name).toBe('qwen2.5:7b');
+    expect(config.model.baseUrl).toBe('http://localhost:11434');
+    expect(config.model.contextLength).toBeGreaterThan(0);
+    expect(config.logLevel).toBe('info');
   });
 
-  describe('mergeWithDefaults', () => {
-    it('should merge user config with defaults', () => {
-      const userConfig: Partial<Config> = {
-        system: {
-          logLevel: 'debug',
-        } as Config['system'],
-      };
+  it('returns independent copies each call', () => {
+    const a = getDefaultConfig();
+    const b = getDefaultConfig();
+    a.model.name = 'changed';
+    expect(b.model.name).toBe('qwen2.5:7b');
+  });
+});
 
-      const config = mergeWithDefaults(userConfig);
-
-      expect(config.system.logLevel).toBe('debug');
-      expect(config.system.model).toBeDefined();
+describe('mergeWithDefaults', () => {
+  it('overrides model fields with user values', () => {
+    const config = mergeWithDefaults({
+      model: { provider: 'openai', name: 'gpt-4o', baseUrl: 'https://api.openai.com', contextLength: 128000 },
     });
+    expect(config.model.name).toBe('gpt-4o');
+    expect(config.model.provider).toBe('openai');
+    expect(config.model.contextLength).toBe(128000);
+  });
 
-    it('should use defaults for missing values', () => {
-      const config = mergeWithDefaults({});
-
-      expect(config.system.logLevel).toBe('info');
-      expect(config.stateMachine.enableStagnationDetector).toBe(true);
+  it('fills missing model fields from defaults', () => {
+    const config = mergeWithDefaults({
+      model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434', contextLength: 8192 },
     });
+    expect(config.model.temperature).toBe(0.1);
+  });
+
+  it('overrides logLevel', () => {
+    const config = mergeWithDefaults({
+      model: { provider: 'ollama', name: 'x', baseUrl: 'http://localhost:11434', contextLength: 4096 },
+      logLevel: 'debug',
+    });
+    expect(config.logLevel).toBe('debug');
+  });
+
+  it('uses default safety when not specified', () => {
+    const config = mergeWithDefaults({
+      model: { provider: 'ollama', name: 'x', baseUrl: 'http://localhost:11434', contextLength: 4096 },
+    });
+    expect(config.safety?.enableCheckpoint).toBe(true);
+    expect(config.safety?.maxFilesPerTask).toBe(5);
   });
 });

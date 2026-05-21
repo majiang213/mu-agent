@@ -1,3 +1,3 @@
 export * from './types.js';
 export * from './defaults.js';
-export { ConfigManager, initializeConfig } from './manager.js';
+export { loadConfig } from './loader.js';

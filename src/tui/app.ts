@@ -12,7 +12,7 @@ import type { Component } from '@mariozechner/pi-tui';
 import { Markdown } from '@mariozechner/pi-tui';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
-import { ConfigManager } from '../config/manager.js';
+
 import { ReactAgent } from '../core/agent.js';
 import type { ExecutionEvent } from '../core/agent.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
@@ -482,7 +482,7 @@ export class TuiApp {
 
   start(): void {
     this.running = true;
-    ConfigManager.getInstance().initialize();
+
     process.on('SIGINT', () => this.stop());
     this.tui.setFocus(this.editor);
     this.tui.start();

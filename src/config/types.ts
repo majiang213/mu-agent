@@ -2,115 +2,45 @@
  * Configuration types for local-agent
  */
 
-import type { HardwareConstraints } from '../sysinfo/types.js';
-
-/**
- * Model provider configuration
- */
 export interface ModelConfig {
   /** Provider type */
   provider: 'ollama' | 'openai' | 'custom';
-  /** Model name */
-  model: string;
-  /** Base URL for API */
+  /** Model name, e.g. "qwen2.5:7b" */
+  name: string;
+  /** Base URL for API, e.g. "http://localhost:11434" */
   baseUrl: string;
-  /** API key (if required) */
+  /** API key (required for openai/custom) */
   apiKey?: string;
-  /** Context length */
+  /** Context length — user must specify explicitly */
   contextLength: number;
-  /** Temperature for generation */
-  temperature: number;
-  /** Maximum tokens per request */
-  maxTokens: number;
+  /** Temperature for generation, default 0.1 */
+  temperature?: number;
 }
 
-/**
- * Task execution configuration
- */
-export interface TaskConfig {
-  /** Maximum retries for failed operations */
-  maxRetries: number;
-  /** Timeout for operations in milliseconds */
-  operationTimeoutMs: number;
-  /** Enable checkpointing */
-  enableCheckpoints: boolean;
-  /** Checkpoint directory */
-  checkpointDir: string;
+export interface ToolOutputConfig {
+  /** Max lines to return from tool output, default 200 */
+  maxLines?: number;
+  /** Max bytes to return from tool output, default 51200 */
+  maxBytes?: number;
 }
 
-/**
- * System configuration
- */
-export interface SystemConfig {
+export interface SafetyConfig {
+  /** Enable file checkpointing before modification, default true */
+  enableCheckpoint?: boolean;
+  /** Max lines per edit operation, default 50 */
+  maxLinesPerEdit?: number;
+  /** Max files modified per task, default 5 */
+  maxFilesPerTask?: number;
+}
+
+export interface Config {
+  $schema?: string;
   /** Model configuration */
   model: ModelConfig;
-  /** Task execution configuration */
-  task: TaskConfig;
-  /** Hardware constraints (auto-detected or manual) */
-  hardware: HardwareConstraints;
-  /** Logging level */
-  logLevel: 'debug' | 'info' | 'warn' | 'error';
-}
-
-/**
- * Runtime configuration that can be updated dynamically
- */
-export interface RuntimeConfig {
-  /** Current VRAM usage percentage */
-  currentVramUsage: number;
-  /** Current RAM usage percentage */
-  currentRamUsage: number;
-  /** Whether to pause new tasks */
-  pauseNewTasks: boolean;
-  /** Adjusted context length based on current load */
-  adjustedContextLength: number;
-}
-
-/**
- * Configuration for state machine
- */
-export interface StateMachineConfig {
-  enableStagnationDetector: boolean;
-  enableCompaction: boolean;
-  compactionThreshold: number;
-}
-
-/**
- * Safety modification configuration
- */
-export interface SafetyConfig {
-  enableCheckpoint: boolean;
-  enablePostCheck: boolean;
-  maxLinesPerEdit: number;
-  maxFilesPerTask: number;
-}
-
-/**
- * Task decomposition configuration
- */
-export interface DecompositionConfig {
-  enableLevel1: boolean;
-  enableLevel2: boolean;
-  level2MaxTokens: number;
-  maxSteps: number;
-}
-
-/**
- * Failure handling configuration
- */
-export interface FailureHandlingConfig {
-  maxRetries: number;
-  enableHumanIntervention: boolean;
-}
-
-/**
- * Complete configuration object
- */
-export interface Config {
-  system: SystemConfig;
-  runtime: RuntimeConfig;
-  stateMachine: StateMachineConfig;
-  safety: SafetyConfig;
-  decomposition: DecompositionConfig;
-  failureHandling: FailureHandlingConfig;
+  /** Tool output limits */
+  toolOutput?: ToolOutputConfig;
+  /** Safety modification settings */
+  safety?: SafetyConfig;
+  /** Log level, default 'info' */
+  logLevel?: 'debug' | 'info' | 'warn' | 'error';
 }

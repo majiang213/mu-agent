@@ -1,5 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
-import { ConfigManager } from '../../src/config/manager.js';
+import { describe, it, expect } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session.js';
 import { ReactAgent } from '../../src/core/agent.js';
 import { createFailureHandler } from '../../src/core/failure/index.js';
@@ -8,20 +7,8 @@ import { createASTLocator } from '../../src/tool/locator.js';
 import { createSafeModifier } from '../../src/tool/safety/index.js';
 
 describe('Integration Tests', () => {
-  beforeAll(() => {
-    // Reset singletons
-    ConfigManager.getInstance().destroy();
-  });
-
   describe('Module Integration', () => {
     it('should initialize all modules', () => {
-      const configManager = ConfigManager.getInstance();
-      const config = configManager.initialize();
-
-      expect(config).toBeDefined();
-      expect(config.system).toBeDefined();
-      expect(config.runtime).toBeDefined();
-
       const stateMachine = new StateMachineAgent('qwen2.5:7b');
       expect(stateMachine.getCurrentState()).toBe('REASON');
 
@@ -46,10 +33,6 @@ describe('Integration Tests', () => {
 
   describe('End-to-End Flow', () => {
     it('should complete a simple task flow', async () => {
-      // Initialize
-      const configManager = ConfigManager.getInstance();
-      configManager.initialize();
-
       const stateMachine = new StateMachineAgent('qwen2.5:7b');
 
       expect(stateMachine.getCurrentState()).toBe('REASON');

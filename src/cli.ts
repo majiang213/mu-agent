@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { ConfigManager } from './config/manager.js';
+import { loadConfig } from './config/index.js';
 import { ReactAgent } from './core/agent.js';
 
 const program = new Command();
@@ -18,12 +18,6 @@ program
     try {
       console.log(`🚀 Starting task: ${task}`);
       console.log(`🤖 Model: ${options.provider}/${options.model}`);
-
-      // Initialize config
-      const configManager = ConfigManager.getInstance();
-      configManager.initialize();
-      console.log('✅ Config loaded');
-
       console.log('\n📋 Executing task...\n');
       const result = await new ReactAgent().run(task, options.model, options.provider, options.baseUrl);
 
@@ -43,25 +37,12 @@ program
   .command('config')
   .description('Show current configuration')
   .action(() => {
-    const configManager = ConfigManager.getInstance();
-    const config = configManager.initialize();
-    console.log(JSON.stringify(config, null, 2));
-  });
-
-program
-  .command('sysinfo')
-  .description('Show system information')
-  .action(async () => {
-    const { getSysInfo } = await import('./sysinfo/collector.js');
-    const info = getSysInfo();
-    console.log('System Information:');
-    console.log(`  Platform: ${info.platform}`);
-    console.log(`  Arch: ${info.arch}`);
-    console.log(`  CPU: ${info.cpuModel} (${info.cpuCount} cores)`);
-    console.log(`  Memory: ${Math.round(info.totalMemory / 1024 / 1024 / 1024)}GB`);
-    if (info.gpu) {
-      console.log(`  GPU: ${info.gpu.model}`);
-      console.log(`  VRAM: ${Math.round(info.gpu.vramTotal / 1024 / 1024 / 1024)}GB`);
+    try {
+      const config = loadConfig();
+      console.log(JSON.stringify(config, null, 2));
+    } catch (err) {
+      console.error('Config error:', err instanceof Error ? err.message : err);
+      process.exit(1);
     }
   });
 
