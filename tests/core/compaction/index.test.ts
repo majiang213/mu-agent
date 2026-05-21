@@ -175,4 +175,68 @@ describe('ContextCompactor', () => {
       expect(c.estimateTokens(msgs)).toBe(100);
     });
   });
+
+  describe('in-loop compaction (transformContext pattern)', () => {
+    it('does not compact when messages are within budget', () => {
+      const budget = 24000;
+      const c = createContextCompactor({ maxTokens: budget });
+      const msgs = Array(8).fill(userMsg('short message'));
+      const result = c.compact(msgs);
+      expect(result.compacted).toBe(false);
+      expect(result.messages).toHaveLength(8);
+    });
+
+    it('compacts middle when messages exceed in-loop budget', () => {
+      const budget = 200;
+      const c = createContextCompactor({
+        maxTokens: budget,
+        minMessagesToCompact: 5,
+        preserveFirstN: 2,
+        preserveLastN: 2,
+      });
+      const msgs: AgentMessage[] = [
+        userMsg('system context'),
+        userMsg('task description'),
+        toolResultMsg('read'),
+        toolResultMsg('read'),
+        toolResultMsg('read'),
+        toolResultMsg('grep'),
+        userMsg('a'.repeat(500)),
+        userMsg('latest message'),
+      ];
+      const result = c.compact(msgs);
+      expect(result.compacted).toBe(true);
+      expect(result.messages[0]).toEqual(msgs[0]);
+      expect(result.messages[1]).toEqual(msgs[1]);
+      expect(result.messages.at(-1)).toEqual(msgs.at(-1));
+      expect(result.messages.at(-2)).toEqual(msgs.at(-2));
+    });
+
+    it('steer messages are removed during in-loop compaction', () => {
+      const budget = 100;
+      const c = createContextCompactor({
+        maxTokens: budget,
+        minMessagesToCompact: 5,
+        preserveFirstN: 1,
+        preserveLastN: 2,
+      });
+      const msgs: AgentMessage[] = [
+        userMsg('task'),
+        steerMsg('[STAGNATION DETECTED]'),
+        steerMsg('[REMINDER]'),
+        toolResultMsg('read'),
+        userMsg('a'.repeat(300)),
+        userMsg('latest'),
+      ];
+      const result = c.compact(msgs);
+      const allContent = result.messages
+        .map((m) => {
+          const content = (m as { content?: unknown }).content;
+          return typeof content === 'string' ? content : JSON.stringify(content);
+        })
+        .join(' ');
+      expect(allContent).not.toContain('[STAGNATION DETECTED]');
+      expect(allContent).not.toContain('[REMINDER]');
+    });
+  });
 });

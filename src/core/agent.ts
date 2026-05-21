@@ -118,6 +118,9 @@ function DEFAULT_FALLBACK_STEPS(description: string): Step[] {
   ];
 }
 
+/** Token budget for in-loop compaction: trigger at 75% of typical 32k context */
+const IN_LOOP_TOKEN_BUDGET = 24000;
+
 function buildStepAgent(
   systemPrompt: string,
   initialMessages: AgentMessage[],
@@ -201,9 +204,13 @@ function buildStepAgent(
       messages.forEach((m, i) => {
         if (m.role === 'steer') steerIndices.push(i);
       });
-      if (steerIndices.length <= 1) return messages;
-      const latestSteer = steerIndices[steerIndices.length - 1]!;
-      return messages.filter((m, i) => m.role !== 'steer' || i === latestSteer);
+      let result = messages;
+      if (steerIndices.length > 1) {
+        const latestSteer = steerIndices[steerIndices.length - 1]!;
+        result = messages.filter((m, i) => m.role !== 'steer' || i === latestSteer);
+      }
+      const compactor = new ContextCompactor({ maxTokens: IN_LOOP_TOKEN_BUDGET });
+      return compactor.compact(result).messages;
     },
     convertToLlm: (messages) => {
       return messages.flatMap((m) => {
@@ -230,8 +237,6 @@ function subscribeStepEvents(
 ): void {
   const pendingModifyPaths = new Map<string, string>();
   let stagnationWarnings = 0;
-  let llmTurnCount = 0;
-  const MAX_LLM_TURNS = 10;
 
   agent.subscribe((event: AgentEvent) => {
     if (event.type === 'tool_execution_start') {
@@ -338,12 +343,6 @@ function subscribeStepEvents(
         responseLen: usage?.output ?? 0,
         contextTokens: inputTokens,
       });
-
-      llmTurnCount++;
-      if (llmTurnCount >= MAX_LLM_TURNS) {
-        agent.abort();
-        return;
-      }
 
       if (cfg.smConfig.enableStagnationDetector) {
         const stagnationResult = stagnationDetector.check();
