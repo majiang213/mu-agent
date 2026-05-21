@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session.js';
-import { ReactAgent } from '../../src/core/agent.js';
+import { ReactAgent } from '../../src/core/agent/index.js';
 import { createFailureHandler } from '../../src/core/failure/index.js';
 import { createStagnationDetector } from '../../src/core/cognitive/index.js';
 import { createASTLocator } from '../../src/tool/locator.js';

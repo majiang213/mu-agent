@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { loadConfig } from './config/index.js';
-import { ReactAgent } from './core/agent.js';
+import { ReactAgent } from './core/agent/index.js';
 
 const program = new Command();
 

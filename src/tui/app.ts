@@ -13,8 +13,8 @@ import { Markdown } from '@mariozechner/pi-tui';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
-import { ReactAgent } from '../core/agent.js';
-import type { ExecutionEvent } from '../core/agent.js';
+import { ReactAgent } from '../core/agent/index.js';
+import type { ExecutionEvent } from '../core/agent/index.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
 import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
@@ -434,7 +434,7 @@ export class TuiApp {
   private allThinkingBlocks: ThinkingBlock[] = [];
   private allDebugBlocks: DebugBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
-  private currentAgent: import('../core/agent.js').ReactAgent | null = null;
+  private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
