@@ -1,0 +1,129 @@
+import { spawn, execSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/lib/node/main.js';
+import type { MessageConnection } from 'vscode-jsonrpc/lib/common/api.js';
+
+interface Diagnostic {
+  range: { start: { line: number; character: number } };
+  severity?: 1 | 2 | 3 | 4;
+  message: string;
+  source?: string;
+}
+
+const LANGUAGE_SERVERS: Record<string, { cmd: string; args: string[] }> = {
+  typescript: { cmd: 'typescript-language-server', args: ['--stdio'] },
+  javascript: { cmd: 'typescript-language-server', args: ['--stdio'] },
+  python: { cmd: 'pyright-langserver', args: ['--stdio'] },
+  rust: { cmd: 'rust-analyzer', args: [] },
+  go: { cmd: 'gopls', args: [] },
+};
+
+function detectLanguage(projectRoot: string): string | null {
+  if (existsSync(join(projectRoot, 'tsconfig.json'))) return 'typescript';
+  if (existsSync(join(projectRoot, 'package.json'))) return 'javascript';
+  if (existsSync(join(projectRoot, 'pyproject.toml'))) return 'python';
+  if (existsSync(join(projectRoot, 'requirements.txt'))) return 'python';
+  if (existsSync(join(projectRoot, 'Cargo.toml'))) return 'rust';
+  if (existsSync(join(projectRoot, 'go.mod'))) return 'go';
+  return null;
+}
+
+function isCommandAvailable(cmd: string): boolean {
+  try {
+    execSync(`which ${cmd}`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export class LspClient {
+  private connection: MessageConnection | null = null;
+  private diagnosticsMap = new Map<string, Diagnostic[]>();
+  private initialized = false;
+
+  async init(projectRoot: string): Promise<void> {
+    const lang = detectLanguage(resolve(projectRoot));
+    if (!lang) return;
+
+    const server = LANGUAGE_SERVERS[lang];
+    if (!server) return;
+
+    if (!isCommandAvailable(server.cmd)) return;
+
+    try {
+      const proc = spawn(server.cmd, server.args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: projectRoot,
+      });
+
+      if (!proc.stdout || !proc.stdin) return;
+
+      this.connection = createMessageConnection(
+        new StreamMessageReader(proc.stdout),
+        new StreamMessageWriter(proc.stdin),
+      );
+      this.connection.listen();
+
+      this.connection.onNotification(
+        'textDocument/publishDiagnostics',
+        (params: { uri: string; diagnostics: Diagnostic[] }) => {
+          this.diagnosticsMap.set(params.uri, params.diagnostics);
+        },
+      );
+
+      await this.connection.sendRequest('initialize', {
+        rootUri: `file://${resolve(projectRoot)}`,
+        processId: process.pid,
+        capabilities: {
+          textDocument: {
+            synchronization: { didOpen: true, didChange: true },
+            publishDiagnostics: {},
+          },
+        },
+        workspaceFolders: [{ name: 'workspace', uri: `file://${resolve(projectRoot)}` }],
+      });
+
+      await this.connection.sendNotification('initialized', {});
+      this.initialized = true;
+    } catch {
+      this.connection = null;
+    }
+  }
+
+  async touchFile(filePath: string): Promise<string[]> {
+    if (!this.initialized || !this.connection) return [];
+
+    const absPath = resolve(filePath);
+    const uri = `file://${absPath}`;
+
+    try {
+      const content = readFileSync(absPath, 'utf-8');
+      await this.connection.sendNotification('textDocument/didChange', {
+        textDocument: { uri, version: Date.now() },
+        contentChanges: [{ text: content }],
+      });
+
+      await new Promise((r) => setTimeout(r, 500));
+
+      const diagnostics = this.diagnosticsMap.get(uri) ?? [];
+      return diagnostics
+        .filter((d) => d.severity === 1)
+        .map((d) => `[LSP] ${filePath}:${d.range.start.line + 1} - ${d.message}`);
+    } catch {
+      return [];
+    }
+  }
+
+  dispose(): void {
+    try {
+      this.connection?.dispose();
+    } catch {
+      void 0;
+    }
+    this.connection = null;
+    this.initialized = false;
+    this.diagnosticsMap.clear();
+  }
+}

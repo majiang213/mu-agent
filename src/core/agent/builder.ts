@@ -44,7 +44,7 @@ export function buildStepAgent(
               : ''
           : '';
       if (!(opts as { signal?: AbortSignal })?.signal?.aborted) {
-        onEvent?.({ type: 'llm_prompt', systemPrompt: agentCtx.systemPrompt ?? '', userPrompt: userPromptText });
+        onEvent?.({ type: 'turn_start', systemPrompt: agentCtx.systemPrompt ?? '', userPrompt: userPromptText });
       }
       return streamSimple(m, agentCtx, { ...opts, apiKey: 'ollama', temperature: cfg.temperature });
     },
@@ -90,6 +90,28 @@ export function buildStepAgent(
       if (toolCtx.toolCall.name === 'complete' && !toolCtx.isError) {
         agentRef?.abort();
       }
+      if (
+        cfg.lspClient &&
+        (toolCtx.toolCall.name === 'edit' || toolCtx.toolCall.name === 'write') &&
+        !toolCtx.isError
+      ) {
+        const args = toolCtx.args as Record<string, unknown>;
+        const filePath = typeof args['path'] === 'string' ? args['path'] : null;
+        if (filePath) {
+          const errors = await cfg.lspClient.touchFile(filePath);
+          if (errors.length > 0) {
+            const existing = toolCtx.result.content ?? [{ type: 'text' as const, text: 'ok' }];
+            const lspText = errors.join('\n');
+            const existingText = existing
+              .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+              .map((c) => c.text)
+              .join('');
+            return {
+              content: [{ type: 'text' as const, text: `${existingText}\n${lspText}` }],
+            };
+          }
+        }
+      }
       return undefined;
     },
     transformContext: async (messages) => {
@@ -127,13 +149,14 @@ export function subscribeStepEvents(
   cfg: RunConfig,
   onLlmText: (text: string) => void,
   onEvent?: (event: ExecutionEvent) => void,
+  onTurnEndComplete?: () => void,
 ): void {
   const pendingModifyPaths = new Map<string, string>();
   let stagnationWarnings = 0;
 
   agent.subscribe((event: AgentEvent) => {
     if (event.type === 'tool_execution_start') {
-      onEvent?.({ type: 'tool_call', tool: event.toolName, args: event.args as Record<string, unknown> });
+      onEvent?.({ type: 'tool_execution_start', tool: event.toolName, args: event.args as Record<string, unknown> });
       cfg.stateMachine.recordToolCall(event.toolName, event.args, null);
       stagnationDetector.recordToolCall({
         tool: event.toolName,
@@ -149,7 +172,7 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'tool_execution_end') {
-      onEvent?.({ type: 'tool_result', tool: event.toolName, isError: event.isError });
+      onEvent?.({ type: 'tool_execution_end', tool: event.toolName, isError: event.isError });
       const filePath = pendingModifyPaths.get(event.toolCallId);
       pendingModifyPaths.delete(event.toolCallId);
       if (event.isError) stagnationDetector.recordError(`tool_error:${event.toolName}`);
@@ -196,7 +219,7 @@ export function subscribeStepEvents(
             .filter((c) => c.type === 'thinking' && c.thinking)
             .map((c) => c.thinking as string)
             .join('');
-          if (thinking) onEvent?.({ type: 'llm_thinking_delta', content: thinking });
+          if (thinking) onEvent?.({ type: 'message_thinking_update', content: thinking });
         }
         if (ae.type === 'text_delta' || ae.type === 'text_start') {
           const text = parts
@@ -204,7 +227,7 @@ export function subscribeStepEvents(
             .map((c) => c.text as string)
             .join('')
             .replace(/<\/think>/g, '');
-          if (text) onEvent?.({ type: 'llm_output_delta', content: text });
+          if (text) onEvent?.({ type: 'message_update', content: text });
         }
       }
     }
@@ -215,14 +238,14 @@ export function subscribeStepEvents(
         const parts = msg.content as Array<{ type: string; text?: string; thinking?: string }>;
         const thinking = parts.filter((c) => c.type === 'thinking' && c.thinking).map((c) => c.thinking as string);
         const text = parts.filter((c) => c.type === 'text' && c.text).map((c) => c.text as string);
-        if (thinking.length > 0) onEvent?.({ type: 'llm_thinking', content: thinking.join('\n') });
+        if (thinking.length > 0) onEvent?.({ type: 'message_thinking_end', content: thinking.join('\n') });
         if (text.length > 0) {
           const joined = text
             .join('\n')
             .replace(/<\/think>/g, '')
             .trim();
           if (joined) {
-            onEvent?.({ type: 'llm_output', content: joined });
+            onEvent?.({ type: 'message_end', content: joined });
             onLlmText(joined);
           }
         }
@@ -230,7 +253,7 @@ export function subscribeStepEvents(
       const usage = msg && 'usage' in msg ? (msg as { usage?: { input?: number; output?: number } }).usage : null;
       const inputTokens = usage?.input ?? 0;
       onEvent?.({
-        type: 'llm_call',
+        type: 'turn_end',
         promptLen: inputTokens,
         responseLen: usage?.output ?? 0,
         contextTokens: inputTokens,
@@ -252,6 +275,8 @@ export function subscribeStepEvents(
           }
         }
       }
+
+      onTurnEndComplete?.();
     }
   });
 }

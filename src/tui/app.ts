@@ -18,11 +18,10 @@ import type { ExecutionEvent } from '../core/agent/index.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
 import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
+import type { Config } from '../config/types.js';
 
 export interface TuiAppOptions {
-  model: string;
-  provider: string;
-  baseUrl: string;
+  config: Config;
 }
 // ─── Components ───────────────────────────────────────────────────────────────
 
@@ -435,11 +434,12 @@ export class TuiApp {
   private allDebugBlocks: DebugBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
   private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
+  private pendingClarificationAgent: import('../core/agent/index.js').ReactAgent | null = null;
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
-    this.header = new HeaderLine(options.model);
+    this.header = new HeaderLine(options.config.model.name);
     this.hintLine = new HintLine();
 
     this.editor = new Editor(this.tui, editorTheme, { paddingX: 1 });
@@ -509,6 +509,9 @@ export class TuiApp {
     getCurrentTurn: () => AssistantTurn | null,
     setCurrentTurn: (t: AssistantTurn) => void,
   ): (event: ExecutionEvent) => void {
+    const debugShownForState = new Set<string>();
+    let currentState = 'REASON';
+
     const ensureCurrentTurn = (state = 'REASON'): AssistantTurn => {
       let turn = getCurrentTurn();
       if (!turn) {
@@ -522,6 +525,7 @@ export class TuiApp {
 
     return (event: ExecutionEvent): void => {
       if (event.type === 'state_change') {
+        currentState = event.to;
         this.header.setState(event.to);
         loader.setMessage(`[${event.to}]`);
         this.metrics.recordStateExit(taskId, event.from);
@@ -532,50 +536,55 @@ export class TuiApp {
           this.tui.children.splice(idx, 0, turn);
           setCurrentTurn(turn);
         }
-      } else if (event.type === 'llm_prompt') {
+      } else if (event.type === 'turn_start') {
         const turn = ensureCurrentTurn();
-        const debugBlock = turn.startLlmTurn(event.systemPrompt, event.userPrompt, this.debugMode);
-        if (debugBlock) this.allDebugBlocks.push(debugBlock);
-      } else if (event.type === 'llm_thinking_delta') {
+        const alreadyShown = debugShownForState.has(currentState);
+        const debugBlock = turn.startLlmTurn(event.systemPrompt, event.userPrompt, this.debugMode && !alreadyShown);
+        if (debugBlock) {
+          this.allDebugBlocks.push(debugBlock);
+          debugShownForState.add(currentState);
+        }
+      } else if (event.type === 'message_thinking_update') {
         const turn = ensureCurrentTurn();
         turn.updateThinking(event.content);
         if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
           this.allThinkingBlocks.push(turn.thinkingBlock);
         }
-      } else if (event.type === 'llm_output_delta') {
+      } else if (event.type === 'message_update') {
         ensureCurrentTurn().updateOutput(event.content);
-      } else if (event.type === 'llm_thinking') {
+      } else if (event.type === 'message_thinking_end') {
         const turn = ensureCurrentTurn();
         turn.finalizeThinking(event.content);
         if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
           this.allThinkingBlocks.push(turn.thinkingBlock);
         }
-      } else if (event.type === 'llm_output') {
+      } else if (event.type === 'message_end') {
         ensureCurrentTurn().finalizeOutput(event.content);
-      } else if (event.type === 'tool_call') {
+      } else if (event.type === 'tool_execution_start') {
         const turn = ensureCurrentTurn();
         const toolId = `${Date.now()}-${event.tool}`;
         pendingTools.set(toolId, event.tool);
         turn.addTool(toolId, event.tool, event.args);
         loader.setMessage(`[${event.tool}]`);
         this.metrics.recordToolCall(taskId, event.tool);
-      } else if (event.type === 'tool_result') {
+      } else if (event.type === 'tool_execution_end') {
         const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
         const turn = getCurrentTurn();
         if (entry && turn) {
           turn.resolveTool(entry[0], event.isError);
           pendingTools.delete(entry[0]);
         }
-      } else if (event.type === 'llm_call') {
+      } else if (event.type === 'turn_end') {
         this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
         this.header.setContextTokens(event.contextTokens);
       } else if (event.type === 'task_start') {
         this.header.setState(event.description.slice(0, 20), event.taskIndex + 1, event.taskTotal);
-      } else if (event.type === 'task_done') {
+      } else if (event.type === 'task_end') {
         this.insertBefore(new Text(C.dim(`  ✓ 子任务 [${event.taskIndex + 1}/${event.taskTotal}] 完成`), 0, 0));
       } else if (event.type === 'clarification_needed') {
         const questions = event.questions.map((q, i) => `  ${i + 1}. ${q}`).join('\n');
         this.insertBefore(new Text(C.dim('  需要确认以下信息：\n') + questions, 0, 0));
+        this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       }
 
@@ -591,6 +600,13 @@ export class TuiApp {
     this.editor.addToHistory(input);
     this.insertBefore(new UserMessage(input));
     this.tui.requestRender();
+
+    if (this.pendingClarificationAgent) {
+      const agent = this.pendingClarificationAgent;
+      this.pendingClarificationAgent = null;
+      agent.provideClarification(input);
+      return;
+    }
 
     const taskId = `task-${Date.now()}`;
     this.header.setState('REASON');
@@ -625,14 +641,7 @@ export class TuiApp {
     this.currentAgent = agent;
     let aborted = false;
     try {
-      const result = await agent.run(
-        input,
-        this.options.model,
-        this.options.provider,
-        this.options.baseUrl,
-        onEvent,
-        this.conversationHistory,
-      );
+      const result = await agent.run(input, this.options.config, onEvent, this.conversationHistory);
       loader.stop();
       this.tui.removeChild(loader);
       this.metrics.recordStateExit(taskId, result.state);

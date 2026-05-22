@@ -4,7 +4,10 @@ import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { astLocatorTool } from '../../tool/locator.js';
 import { SafeModifier } from '../../tool/safety/index.js';
-import { loadConfig } from '../../config/index.js';
+import { webfetchTool } from '../../tool/webfetch.js';
+import { websearchTool } from '../../tool/websearch.js';
+import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { Config } from '../../config/types.js';
 import { LLMConnector } from '../../provider/llm.js';
 import { StateMachineAgent } from '../session.js';
 import { State } from '../types.js';
@@ -12,6 +15,7 @@ import type { StateResult } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, runStep } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
+import { LspClient } from '../../tool/lsp.js';
 
 export type { ExecutionEvent };
 
@@ -35,9 +39,7 @@ export class ReactAgent {
 
   async run(
     input: string,
-    modelName: string,
-    provider: string,
-    baseUrl: string,
+    config: Config,
     onEvent?: (event: ExecutionEvent) => void,
     initialMessages?: AgentMessage[],
   ): Promise<StateResult> {
@@ -47,9 +49,12 @@ export class ReactAgent {
       state: 'running',
     };
 
-    const stateMachine = new StateMachineAgent(modelName, [astLocatorTool]);
-    const model = buildModel(modelName, provider, baseUrl);
-    const agentConfig = loadConfig();
+    const stateMachine = new StateMachineAgent(config.model.name, [
+      astLocatorTool,
+      webfetchTool as AgentTool<any, any>,
+      websearchTool as AgentTool<any, any>,
+    ]);
+    const model = buildModel(config.model.name, config.model.provider, config.model.baseUrl);
 
     const cwd = process.cwd();
     const home = homedir();
@@ -69,16 +74,20 @@ export class ReactAgent {
       date: new Date().toDateString(),
     };
 
+    const lspClient = new LspClient();
+    await lspClient.init(cwd);
+
     const cfg = {
       model,
       stateMachine,
-      safetyConfig: agentConfig.safety ?? {},
+      safetyConfig: config.safety ?? {},
       safeModifier: new SafeModifier(),
       env,
-      temperature: LLMConnector.DEFAULT_TEMPERATURE,
+      temperature: config.model.temperature ?? LLMConnector.DEFAULT_TEMPERATURE,
       projectRoot: cwd,
       registerAgent: (a: Agent) => this._activeAgents.add(a),
       unregisterAgent: (a: Agent) => this._activeAgents.delete(a),
+      lspClient,
     };
 
     const conversationHistory = compressConversationHistory(initialMessages ?? [], {
@@ -86,28 +95,32 @@ export class ReactAgent {
       compactionThreshold: 3000,
     });
 
-    const { steps, needsClarify, questions } = await runReasonStep(mission, cfg, conversationHistory, onEvent);
+    let { steps, needsClarify, questions } = await runReasonStep(mission, cfg, conversationHistory, onEvent);
 
     if (needsClarify) {
       onEvent?.({ type: 'clarification_needed', questions });
-      return {
-        state: State.DONE,
-        success: true,
-        output: 'Clarification needed',
-        toolCalls: [],
-        nextState: State.DONE,
-        messages: [],
-      };
+      const answer = await new Promise<string>((resolve) => {
+        this._pendingClarification = resolve;
+      });
+      const clarifyMsg = { role: 'user' as const, content: answer, timestamp: Date.now() };
+      ({ steps } = await runReasonStep(mission, cfg, [...conversationHistory, clarifyMsg], onEvent));
     }
 
     const stepResults = [];
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i]!;
-      const handoff = await runStep(step, i, steps.length, mission, stepResults, cfg, onEvent);
-      stepResults.push(handoff);
+    try {
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i]!;
+        const handoff = await runStep(step, i, steps.length, mission, stepResults, cfg, onEvent);
+        stepResults.push(handoff);
+      }
+    } catch (err) {
+      mission.state = 'failed';
+      lspClient.dispose();
+      throw err;
     }
 
     mission.state = 'completed';
+    lspClient.dispose();
     return {
       state: State.DONE,
       success: true,

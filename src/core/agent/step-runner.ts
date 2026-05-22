@@ -8,11 +8,10 @@ import { buildCompleteTool } from '../../tool/complete.js';
 import { ContextCompactor } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
 import { advanceState } from '../states.js';
-import { buildStepAgent, subscribeStepEvents } from './step-agent.js';
+import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, StepHandoff } from '../types.js';
-import type { AgentEvent } from '@mariozechner/pi-agent-core';
 
 export function buildModel(modelName: string, provider: string, baseUrl: string): Model<'openai-completions'> {
   const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
@@ -82,8 +81,8 @@ export async function runStepAgent(
   input: string,
   cfg: RunConfig,
   stagnationDetector: StagnationDetector,
-  isCompleted?: () => boolean,
-): Promise<Error | null> {
+  _isCompleted?: () => boolean,
+): Promise<void> {
   const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, 3);
   const failureHandler = new FailureHandler({
     maxRetries,
@@ -92,30 +91,25 @@ export async function runStepAgent(
     },
   });
   let attempt = 0;
-  let lastError: Error | null = null;
   while (attempt < maxRetries) {
     try {
       await agent.prompt(input);
-      lastError = null;
-      break;
+      return;
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      const isAbort = lastError.name === 'AbortError' || lastError.message.includes('aborted');
+      const error = err instanceof Error ? err : new Error(String(err));
+      const isAbort = error.name === 'AbortError' || error.message.includes('aborted');
       if (isAbort) {
-        if (isCompleted?.()) {
-          lastError = null;
-        }
-        break;
+        return;
       }
       const failureCtx = failureHandler.createContext(
         'llm_error',
-        lastError,
+        error,
         cfg.stateMachine.getCurrentState(),
         attempt,
         {},
       );
       const recovery = await failureHandler.handleFailure(failureCtx);
-      if (recovery.action === 'abort') break;
+      if (recovery.action === 'abort') return;
       cfg.temperature = Math.min(
         LLMConnector.DEFAULT_TEMPERATURE + attempt * LLMConnector.RETRY_TEMPERATURE_STEP,
         LLMConnector.MAX_TEMPERATURE,
@@ -126,7 +120,6 @@ export async function runStepAgent(
     }
     attempt++;
   }
-  return lastError;
 }
 
 export async function runReasonStep(
@@ -239,6 +232,7 @@ export async function runStep(
         ...cfg.env,
         projectTree: result.tree,
         suggestedFiles: result.suggestedFiles,
+        snippets: Object.keys(result.snippets).length > 0 ? result.snippets : undefined,
       };
     } catch (e) {
       void e;
@@ -276,17 +270,16 @@ export async function runStep(
       llmText = text;
     },
     onEvent,
-  );
-
-  agent.subscribe((event: AgentEvent) => {
-    if (event.type === 'turn_end' && capturedComplete !== null) {
-      const nextState = advanceState(step.state, trajectory);
-      if (nextState !== step.state) {
-        cfg.stateMachine.transitionTo(nextState);
-        onEvent?.({ type: 'state_change', from: step.state, to: nextState });
+    () => {
+      if (capturedComplete !== null) {
+        const nextState = advanceState(step.state, trajectory);
+        if (nextState !== step.state) {
+          cfg.stateMachine.transitionTo(nextState);
+          onEvent?.({ type: 'state_change', from: step.state, to: nextState });
+        }
       }
-    }
-  });
+    },
+  );
 
   onEvent?.({ type: 'task_start', taskIndex: stepIndex, taskTotal: stepTotal, description: step.focus });
   onEvent?.({ type: 'state_change', from: State.REASON, to: step.state });
@@ -309,7 +302,7 @@ export async function runStep(
     cfg.unregisterAgent?.(agent);
   }
 
-  onEvent?.({ type: 'task_done', taskIndex: stepIndex, taskTotal: stepTotal });
+  onEvent?.({ type: 'task_end', taskIndex: stepIndex, taskTotal: stepTotal });
 
   if (step.state === State.MODIFY && capturedComplete !== null) {
     try {

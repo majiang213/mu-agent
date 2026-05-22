@@ -7,6 +7,7 @@ export interface EnvContext {
   date: string;
   projectTree?: string;
   suggestedFiles?: Array<{ path: string; hint?: string }>;
+  snippets?: Record<string, string>;
 }
 
 export interface SystemPromptOptions {
@@ -31,11 +32,16 @@ function buildBasePrompt(env?: EnvContext, state?: State): string {
       state && STATES_NEEDING_TREE.has(state) && env.suggestedFiles?.length
         ? `\n<suggested_files>\n${env.suggestedFiles.map((f) => `- ${f.path}${f.hint ? ` (${f.hint})` : ''}`).join('\n')}\n</suggested_files>`
         : '';
+    const snippetEntries = env.snippets ? Object.entries(env.snippets) : [];
+    const snippetsSection =
+      state && STATES_NEEDING_TREE.has(state) && snippetEntries.length
+        ? `\n<code_snippets>\n${snippetEntries.map(([file, code]) => `// ${file}\n${code}`).join('\n\n')}\n</code_snippets>`
+        : '';
     envBlock = `<env>
   Working directory: ${env.cwd}
   Platform: ${env.platform}
   Is git repo: ${env.isGitRepo ? 'yes' : 'no'}
-  Today's date: ${env.date}${treeSection}${suggestedSection}
+  Today's date: ${env.date}${treeSection}${suggestedSection}${snippetsSection}
 </env>`;
   }
 
@@ -91,21 +97,30 @@ Steps:
 
 When done, call complete(locations=[{file, startLine, endLine, snippet}]).`,
 
-  [State.MODIFY]: `Apply the code changes.
+  [State.MODIFY]: `Apply the code changes identified in the LOCATE step.
+
+The \`edit\` tool does SEARCH/REPLACE: it finds \`oldText\` in the file and replaces it with \`newText\`.
 
 Rules:
-- Read each file before editing it
-- Make one focused change at a time
-- Do not modify unrelated code
-- Prefer edit over write for existing files
+1. Read the file first to get the exact current content
+2. \`oldText\` must match the file EXACTLY (character for character, including whitespace)
+3. \`oldText\` should be SHORT — just the lines being changed plus 1-2 lines of context for uniqueness. Do NOT copy the whole function or file.
+4. One focused change per \`edit\` call. Use multiple \`edit\` calls for multiple changes.
+5. Use \`write\` only for new files, never for existing ones.
 
-When done, call complete(edited=["<file1>", ...], linesChanged=<n>).`,
+Example — adding a null check:
+  oldText:  "function login(user, pass) {\\n  return db.check(user);"
+  newText:  "function login(user, pass) {\\n  if (!user) throw new Error('no user');\\n  return db.check(user);"
 
-  [State.VERIFY]: `Verify the changes are correct by reading the modified files.
+When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
 
-Steps:
-1. Read each modified file and confirm the changes look right
-2. Do NOT run any commands unless the task explicitly says to run tests or check syntax
+  [State.VERIFY]: `Verify the changes work correctly.
+
+- If there are test files related to the changes, run them with bash
+- If the project has a build command (e.g. tsc, cargo build, go build), run it to check compilation across all files
+- Read the modified files to confirm the logic is correct
+
+Do NOT re-check syntax or type errors — those were already caught during editing.
 
 When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
 
