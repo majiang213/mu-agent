@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { loadConfig } from '../../src/config/loader.js';
@@ -33,7 +33,7 @@ describe('loadConfig', () => {
     const dir = makeTmpDir();
     try {
       writeConfig(dir, {
-        model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434', contextLength: 8192 },
+        model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434' },
         logLevel: 'debug',
       });
       const config = loadConfig(dir);
@@ -49,21 +49,9 @@ describe('loadConfig', () => {
     const dir = makeTmpDir();
     try {
       writeConfig(dir, {
-        model: { provider: 'ollama', name: '', baseUrl: 'http://localhost:11434', contextLength: 4096 },
+        model: { provider: 'ollama', name: '', baseUrl: 'http://localhost:11434' },
       });
       expect(() => loadConfig(dir)).toThrow('model.name');
-    } finally {
-      rmSync(dir, { recursive: true });
-    }
-  });
-
-  it('throws on invalid contextLength', () => {
-    const dir = makeTmpDir();
-    try {
-      writeConfig(dir, {
-        model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434', contextLength: -1 },
-      });
-      expect(() => loadConfig(dir)).toThrow('contextLength');
     } finally {
       rmSync(dir, { recursive: true });
     }
@@ -73,10 +61,22 @@ describe('loadConfig', () => {
     const dir = makeTmpDir();
     try {
       writeConfig(dir, {
-        model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434', contextLength: 4096 },
+        model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434' },
         logLevel: 'verbose',
       });
       expect(() => loadConfig(dir)).toThrow('logLevel');
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it('throws on invalid provider', () => {
+    const dir = makeTmpDir();
+    try {
+      writeConfig(dir, {
+        model: { provider: 'openai', name: 'gpt-4o', baseUrl: 'https://api.openai.com/v1' },
+      });
+      expect(() => loadConfig(dir)).toThrow('provider');
     } finally {
       rmSync(dir, { recursive: true });
     }

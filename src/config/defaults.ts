@@ -5,7 +5,6 @@ export const DEFAULT_CONFIG: Config = {
     provider: 'ollama',
     name: 'qwen2.5:7b',
     baseUrl: 'http://localhost:11434',
-    contextLength: 32768,
     temperature: 0.1,
   },
   toolOutput: {

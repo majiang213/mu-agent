@@ -7,6 +7,7 @@ import { join } from 'node:path';
 
 import { saveConfig } from '../config/index.js';
 import { getLspStatus } from '../config/lsp-status.js';
+import { fetchOllamaModels, fetchCustomModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
 import { C } from './theme.js';
 
@@ -27,6 +28,7 @@ export class SetupWizard {
   private step = 1;
   private readonly totalSteps = 4;
   private stepComponents: Text[] = [];
+  private graphBuilt: boolean | null = null;
 
   constructor() {
     const terminal = new ProcessTerminal();
@@ -120,33 +122,61 @@ export class SetupWizard {
     ];
     const defaultProviderIdx = providerItems.findIndex((i) => i.value === provider);
     const selectedProvider = await this.waitForSelect(providerItems, defaultProviderIdx < 0 ? 0 : defaultProviderIdx);
-    if (selectedProvider) {
-      provider = selectedProvider.value;
-    }
-
-    this.addStepText(`\n  Provider: ${C.ok(provider)}\n  模型名称:`);
-    const modelName = await this.waitForInput(existing.name ?? '');
+    if (selectedProvider) provider = selectedProvider.value;
 
     const baseUrlDefault = provider === 'ollama' ? 'http://localhost:11434' : '';
-    this.addStepText(`\n  Provider: ${C.ok(provider)}\n  模型名称: ${C.ok(modelName)}\n  Base URL:`);
+    this.addStepText(`\n  Provider: ${C.ok(provider)}\n  Base URL:`);
     const baseUrl = await this.waitForInput(existing.baseUrl ?? baseUrlDefault);
 
-    this.addStepText(
-      `\n  Provider: ${C.ok(provider)}\n  模型名称: ${C.ok(modelName)}\n  Base URL: ${C.ok(baseUrl)}\n  Context Length:`,
-    );
-    const ctxRaw = await this.waitForInput(existing.contextLength ? String(existing.contextLength) : '');
-    const contextLength = parseInt(ctxRaw, 10) || 32768;
+    const modelName = await this.pickModel(provider, baseUrl, existing.name);
 
     saveConfig({
       model: {
         provider: provider as 'ollama' | 'custom',
         name: modelName,
         baseUrl,
-        contextLength,
       },
     });
 
     this.clearStep();
+  }
+
+  private async pickModel(provider: string, baseUrl: string, existingName?: string): Promise<string> {
+    const loader = new Loader(
+      this.tui,
+      (s) => C.pending(s),
+      (s) => C.dim(s),
+      '正在获取模型列表...',
+    );
+    this.tui.addChild(loader);
+    loader.start();
+    this.tui.requestRender();
+
+    const models = provider === 'ollama' ? await fetchOllamaModels(baseUrl) : await fetchCustomModels(baseUrl);
+
+    loader.stop();
+    this.tui.removeChild(loader);
+
+    if (models.length === 0) {
+      this.addStepText(`\n  ${C.dim('未能获取模型列表，请手动输入')}\n  模型名称:`);
+      return this.waitForInput(existingName ?? '');
+    }
+
+    const items: SelectItem[] = models.map((m) => ({
+      value: m.name,
+      label: m.name,
+      description: `context: ${m.contextLength.toLocaleString()}`,
+    }));
+    this.addStepText('\n  选择模型:');
+    this.tui.requestRender();
+
+    const defaultIdx = existingName ? items.findIndex((i) => i.value === existingName) : 0;
+    const selected = await this.waitForSelect(items, defaultIdx < 0 ? 0 : defaultIdx);
+
+    if (selected) return selected.value;
+
+    this.addStepText(`\n  模型名称:`);
+    return this.waitForInput(existingName ?? '');
   }
 
   // ─── Step 2: LSP 诊断 ─────────────────────────────────────────────────────
@@ -161,9 +191,6 @@ export class SetupWizard {
     const lspStatus = getLspStatus(process.cwd());
 
     if (lspStatus.status === 'not_detected') {
-      this.addStepText(`\n  ${C.dim('未检测到支持的项目语言，跳过 LSP 配置')}`);
-      this.tui.requestRender();
-      await this.shortPause();
       this.clearStep();
       return;
     }
@@ -176,7 +203,6 @@ export class SetupWizard {
     this.tui.requestRender();
 
     if (lspStatus.status === 'active') {
-      await this.shortPause();
       this.clearStep();
       return;
     }
@@ -211,13 +237,11 @@ export class SetupWizard {
       loader.stop();
       this.tui.removeChild(loader);
 
-      const resultMsg = installError
-        ? new Text(`\n  ${C.err(`✗ 安装失败: ${installError}`)}`, 0, 0)
-        : new Text(`\n  ${C.ok(`✓ ${serverLabel} 已安装`)}`, 0, 0);
-      this.tui.addChild(resultMsg);
+      const resultText = installError
+        ? `\n  ${C.err(`✗ 安装失败: ${installError}`)}`
+        : `\n  ${C.ok(`✓ ${serverLabel} 已安装`)}`;
+      this.addStepText(resultText);
       this.tui.requestRender();
-      await this.shortPause();
-      this.tui.removeChild(resultMsg);
     }
   }
 
@@ -265,13 +289,10 @@ export class SetupWizard {
       loader.stop();
       this.tui.removeChild(loader);
 
-      const resultMsg = buildError
-        ? new Text(`\n  ${C.err(`✗ 构建失败: ${buildError}`)}`, 0, 0)
-        : new Text(`\n  ${C.ok('✓ 代码图已构建')}`, 0, 0);
-      this.tui.addChild(resultMsg);
+      this.graphBuilt = !buildError;
+      const resultText = buildError ? `\n  ${C.err(`✗ 构建失败: ${buildError}`)}` : `\n  ${C.ok('✓ 代码图已构建')}`;
+      this.addStepText(resultText);
       this.tui.requestRender();
-      await this.shortPause();
-      this.tui.removeChild(resultMsg);
     }
   }
 
@@ -291,7 +312,8 @@ export class SetupWizard {
           ? `\n  ${C.err('✗')} LSP: ${lspStatus.server} 未安装`
           : '';
 
-    const graphLine = existsSync(dbPath) ? `\n  ${C.ok('✓')} 代码图已构建` : `\n  ${C.err('✗')} 代码图未构建`;
+    const graphOk = this.graphBuilt ?? existsSync(dbPath);
+    const graphLine = graphOk ? `\n  ${C.ok('✓')} 代码图已构建` : `\n  ${C.err('✗')} 代码图未构建`;
 
     const done = new Text(
       `\n  ${C.ok('设置完成！')}` +
@@ -331,12 +353,14 @@ export class SetupWizard {
 
       list.onSelect = (item) => {
         this.tui.removeChild(list);
+        this.tui.setFocus(null);
         this.tui.requestRender();
         resolve(item);
       };
 
       list.onCancel = () => {
         this.tui.removeChild(list);
+        this.tui.setFocus(null);
         this.tui.requestRender();
         resolve(null);
       };
@@ -354,12 +378,14 @@ export class SetupWizard {
 
       input.onSubmit = (value) => {
         this.tui.removeChild(input);
+        this.tui.setFocus(null);
         this.tui.requestRender();
         resolve(value || defaultValue);
       };
 
       input.onEscape = () => {
         this.tui.removeChild(input);
+        this.tui.setFocus(null);
         this.tui.requestRender();
         resolve(defaultValue);
       };
@@ -368,10 +394,6 @@ export class SetupWizard {
       this.tui.setFocus(input);
       this.tui.requestRender();
     });
-  }
-
-  private shortPause(ms = 800): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 

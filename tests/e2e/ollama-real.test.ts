@@ -4,10 +4,12 @@ import { LLMService } from '../../src/provider/llm-service.js';
 import { StateMachineAgent } from '../../src/core/session.js';
 import { MetricsCollector } from '../../src/core/metrics.js';
 import { State, type Step } from '../../src/core/types.js';
+import { loadConfig } from '../../src/config/loader.js';
 
-const MODEL = 'qwen3.5:9b';
-const BASE_URL = 'http://localhost:11434';
-const PROVIDER = 'ollama';
+const config = loadConfig();
+const MODEL = config.model.name;
+const BASE_URL = config.model.baseUrl;
+const PROVIDER = config.model.provider;
 
 async function isOllamaRunning(): Promise<boolean> {
   try {
@@ -22,14 +24,13 @@ describe('Real Ollama Integration', () => {
   beforeAll(async () => {
     const running = await isOllamaRunning();
     if (!running) {
-      console.warn('Ollama not running — skipping real LLM tests');
+      throw new Error(
+        `Ollama is not running at ${BASE_URL}. Start Ollama and ensure model "${MODEL}" is available before running these tests.`,
+      );
     }
   });
 
   it('LLMConnector: 直接调用 Ollama 返回非空内容', async () => {
-    const running = await isOllamaRunning();
-    if (!running) return;
-
     const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
     const result = await connector.generate('You are a helpful assistant.', '你好');
     console.log('[LLMConnector] response:', result.content);
@@ -37,9 +38,6 @@ describe('Real Ollama Integration', () => {
   }, 30000);
 
   it('LLMService: 在 REASON 状态下生成分析响应', async () => {
-    const running = await isOllamaRunning();
-    if (!running) return;
-
     const service = new LLMService(PROVIDER, MODEL, BASE_URL);
     const agent = new StateMachineAgent(MODEL);
     const context = agent.createContext('帮我给 foo.ts 加一个 hello 函数');
@@ -51,9 +49,6 @@ describe('Real Ollama Integration', () => {
   }, 30000);
 
   it('动态步骤 + LLMService: 对第一个 Step 调用 LLM', async () => {
-    const running = await isOllamaRunning();
-    if (!running) return;
-
     const steps: Step[] = [
       { state: State.ANALYZE, focus: '分析登录 bug 的位置' },
       { state: State.MODIFY, focus: '修复 bug' },
@@ -73,9 +68,6 @@ describe('Real Ollama Integration', () => {
   }, 30000);
 
   it('MetricsCollector: 追踪真实 LLM 调用的 token 和耗时', async () => {
-    const running = await isOllamaRunning();
-    if (!running) return;
-
     const metrics = new MetricsCollector();
     const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
 
@@ -101,9 +93,6 @@ describe('Real Ollama Integration', () => {
   }, 30000);
 
   it('完整流程: 动态步骤 → 状态机 → LLM → Metrics 汇总', async () => {
-    const running = await isOllamaRunning();
-    if (!running) return;
-
     const steps: Step[] = [
       { state: State.ANALYZE, focus: '分析登录 bug 位置' },
       { state: State.MODIFY, focus: '修复 bug' },

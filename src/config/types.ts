@@ -11,8 +11,6 @@ export interface ModelConfig {
   baseUrl: string;
   /** API key (required for custom provider) */
   apiKey?: string;
-  /** Context length — user must specify explicitly */
-  contextLength: number;
   /** Temperature for generation, default 0.1 */
   temperature?: number;
 }

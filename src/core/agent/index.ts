@@ -54,7 +54,7 @@ export class ReactAgent {
       webfetchTool as AgentTool<any, any>,
       websearchTool as AgentTool<any, any>,
     ]);
-    const model = buildModel(config.model.name, config.model.provider, config.model.baseUrl);
+    const model = await buildModel(config.model.name, config.model.provider, config.model.baseUrl, config.model.apiKey);
 
     const cwd = process.cwd();
     const home = homedir();
@@ -95,15 +95,17 @@ export class ReactAgent {
       compactionThreshold: 3000,
     });
 
-    let { steps, needsClarify, questions } = await runReasonStep(mission, cfg, conversationHistory, onEvent);
-
-    if (needsClarify) {
+    const { steps } = await runReasonStep(mission, cfg, conversationHistory, onEvent, async (questions) => {
       onEvent?.({ type: 'clarification_needed', questions });
-      const answer = await new Promise<string>((resolve) => {
+      return new Promise<string>((resolve) => {
         this._pendingClarification = resolve;
       });
-      const clarifyMsg = { role: 'user' as const, content: answer, timestamp: Date.now() };
-      ({ steps } = await runReasonStep(mission, cfg, [...conversationHistory, clarifyMsg], onEvent));
+    });
+
+    if (steps.length === 0) {
+      mission.state = 'completed';
+      lspClient.dispose();
+      return { state: State.DONE, success: true, output: '', toolCalls: [], nextState: State.DONE, messages: [] };
     }
 
     const stepResults = [];

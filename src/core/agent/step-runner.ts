@@ -3,6 +3,7 @@ import type { Model } from '@mariozechner/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
 import { FailureHandler } from '../failure/handler.js';
 import { LLMConnector } from '../../provider/llm.js';
+import { fetchContextLength } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
 import { ContextCompactor } from '../compaction/index.js';
@@ -13,8 +14,14 @@ import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, StepHandoff } from '../types.js';
 
-export function buildModel(modelName: string, provider: string, baseUrl: string): Model<'openai-completions'> {
+export async function buildModel(
+  modelName: string,
+  provider: string,
+  baseUrl: string,
+  apiKey?: string,
+): Promise<Model<'openai-completions'>> {
   const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+  const contextWindow = await fetchContextLength(provider, baseUrl, modelName, apiKey);
   return {
     id: modelName,
     name: modelName,
@@ -24,8 +31,8 @@ export function buildModel(modelName: string, provider: string, baseUrl: string)
     reasoning: false,
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 32768,
-    maxTokens: 4096,
+    contextWindow,
+    maxTokens: Math.min(Math.floor(contextWindow * 0.25), 8192),
   };
 }
 
@@ -127,7 +134,8 @@ export async function runReasonStep(
   cfg: RunConfig,
   conversationHistory: AgentMessage[],
   onEvent?: (event: ExecutionEvent) => void,
-): Promise<{ steps: Step[]; needsClarify: boolean; questions: string[] }> {
+  onNeedsClarify?: (questions: string[]) => Promise<string>,
+): Promise<{ steps: Step[] }> {
   cfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
     state: State.REASON,
@@ -158,6 +166,18 @@ export async function runReasonStep(
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
     }
+
+    if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
+      const questions = Array.isArray(capturedComplete['questions']) ? (capturedComplete['questions'] as string[]) : [];
+      const answer = await onNeedsClarify(questions);
+      capturedComplete = null;
+      agent.steer({
+        role: 'steer',
+        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated plan.`,
+        timestamp: Date.now(),
+      });
+      await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    }
   } finally {
     cfg.unregisterAgent?.(agent);
   }
@@ -165,12 +185,11 @@ export async function runReasonStep(
   if (capturedComplete !== null) {
     const c = capturedComplete;
     if (c['needsClarify'] === true) {
-      const questions = Array.isArray(c['questions']) ? (c['questions'] as string[]) : [];
-      return { steps: [], needsClarify: true, questions };
+      return { steps: [] };
     }
     const { steps, error } = parseReasonSteps(c);
     if (steps.length > 0) {
-      return { steps, needsClarify: false, questions: [] };
+      return { steps };
     }
     capturedComplete = null;
     agent.steer({
@@ -182,7 +201,7 @@ export async function runReasonStep(
     if (capturedComplete !== null) {
       const { steps: retrySteps } = parseReasonSteps(capturedComplete);
       if (retrySteps.length > 0) {
-        return { steps: retrySteps, needsClarify: false, questions: [] };
+        return { steps: retrySteps };
       }
     }
   } else {
@@ -195,12 +214,12 @@ export async function runReasonStep(
     if (capturedComplete !== null) {
       const { steps } = parseReasonSteps(capturedComplete);
       if (steps.length > 0) {
-        return { steps, needsClarify: false, questions: [] };
+        return { steps };
       }
     }
   }
 
-  return { steps: DEFAULT_FALLBACK_STEPS(mission.description), needsClarify: false, questions: [] };
+  return { steps: [] };
 }
 
 export async function runStep(

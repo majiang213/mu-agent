@@ -82,7 +82,12 @@ const STATE_INSTRUCTIONS: Partial<Record<State, string>> = {
 Each step needs a specific "focus" describing exactly what to do. Maximum 6 steps.
 
 When done, call complete(steps=[...], needsClarify=false).
-If intent is genuinely unclear, call complete(steps=[], needsClarify=true, questions=["<question>"]).`,
+If intent is genuinely unclear, call complete(steps=[], needsClarify=true, questions=["<question>"]).
+
+Examples:
+- Chitchat/Q&A: complete(steps=[{state:"ANSWER", focus:"respond to greeting"}], needsClarify=false)
+- Code edit:    complete(steps=[{state:"LOCATE",focus:"find login function"},{state:"MODIFY",focus:"add null check"}], needsClarify=false)
+- Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])`,
 
   [State.CLARIFY]: `The task is ambiguous. List what you need from the user. Maximum 3 questions.
 

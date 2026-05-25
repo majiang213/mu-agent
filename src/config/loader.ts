@@ -25,9 +25,6 @@ function validateConfig(cfg: Config, source: string): void {
   if (!model.baseUrl || typeof model.baseUrl !== 'string') {
     throw new Error(`${source}: model.baseUrl must be a non-empty string`);
   }
-  if (!model.contextLength || typeof model.contextLength !== 'number' || model.contextLength <= 0) {
-    throw new Error(`${source}: model.contextLength must be a positive number`);
-  }
   if (!['ollama', 'custom'].includes(model.provider)) {
     throw new Error(`${source}: model.provider must be one of: ollama, custom`);
   }
