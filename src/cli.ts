@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { loadConfig, saveConfig } from './config/index.js';
+import { getLspStatus } from './config/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
 
@@ -56,7 +57,8 @@ program
     try {
       applyCliOverrides(options);
       const config = loadConfig();
-      console.log(JSON.stringify(config, null, 2));
+      const lsp = getLspStatus(process.cwd());
+      console.log(JSON.stringify({ ...config, lsp }, null, 2));
     } catch (err) {
       console.error('Config error:', err instanceof Error ? err.message : err);
       process.exit(1);
@@ -86,6 +88,15 @@ program
     const { createTuiApp } = await import('./tui/index.js');
     const app = createTuiApp({ config });
     app.start();
+  });
+
+program
+  .command('setup')
+  .description('Interactive setup wizard — configure model, LSP, and code graph')
+  .action(async () => {
+    const { createSetupWizard } = await import('./tui/setup.js');
+    const wizard = createSetupWizard();
+    await wizard.run();
   });
 
 program.parse();

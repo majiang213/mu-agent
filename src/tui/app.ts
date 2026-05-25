@@ -19,6 +19,7 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from '../core/metrics.js';
 import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import type { Config } from '../config/types.js';
+import { getLspStatus } from '../config/lsp-status.js';
 
 export interface TuiAppOptions {
   config: Config;
@@ -486,6 +487,12 @@ export class TuiApp {
     process.on('SIGINT', () => this.stop());
     this.tui.setFocus(this.editor);
     this.tui.start();
+
+    const lspStatus = getLspStatus(process.cwd());
+    if (lspStatus.status === 'not_installed') {
+      this.insertBefore(new Text(C.err(`  ✗ LSP: ${lspStatus.server} 未安装（运行 local-agent setup 安装）`), 0, 0));
+    }
+
     this.insertBefore(new Text('\x1b[37m  准备就绪，输入任务后按 Enter 执行\x1b[0m', 0, 0));
     this.tui.requestRender();
   }
