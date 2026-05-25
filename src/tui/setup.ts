@@ -1,11 +1,13 @@
 import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@mariozechner/pi-tui';
 import type { SelectItem } from '@mariozechner/pi-tui';
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadConfig, saveConfig } from '../config/index.js';
+import { saveConfig } from '../config/index.js';
 import { getLspStatus } from '../config/lsp-status.js';
+import type { Config } from '../config/types.js';
 import { C } from './theme.js';
 
 // ─── SelectList theme (matches project style) ────────────────────────────────
@@ -24,6 +26,7 @@ export class SetupWizard {
   private tui: TUI;
   private step = 1;
   private readonly totalSteps = 4;
+  private stepComponents: Text[] = [];
 
   constructor() {
     const terminal = new ProcessTerminal();
@@ -32,6 +35,20 @@ export class SetupWizard {
 
   async run(): Promise<void> {
     this.tui.start();
+
+    process.on('SIGINT', () => {
+      this.tui.stop();
+      process.exit(0);
+    });
+
+    this.tui.addInputListener((data) => {
+      if (data === '\x03') {
+        this.tui.stop();
+        process.exit(0);
+      }
+      return undefined;
+    });
+
     this.renderHeader();
 
     await this.stepModel();
@@ -69,73 +86,67 @@ export class SetupWizard {
 
   // ─── Step 1: 模型配置 ──────────────────────────────────────────────────────
 
+  private loadExistingModel(): Partial<Config['model']> {
+    const paths = [
+      join(process.cwd(), '.local-agent', 'config.json'),
+      join(homedir(), '.config', 'local-agent', 'config.json'),
+    ];
+    for (const p of paths) {
+      if (existsSync(p)) {
+        try {
+          const parsed = JSON.parse(readFileSync(p, 'utf-8')) as Partial<Config>;
+          if (parsed.model) return parsed.model;
+        } catch {
+          // ignore malformed file
+        }
+      }
+    }
+    return {};
+  }
+
   private async stepModel(): Promise<void> {
     this.step = 1;
     this.renderHeader();
 
-    const cfg = loadConfig();
+    const existing = this.loadExistingModel();
 
-    const title = new Text('\n  ' + C.ok('模型配置'), 0, 0);
-    this.tui.addChild(title);
+    this.addStepText('\n  ' + C.ok('模型配置'));
+    this.addStepText('\n  Provider');
 
-    const providerLabel = new Text('\n  Provider', 0, 0);
-    this.tui.addChild(providerLabel);
-
-    let provider: string = cfg.model.provider;
+    let provider: string = existing.provider ?? 'ollama';
     const providerItems: SelectItem[] = [
       { value: 'ollama', label: 'ollama', description: 'Local Ollama server' },
-      { value: 'openai', label: 'openai', description: 'OpenAI-compatible API' },
       { value: 'custom', label: 'custom', description: 'Custom base URL' },
     ];
     const defaultProviderIdx = providerItems.findIndex((i) => i.value === provider);
-
     const selectedProvider = await this.waitForSelect(providerItems, defaultProviderIdx < 0 ? 0 : defaultProviderIdx);
     if (selectedProvider) {
       provider = selectedProvider.value;
     }
 
-    this.tui.removeChild(providerLabel);
+    this.addStepText(`\n  Provider: ${C.ok(provider)}\n  模型名称:`);
+    const modelName = await this.waitForInput(existing.name ?? '');
 
-    const modelNameLabel = new Text(`\n  Provider: ${C.ok(provider)}\n  模型名称:`, 0, 0);
-    this.tui.addChild(modelNameLabel);
-    const modelName = await this.waitForInput(cfg.model.name);
-    this.tui.removeChild(modelNameLabel);
+    const baseUrlDefault = provider === 'ollama' ? 'http://localhost:11434' : '';
+    this.addStepText(`\n  Provider: ${C.ok(provider)}\n  模型名称: ${C.ok(modelName)}\n  Base URL:`);
+    const baseUrl = await this.waitForInput(existing.baseUrl ?? baseUrlDefault);
 
-    const baseUrlDefault =
-      provider === 'ollama'
-        ? 'http://localhost:11434'
-        : provider === 'openai'
-          ? 'https://api.openai.com/v1'
-          : cfg.model.baseUrl;
-    const baseUrlLabel = new Text(`\n  Provider: ${C.ok(provider)}\n  模型名称: ${C.ok(modelName)}\n  Base URL:`, 0, 0);
-    this.tui.addChild(baseUrlLabel);
-    const baseUrl = await this.waitForInput(cfg.model.baseUrl || baseUrlDefault);
-    this.tui.removeChild(baseUrlLabel);
-
-    const ctxLabel = new Text(
+    this.addStepText(
       `\n  Provider: ${C.ok(provider)}\n  模型名称: ${C.ok(modelName)}\n  Base URL: ${C.ok(baseUrl)}\n  Context Length:`,
-      0,
-      0,
     );
-    this.tui.addChild(ctxLabel);
-    const ctxRaw = await this.waitForInput(String(cfg.model.contextLength || 32768));
-    this.tui.removeChild(ctxLabel);
-
-    const contextLength = parseInt(ctxRaw, 10) || cfg.model.contextLength;
+    const ctxRaw = await this.waitForInput(existing.contextLength ? String(existing.contextLength) : '');
+    const contextLength = parseInt(ctxRaw, 10) || 32768;
 
     saveConfig({
       model: {
-        provider: provider as 'ollama' | 'openai' | 'custom',
+        provider: provider as 'ollama' | 'custom',
         name: modelName,
         baseUrl,
         contextLength,
       },
     });
 
-    const summary = new Text(`\n  ${C.ok('✓')} 模型配置已保存: ${C.ok(modelName)} (${provider})`, 0, 0);
-    this.tui.addChild(summary);
-    this.tui.removeChild(title);
-    this.tui.requestRender();
+    this.clearStep();
   }
 
   // ─── Step 2: LSP 诊断 ─────────────────────────────────────────────────────
@@ -144,51 +155,40 @@ export class SetupWizard {
     this.step = 2;
     this.renderHeader();
 
-    const title = new Text('\n  ' + C.ok('LSP 诊断'), 0, 0);
-    this.tui.addChild(title);
+    this.addStepText('\n  ' + C.ok('LSP 诊断'));
     this.tui.requestRender();
 
     const lspStatus = getLspStatus(process.cwd());
 
     if (lspStatus.status === 'not_detected') {
-      const msg = new Text(`\n  ${C.dim('未检测到支持的项目语言，跳过 LSP 配置')}`, 0, 0);
-      this.tui.addChild(msg);
+      this.addStepText(`\n  ${C.dim('未检测到支持的项目语言，跳过 LSP 配置')}`);
       this.tui.requestRender();
       await this.shortPause();
-      this.tui.removeChild(title);
+      this.clearStep();
       return;
     }
 
     const langLabel = lspStatus.detectedLanguage ?? '';
     const serverLabel = lspStatus.server ?? '';
-    const statusMark = lspStatus.status === 'active' ? C.ok('✓ 已安装') : C.err(`✗ 未安装`);
+    const statusMark = lspStatus.status === 'active' ? C.ok('✓ 已安装') : C.err('✗ 未安装');
 
-    const infoText = new Text(`\n  检测到 ${C.ok(langLabel)} 项目\n\n  ${serverLabel}   ${statusMark}`, 0, 0);
-    this.tui.addChild(infoText);
+    this.addStepText(`\n  检测到 ${C.ok(langLabel)} 项目\n\n  ${serverLabel}   ${statusMark}`);
     this.tui.requestRender();
 
     if (lspStatus.status === 'active') {
       await this.shortPause();
-      this.tui.removeChild(title);
-      this.tui.removeChild(infoText);
+      this.clearStep();
       return;
     }
 
-    // Not installed — ask to install
-    const installLabel = new Text(
-      `\n  安装命令: ${C.dim(lspStatus.installCommand ?? '')}` + `\n\n  是否现在安装？`,
-      0,
-      0,
-    );
-    this.tui.addChild(installLabel);
+    this.addStepText(`\n  安装命令: ${C.dim(lspStatus.installCommand ?? '')}\n\n  是否现在安装？`);
 
     const choice = await this.waitForSelect([
       { value: 'yes', label: '是，立即安装' },
       { value: 'no', label: '否，跳过' },
     ]);
 
-    this.tui.removeChild(installLabel);
-    this.tui.removeChild(infoText);
+    this.clearStep();
 
     if (choice?.value === 'yes' && lspStatus.installCommand) {
       const loader = new Loader(
@@ -219,9 +219,6 @@ export class SetupWizard {
       await this.shortPause();
       this.tui.removeChild(resultMsg);
     }
-
-    this.tui.removeChild(title);
-    this.tui.requestRender();
   }
 
   // ─── Step 3: 代码图 ───────────────────────────────────────────────────────
@@ -230,16 +227,12 @@ export class SetupWizard {
     this.step = 3;
     this.renderHeader();
 
-    const title = new Text('\n  ' + C.ok('代码图'), 0, 0);
-    this.tui.addChild(title);
+    this.addStepText('\n  ' + C.ok('代码图'));
 
     const dbPath = join(process.cwd(), '.local-agent', 'graph.db');
     const dbExists = existsSync(dbPath);
-
     const statusMsg = dbExists ? `\n  ${C.ok('✓')} 代码图已存在 (graph.db)` : `\n  ${C.dim('代码图尚未构建')}`;
-
-    const statusText = new Text(statusMsg + '\n\n  是否现在构建？', 0, 0);
-    this.tui.addChild(statusText);
+    this.addStepText(statusMsg + '\n\n  是否现在构建？');
     this.tui.requestRender();
 
     const choice = await this.waitForSelect([
@@ -247,7 +240,7 @@ export class SetupWizard {
       { value: 'no', label: '否，跳过' },
     ]);
 
-    this.tui.removeChild(statusText);
+    this.clearStep();
 
     if (choice?.value === 'yes') {
       const loader = new Loader(
@@ -280,9 +273,6 @@ export class SetupWizard {
       await this.shortPause();
       this.tui.removeChild(resultMsg);
     }
-
-    this.tui.removeChild(title);
-    this.tui.requestRender();
   }
 
   // ─── Step 4: 完成 ─────────────────────────────────────────────────────────
@@ -312,6 +302,23 @@ export class SetupWizard {
       0,
     );
     this.tui.addChild(done);
+    this.tui.requestRender();
+  }
+
+  // ─── Step lifecycle ───────────────────────────────────────────────────────
+
+  private addStepText(text: string): Text {
+    const comp = new Text(text, 0, 0);
+    this.tui.addChild(comp);
+    this.stepComponents.push(comp);
+    return comp;
+  }
+
+  private clearStep(): void {
+    for (const comp of this.stepComponents) {
+      this.tui.removeChild(comp);
+    }
+    this.stepComponents = [];
     this.tui.requestRender();
   }
 

@@ -28,8 +28,8 @@ function validateConfig(cfg: Config, source: string): void {
   if (!model.contextLength || typeof model.contextLength !== 'number' || model.contextLength <= 0) {
     throw new Error(`${source}: model.contextLength must be a positive number`);
   }
-  if (!['ollama', 'openai', 'custom'].includes(model.provider)) {
-    throw new Error(`${source}: model.provider must be one of: ollama, openai, custom`);
+  if (!['ollama', 'custom'].includes(model.provider)) {
+    throw new Error(`${source}: model.provider must be one of: ollama, custom`);
   }
   if (cfg.logLevel !== undefined && !['debug', 'info', 'warn', 'error'].includes(cfg.logLevel)) {
     throw new Error(`${source}: logLevel must be one of: debug, info, warn, error`);

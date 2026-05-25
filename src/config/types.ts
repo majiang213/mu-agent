@@ -4,12 +4,12 @@
 
 export interface ModelConfig {
   /** Provider type */
-  provider: 'ollama' | 'openai' | 'custom';
+  provider: 'ollama' | 'custom';
   /** Model name, e.g. "qwen2.5:7b" */
   name: string;
   /** Base URL for API, e.g. "http://localhost:11434" */
   baseUrl: string;
-  /** API key (required for openai/custom) */
+  /** API key (required for custom provider) */
   apiKey?: string;
   /** Context length — user must specify explicitly */
   contextLength: number;

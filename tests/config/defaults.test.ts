@@ -22,10 +22,10 @@ describe('getDefaultConfig', () => {
 describe('mergeWithDefaults', () => {
   it('overrides model fields with user values', () => {
     const config = mergeWithDefaults({
-      model: { provider: 'openai', name: 'gpt-4o', baseUrl: 'https://api.openai.com', contextLength: 128000 },
+      model: { provider: 'custom', name: 'gpt-4o', baseUrl: 'https://api.example.com/v1', contextLength: 128000 },
     });
     expect(config.model.name).toBe('gpt-4o');
-    expect(config.model.provider).toBe('openai');
+    expect(config.model.provider).toBe('custom');
     expect(config.model.contextLength).toBe(128000);
   });
 
