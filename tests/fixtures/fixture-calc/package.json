@@ -1,0 +1,10 @@
+{
+  "name": "fixture-calc",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0"
+  }
+}
