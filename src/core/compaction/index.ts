@@ -1,4 +1,6 @@
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { Model } from '@mariozechner/pi-ai';
+import { completeSimple } from '@mariozechner/pi-ai';
 
 export interface CompactionConfig {
   maxTokens: number;
@@ -119,4 +121,64 @@ export class ContextCompactor {
 
 export function createContextCompactor(config?: Partial<CompactionConfig>): ContextCompactor {
   return new ContextCompactor(config);
+}
+
+const SUMMARY_TRIGGER_COUNT = 16;
+const SUMMARY_TRIGGER_TOKENS = 6000;
+const SUMMARY_PRESERVE_LAST_N = 8;
+
+function formatMessagesForSummary(messages: AgentMessage[]): string {
+  return messages
+    .map((m) => {
+      const role = m.role === 'user' ? 'User' : 'Assistant';
+      const c = (m as { content?: unknown }).content;
+      const text = typeof c === 'string' ? c : JSON.stringify(c ?? '');
+      return `${role}: ${text}`;
+    })
+    .join('\n');
+}
+
+export async function compressConversationHistoryWithLLM(
+  messages: AgentMessage[],
+  model: Model<'openai-completions'>,
+): Promise<AgentMessage[]> {
+  if (messages.length <= SUMMARY_TRIGGER_COUNT && estimateTokens(messages) <= SUMMARY_TRIGGER_TOKENS) {
+    return messages;
+  }
+
+  const tail = messages.slice(-SUMMARY_PRESERVE_LAST_N);
+  const head = messages.slice(0, -SUMMARY_PRESERVE_LAST_N);
+
+  if (head.length === 0) return messages;
+
+  try {
+    const formatted = formatMessagesForSummary(head);
+    const result = await completeSimple(model, {
+      systemPrompt:
+        'You are summarizing a conversation history for a coding assistant session. Be concise and factual.',
+      messages: [
+        {
+          role: 'user',
+          content: `Summarize the following conversation. Preserve: what tasks the user requested, what was accomplished or changed, any important context for future tasks. Keep under 200 tokens.\n\nConversation:\n${formatted}`,
+          timestamp: Date.now(),
+        },
+      ],
+    });
+
+    const summaryText =
+      result.content
+        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+        .map((c) => c.text)
+        .join('') || 'Prior conversation omitted.';
+
+    const summaryMsg: AgentMessage = {
+      role: 'user',
+      content: `[Prior conversation summary] ${summaryText}`,
+      timestamp: Date.now(),
+    } as AgentMessage;
+
+    return [summaryMsg, ...tail];
+  } catch {
+    return messages;
+  }
 }

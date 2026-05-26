@@ -41,7 +41,7 @@ export function getBaseStateConfigs(): Record<State, StateConfig> {
   return {
     [State.LOCATE]: {
       name: State.LOCATE,
-      allowedTools: ['read', 'grep', 'find', 'ls', 'ast_code_locator', 'complete'],
+      allowedTools: ['read', 'ast_code_locator', 'complete'],
       prompt: `Locate the exact positions in the code that need to be modified.
 Read the relevant files and identify specific functions, classes, or lines.
 

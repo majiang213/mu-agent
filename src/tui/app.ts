@@ -20,9 +20,11 @@ import { MetricsCollector } from '../core/metrics.js';
 import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import type { Config } from '../config/types.js';
 import { getLspStatus } from '../config/lsp-status.js';
+import { SessionStore } from '../core/session-store.js';
 
 export interface TuiAppOptions {
   config: Config;
+  sessionStore?: SessionStore;
 }
 // ─── Components ───────────────────────────────────────────────────────────────
 
@@ -434,6 +436,7 @@ export class TuiApp {
   private allThinkingBlocks: ThinkingBlock[] = [];
   private allDebugBlocks: DebugBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
+  private sessionStore: SessionStore;
   private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
   private pendingClarificationAgent: import('../core/agent/index.js').ReactAgent | null = null;
 
@@ -442,6 +445,13 @@ export class TuiApp {
     this.tui = new TUI(terminal);
     this.header = new HeaderLine(options.config.model.name);
     this.hintLine = new HintLine();
+
+    if (options.sessionStore) {
+      this.sessionStore = options.sessionStore;
+      this.conversationHistory = options.sessionStore.load();
+    } else {
+      this.sessionStore = SessionStore.create(process.cwd());
+    }
 
     this.editor = new Editor(this.tui, editorTheme, { paddingX: 1 });
     this.editor.onSubmit = (value) => this.handleSubmit(value);
@@ -653,18 +663,17 @@ export class TuiApp {
       this.tui.removeChild(loader);
       this.metrics.recordStateExit(taskId, result.state);
       this.metrics.finishTask(taskId, result.success);
-      if (result.messages && result.messages.length > 0) {
-        this.conversationHistory = result.messages;
-      }
+
+      let display = '';
       if (result.output && result.output !== 'Task completed') {
-        let display = result.output;
+        display = result.output;
         try {
           const parsed = JSON.parse(result.output) as Record<string, unknown>;
           const text =
-            typeof parsed['report'] === 'string'
-              ? parsed['report']
-              : typeof parsed['answer'] === 'string'
-                ? parsed['answer']
+            typeof parsed['answer'] === 'string'
+              ? parsed['answer']
+              : typeof parsed['report'] === 'string'
+                ? parsed['report']
                 : typeof parsed['summary'] === 'string'
                   ? parsed['summary']
                   : null;
@@ -673,6 +682,16 @@ export class TuiApp {
           void _;
         }
         this.insertBefore(new Text(display, 0, 0));
+      }
+
+      const ts = Date.now();
+      const userMsg = { role: 'user' as const, content: input, timestamp: ts };
+      this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+      this.sessionStore.append({ type: 'message', ...userMsg });
+      if (display) {
+        const assistantMsg = { role: 'user' as const, content: `[Assistant]: ${display}`, timestamp: ts + 1 };
+        this.conversationHistory.push(assistantMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+        this.sessionStore.append({ type: 'message', ...assistantMsg });
       }
     } catch (err) {
       loader.stop();

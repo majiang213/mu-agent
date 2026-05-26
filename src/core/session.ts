@@ -1,4 +1,4 @@
-import { codingTools } from '@mariozechner/pi-coding-agent';
+import { codingTools, grepTool, lsTool, findTool } from '@mariozechner/pi-coding-agent';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { State, type StateMachineConfig, type StateContext, type ToolCall, type ModelParams } from './types.js';
 import { detectModelParams, getBaseStateConfigs } from './states.js';
@@ -30,7 +30,13 @@ export class StateMachineAgent {
     this.stateIteration = 0;
     this.toolCalls = [];
     this.fileCount = 0;
-    this.allTools = [...codingTools, ...extraTools];
+    this.allTools = [
+      ...codingTools,
+      grepTool as AgentTool<any, any>,
+      lsTool as AgentTool<any, any>,
+      findTool as AgentTool<any, any>,
+      ...extraTools,
+    ];
   }
 
   /**

@@ -7,6 +7,13 @@ import { mergeWithDefaults } from './defaults.js';
 const GLOBAL_CONFIG_PATH = join(homedir(), '.config', 'local-agent', 'config.json');
 const PROJECT_CONFIG_PATH = join('.local-agent', 'config.json');
 
+export class ConfigNotFoundError extends Error {
+  constructor() {
+    super('未找到配置文件。请先运行 setup 完成初始化：\n  npx tsx src/cli.ts setup');
+    this.name = 'ConfigNotFoundError';
+  }
+}
+
 function readJson(path: string): Partial<Config> {
   const text = readFileSync(path, 'utf-8');
   const parsed: unknown = JSON.parse(text);
@@ -36,14 +43,21 @@ function validateConfig(cfg: Config, source: string): void {
 export function loadConfig(projectRoot?: string): Config {
   const projectConfigPath = projectRoot ? join(projectRoot, '.local-agent', 'config.json') : PROJECT_CONFIG_PATH;
 
+  const globalExists = existsSync(GLOBAL_CONFIG_PATH);
+  const projectExists = existsSync(projectConfigPath);
+
+  if (!globalExists && !projectExists) {
+    throw new ConfigNotFoundError();
+  }
+
   let globalPartial: Partial<Config> = {};
   let projectPartial: Partial<Config> = {};
 
-  if (existsSync(GLOBAL_CONFIG_PATH)) {
+  if (globalExists) {
     globalPartial = readJson(GLOBAL_CONFIG_PATH);
   }
 
-  if (existsSync(projectConfigPath)) {
+  if (projectExists) {
     projectPartial = readJson(projectConfigPath);
   }
 

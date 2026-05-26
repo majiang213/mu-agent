@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { loadConfig, saveConfig } from './config/index.js';
+import { loadConfig, saveConfig, ConfigNotFoundError } from './config/index.js';
 import { getLspStatus } from './config/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
+import { SessionStore } from './core/session-store.js';
 
 const program = new Command();
 
@@ -29,7 +30,16 @@ program
   .action(async (task, options) => {
     try {
       applyCliOverrides(options);
-      const config = loadConfig();
+      let config;
+      try {
+        config = loadConfig();
+      } catch (err) {
+        if (err instanceof ConfigNotFoundError) {
+          console.error('\n' + err.message + '\n');
+          process.exit(1);
+        }
+        throw err;
+      }
       console.log(`🚀 Starting task: ${task}`);
       console.log(`🤖 Model: ${config.model.provider}/${config.model.name}`);
       console.log('\n📋 Executing task...\n');
@@ -65,15 +75,91 @@ program
     }
   });
 
+async function pickSession(): Promise<SessionStore | null> {
+  const sessions = SessionStore.list(process.cwd());
+  if (sessions.length === 0) {
+    console.error('No sessions found in .local-agent/sessions/');
+    return null;
+  }
+
+  const { ProcessTerminal, SelectList, Text, TUI } = await import('@mariozechner/pi-tui');
+  const terminal = new ProcessTerminal();
+  const tui = new TUI(terminal);
+
+  const selectTheme = {
+    selectedPrefix: (s: string) => `\x1b[32m${s}\x1b[0m`,
+    selectedText: (s: string) => `\x1b[1m${s}\x1b[22m`,
+    description: (s: string) => `\x1b[2m${s}\x1b[22m`,
+    scrollInfo: (s: string) => `\x1b[2m${s}\x1b[22m`,
+    noMatch: (s: string) => `\x1b[31m${s}\x1b[0m`,
+  };
+
+  const items = sessions.map((s) => ({
+    value: s.filePath,
+    label: new Date(s.created).toLocaleString(),
+    description: s.preview,
+  }));
+
+  return new Promise((resolve) => {
+    const header = new Text('\x1b[2m  选择要继续的会话  ↑↓ 选择  Enter 确认  Esc 取消\x1b[0m', 0, 0);
+    tui.addChild(header);
+
+    const list = new SelectList(items, 10, selectTheme);
+
+    list.onSelect = (item) => {
+      tui.stop();
+      resolve(SessionStore.open(item.value, process.cwd()));
+    };
+
+    list.onCancel = () => {
+      tui.stop();
+      resolve(null);
+    };
+
+    tui.addChild(list);
+    tui.setFocus(list);
+    tui.start();
+    tui.requestRender();
+  });
+}
+
 program
   .command('tui')
   .description('Start interactive TUI mode')
   .option('-m, --model <model>', 'Set model name (saved to .local-agent/config.json)')
   .option('-p, --provider <provider>', 'Set provider (saved to .local-agent/config.json)')
   .option('-u, --base-url <url>', 'Set base URL (saved to .local-agent/config.json)')
+  .option('-c, --continue', 'Continue the most recent session')
+  .option('--resume', 'Interactively select a session to resume')
   .action(async (options) => {
     applyCliOverrides(options);
-    const config = loadConfig();
+    let config;
+    try {
+      config = loadConfig();
+    } catch (err) {
+      if (err instanceof ConfigNotFoundError) {
+        console.error('\n' + err.message + '\n');
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    let sessionStore: SessionStore | undefined;
+
+    if (options.continue) {
+      const store = SessionStore.openLatest(process.cwd());
+      if (store) {
+        sessionStore = store;
+      } else {
+        console.error('No previous session found. Starting a new session.');
+      }
+    } else if (options.resume) {
+      const picked = await pickSession();
+      if (!picked) {
+        process.exit(0);
+      }
+      sessionStore = picked;
+    }
 
     const { CodeGraphLocator } = await import('./core/graph/locator.js');
     try {
@@ -86,7 +172,7 @@ program
     }
 
     const { createTuiApp } = await import('./tui/index.js');
-    const app = createTuiApp({ config });
+    const app = createTuiApp({ config, sessionStore });
     app.start();
   });
 

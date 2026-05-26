@@ -6,7 +6,7 @@ import { LLMConnector } from '../../provider/llm.js';
 import { fetchContextLength } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
-import { ContextCompactor } from '../compaction/index.js';
+import { ContextCompactor, compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
 import { advanceState } from '../states.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
@@ -36,7 +36,7 @@ export async function buildModel(
   };
 }
 
-export function compressConversationHistory(
+export function compressConversationHistorySync(
   messages: AgentMessage[],
   cfg?: { enableCompaction?: boolean; compactionThreshold?: number },
 ): AgentMessage[] {
@@ -44,6 +44,14 @@ export function compressConversationHistory(
   if (cfg?.enableCompaction === false) return messages;
   const compactor = new ContextCompactor({ maxTokens: cfg?.compactionThreshold ?? 3000 });
   return compactor.compact(messages).messages;
+}
+
+export async function compressConversationHistory(
+  messages: AgentMessage[],
+  model: Model<'openai-completions'>,
+): Promise<AgentMessage[]> {
+  if (messages.length === 0) return [];
+  return compressConversationHistoryWithLLM(messages, model);
 }
 
 export function parseReasonSteps(json: Record<string, unknown> | null): { steps: Step[]; error: string | null } {

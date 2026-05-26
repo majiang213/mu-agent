@@ -1,7 +1,7 @@
 import { Agent } from '@mariozechner/pi-agent-core';
 import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
 import { streamSimple } from '@mariozechner/pi-ai';
-import { codingTools } from '@mariozechner/pi-coding-agent';
+import { codingTools, grepTool, lsTool, findTool } from '@mariozechner/pi-coding-agent';
 
 import { astLocatorTool } from '../../tool/locator.js';
 import { syntaxCheckHook, damageCheckHook } from '../../tool/safety/index.js';
@@ -18,7 +18,7 @@ export function buildStepAgent(
   cfg: RunConfig,
   onEvent: ((event: ExecutionEvent) => void) | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[] = [...codingTools, astLocatorTool],
+  tools: any[] = [...codingTools, grepTool, lsTool, findTool, astLocatorTool],
   readFiles?: Set<string>,
 ): Agent {
   let agentRef: Agent | null = null;

@@ -58,15 +58,9 @@ export class SetupWizard {
     await this.stepGraph();
     this.stepDone();
 
-    await new Promise<void>((resolve) => {
-      const removeListener = this.tui.addInputListener(() => {
-        removeListener();
-        resolve();
-        return { consume: true };
-      });
-    });
-
+    await new Promise<void>((resolve) => process.nextTick(resolve));
     this.tui.stop();
+    process.exit(0);
   }
 
   // ─── Header ────────────────────────────────────────────────────────────────
@@ -316,10 +310,7 @@ export class SetupWizard {
     const graphLine = graphOk ? `\n  ${C.ok('✓')} 代码图已构建` : `\n  ${C.err('✗')} 代码图未构建`;
 
     const done = new Text(
-      `\n  ${C.ok('设置完成！')}` +
-        lspLine +
-        graphLine +
-        `\n\n  开始使用:\n  ${C.dim('npx tsx src/cli.ts tui')}\n\n  按任意键退出`,
+      `\n  ${C.ok('设置完成！')}` + lspLine + graphLine + `\n\n  开始使用:\n  ${C.dim('npx tsx src/cli.ts tui')}`,
       0,
       0,
     );

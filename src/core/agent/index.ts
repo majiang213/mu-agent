@@ -14,7 +14,9 @@ import { State } from '../types.js';
 import type { StateResult } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, runStep } from './step-runner.js';
+export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
+import { loadProjectContext } from '../project-context.js';
 import { LspClient } from '../../tool/lsp.js';
 
 export type { ExecutionEvent };
@@ -72,6 +74,7 @@ export class ReactAgent {
       platform: process.platform,
       isGitRepo,
       date: new Date().toDateString(),
+      projectContext: loadProjectContext(cwd) ?? undefined,
     };
 
     const lspClient = new LspClient();
@@ -90,10 +93,7 @@ export class ReactAgent {
       lspClient,
     };
 
-    const conversationHistory = compressConversationHistory(initialMessages ?? [], {
-      enableCompaction: true,
-      compactionThreshold: 3000,
-    });
+    const conversationHistory = await compressConversationHistory(initialMessages ?? [], model);
 
     const { steps } = await runReasonStep(mission, cfg, conversationHistory, onEvent, async (questions) => {
       onEvent?.({ type: 'clarification_needed', questions });
