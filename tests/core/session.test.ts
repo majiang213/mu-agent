@@ -16,36 +16,40 @@ describe('StateMachineAgent', () => {
   });
 
   describe('model tier detection', () => {
-    it('7b model → SMALL tier', () => {
-      expect(new StateMachineAgent('qwen2.5:7b').getModelParams().tier).toBe('SMALL');
+    it('7B param count → SMALL tier', () => {
+      expect(new StateMachineAgent('model', [], 7e9).getModelParams().tier).toBe('SMALL');
     });
 
-    it('8b model → MEDIUM tier', () => {
-      expect(new StateMachineAgent('llama3:8b').getModelParams().tier).toBe('MEDIUM');
+    it('8B param count → SMALL tier (≤9B threshold)', () => {
+      expect(new StateMachineAgent('model', [], 8e9).getModelParams().tier).toBe('SMALL');
     });
 
-    it('13b model → MEDIUM tier', () => {
-      expect(new StateMachineAgent('qwen2.5:13b').getModelParams().tier).toBe('MEDIUM');
+    it('13B param count → MEDIUM tier', () => {
+      expect(new StateMachineAgent('model', [], 13e9).getModelParams().tier).toBe('MEDIUM');
     });
 
-    it('14b model → MEDIUM tier', () => {
-      expect(new StateMachineAgent('deepseek:14b').getModelParams().tier).toBe('MEDIUM');
+    it('14B param count → MEDIUM tier', () => {
+      expect(new StateMachineAgent('model', [], 14e9).getModelParams().tier).toBe('MEDIUM');
     });
 
-    it('70b model → LARGE tier', () => {
-      expect(new StateMachineAgent('llama3:70b').getModelParams().tier).toBe('LARGE');
+    it('70B param count → LARGE tier', () => {
+      expect(new StateMachineAgent('model', [], 70e9).getModelParams().tier).toBe('LARGE');
+    });
+
+    it('null param count (unknown/custom) → LARGE tier', () => {
+      expect(new StateMachineAgent('model', [], null).getModelParams().tier).toBe('LARGE');
     });
 
     it('SMALL tier has strictPlanning=true', () => {
-      expect(new StateMachineAgent('qwen2.5:7b').getModelParams().strictPlanning).toBe(true);
+      expect(new StateMachineAgent('model', [], 7e9).getModelParams().strictPlanning).toBe(true);
     });
 
     it('SMALL tier has maxFilesPerTask=2', () => {
-      expect(new StateMachineAgent('qwen2.5:7b').getModelParams().maxFilesPerTask).toBe(2);
+      expect(new StateMachineAgent('model', [], 7e9).getModelParams().maxFilesPerTask).toBe(2);
     });
 
     it('LARGE tier has strictPlanning=false', () => {
-      expect(new StateMachineAgent('llama3:70b').getModelParams().strictPlanning).toBe(false);
+      expect(new StateMachineAgent('model', [], 70e9).getModelParams().strictPlanning).toBe(false);
     });
   });
 
@@ -200,21 +204,21 @@ describe('StateMachineAgent', () => {
     });
 
     it('blocks after maxFilesPerTask (2 for SMALL) distinct files edited', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
+      const agent = new StateMachineAgent('model', [], 7e9);
       agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
       agent.recordToolCall('write', { path: 'src/b.ts' }, {});
       expect(agent.canModifyMoreFiles()).toBe(false);
     });
 
     it('blocks after 2 edit calls on any files (SMALL, maxFilesPerTask=2)', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
+      const agent = new StateMachineAgent('model', [], 7e9);
       agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
       agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
       expect(agent.canModifyMoreFiles()).toBe(false);
     });
 
     it('read calls do not count toward file limit', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
+      const agent = new StateMachineAgent('model', [], 7e9);
       agent.recordToolCall('read', { path: 'src/a.ts' }, {});
       agent.recordToolCall('read', { path: 'src/b.ts' }, {});
       agent.recordToolCall('read', { path: 'src/c.ts' }, {});
@@ -222,7 +226,7 @@ describe('StateMachineAgent', () => {
     });
 
     it('LARGE model allows more files', () => {
-      const agent = new StateMachineAgent('llama3:70b');
+      const agent = new StateMachineAgent('model', [], 70e9);
       for (let i = 0; i < 5; i++) {
         agent.recordToolCall('edit', { path: `src/file${i}.ts` }, {});
       }

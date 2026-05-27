@@ -2,7 +2,12 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
 import { FailureHandler } from '../failure/handler.js';
-import { LLMConnector } from '../../provider/llm.js';
+import {
+  DEFAULT_TEMPERATURE,
+  MAX_TEMPERATURE,
+  RETRY_TEMPERATURE_STEP,
+  DEFAULT_CONTEXT_RATIO,
+} from '../../config/defaults.js';
 import { fetchContextLength } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
@@ -10,6 +15,7 @@ import { ContextCompactor, compressConversationHistoryWithLLM } from '../compact
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
 import { advanceState } from '../states.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
+import { samplePlans, deliberate, pickShortest } from '../heavy/index.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, StepHandoff } from '../types.js';
@@ -18,6 +24,7 @@ export async function buildModel(
   modelName: string,
   provider: string,
   baseUrl: string,
+  contextRatio: number,
   apiKey?: string,
 ): Promise<Model<'openai-completions'>> {
   const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
@@ -32,7 +39,7 @@ export async function buildModel(
     input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow,
-    maxTokens: Math.min(Math.floor(contextWindow * 0.25), 8192),
+    maxTokens: Math.floor(contextWindow * (1 - contextRatio)),
   };
 }
 
@@ -49,9 +56,11 @@ export function compressConversationHistorySync(
 export async function compressConversationHistory(
   messages: AgentMessage[],
   model: Model<'openai-completions'>,
+  contextRatio = DEFAULT_CONTEXT_RATIO,
+  apiKey = 'ollama',
 ): Promise<AgentMessage[]> {
   if (messages.length === 0) return [];
-  return compressConversationHistoryWithLLM(messages, model);
+  return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
 }
 
 export function parseReasonSteps(json: Record<string, unknown> | null): { steps: Step[]; error: string | null } {
@@ -125,10 +134,7 @@ export async function runStepAgent(
       );
       const recovery = await failureHandler.handleFailure(failureCtx);
       if (recovery.action === 'abort') return;
-      cfg.temperature = Math.min(
-        LLMConnector.DEFAULT_TEMPERATURE + attempt * LLMConnector.RETRY_TEMPERATURE_STEP,
-        LLMConnector.MAX_TEMPERATURE,
-      );
+      cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
       stagnationDetector.reset();
       cfg.stateMachine.resetForRetry();
       cfg.safeModifier.clearAll();
@@ -143,6 +149,127 @@ export async function runReasonStep(
   conversationHistory: AgentMessage[],
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
+): Promise<{ steps: Step[] }> {
+  const htCfg = cfg.heavyThinking;
+  const tier = cfg.stateMachine.getModelParams().tier;
+  const heavyEnabled = tier === 'SMALL' || tier === 'MEDIUM';
+
+  if (!heavyEnabled) {
+    return runSingleReasonAttempt(mission, cfg, conversationHistory, onEvent, onNeedsClarify, 'IDLE');
+  }
+
+  const planCount = htCfg?.planCount ?? (tier === 'SMALL' ? 3 : 2);
+  onEvent?.({ type: 'deliberation_start', candidateCount: planCount });
+
+  let currentMission = mission;
+  let candidates = await samplePlans(currentMission, cfg, conversationHistory, {
+    planCount,
+    samplingTemperature: htCfg?.samplingTemperature,
+  });
+
+  if (candidates.length === 0) {
+    onEvent?.({ type: 'deliberation_fallback', reason: 'all samples failed, falling back to single attempt' });
+    return runSingleReasonAttempt(mission, cfg, conversationHistory, onEvent, onNeedsClarify, 'IDLE');
+  }
+
+  let outcome = await deliberate(candidates, currentMission, cfg, onEvent);
+
+  if (outcome.type === 'needs_clarification') {
+    onEvent?.({ type: 'deliberation_clarification', question: outcome.question });
+    const answer = onNeedsClarify ? await onNeedsClarify([outcome.question]) : null;
+
+    if (!answer) {
+      return { steps: pickShortest(candidates).steps };
+    }
+
+    currentMission = {
+      ...mission,
+      description: `${mission.description}\n\nAdditional context: ${answer}`,
+    };
+    candidates = await samplePlans(currentMission, cfg, conversationHistory, {
+      planCount,
+      samplingTemperature: htCfg?.samplingTemperature,
+    });
+    if (candidates.length === 0) {
+      onEvent?.({
+        type: 'deliberation_fallback',
+        reason: 'all samples failed after clarification, falling back to single attempt',
+      });
+      return runSingleReasonAttempt(currentMission, cfg, conversationHistory, onEvent, undefined, State.REASON);
+    }
+
+    outcome = await deliberate(candidates, currentMission, cfg, onEvent, false);
+  }
+
+  if (outcome.type === 'selected') {
+    const { result } = outcome;
+    onEvent?.({
+      type: 'deliberation_complete',
+      selectedPlanId: result.selectedPlan.id,
+      rejectedCount: result.rejectedPlans.length,
+      summary: result.deliberationSummary,
+    });
+    return { steps: result.selectedPlan.steps };
+  }
+
+  if (outcome.type !== 'needs_plan_selection') {
+    const fallback = pickShortest(candidates);
+    return { steps: fallback.steps };
+  }
+
+  return handlePlanSelection(outcome.candidates, outcome.summaries, onNeedsClarify, onEvent);
+}
+
+async function handlePlanSelection(
+  candidates: import('../heavy/types.js').PlanCandidate[],
+  summaries: string[],
+  onNeedsClarify: ((questions: string[]) => Promise<string>) | undefined,
+  onEvent: ((event: ExecutionEvent) => void) | undefined,
+): Promise<{ steps: Step[] }> {
+  const idSet = new Set(candidates.map((c) => c.id));
+  const plans = candidates.map((c, i) => ({
+    id: c.id,
+    summary: summaries[i] ?? '',
+    steps: c.steps.map((s) => `[${s.state}] ${s.focus}`).join(' → '),
+  }));
+
+  let selectedId: string | null = null;
+  if (onNeedsClarify) {
+    onEvent?.({ type: 'deliberation_plan_selection', plans });
+    while (!selectedId) {
+      const validIds = [...idSet].join(' / ');
+      const answer = await onNeedsClarify([`Please choose a plan to execute. Reply with one of: ${validIds}`]);
+      const trimmed = answer.trim().toLowerCase();
+      for (const id of idSet) {
+        if (trimmed === id || trimmed === id.replace('plan-', '')) {
+          selectedId = id;
+          break;
+        }
+      }
+      if (!selectedId) {
+        onEvent?.({ type: 'deliberation_plan_selection', plans });
+      }
+    }
+  }
+
+  const chosen = selectedId ? candidates.find((c) => c.id === selectedId)! : pickShortest(candidates);
+
+  onEvent?.({
+    type: 'deliberation_complete',
+    selectedPlanId: chosen.id,
+    rejectedCount: candidates.length - 1,
+    summary: `User selected ${chosen.id}`,
+  });
+  return { steps: chosen.steps };
+}
+
+async function runSingleReasonAttempt(
+  mission: Mission,
+  cfg: RunConfig,
+  conversationHistory: AgentMessage[],
+  onEvent?: (event: ExecutionEvent) => void,
+  onNeedsClarify?: (questions: string[]) => Promise<string>,
+  fromState: State | 'IDLE' = 'IDLE',
 ): Promise<{ steps: Step[] }> {
   cfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
@@ -163,7 +290,7 @@ export async function runReasonStep(
 
   cfg.registerAgent?.(agent);
   try {
-    onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
+    onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
     await runStepAgent(agent, mission.description, cfg, stagnationDetector, () => capturedComplete !== null);
 
     if (capturedComplete === null) {

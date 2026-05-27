@@ -8,12 +8,13 @@ import { webfetchTool } from '../../tool/webfetch.js';
 import { websearchTool } from '../../tool/websearch.js';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { Config } from '../../config/types.js';
-import { LLMConnector } from '../../provider/llm.js';
+import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { StateMachineAgent } from '../session.js';
 import { State } from '../types.js';
 import type { StateResult, Step, StepHandoff } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, runStep } from './step-runner.js';
+import { fetchOllamaParamCount } from '../../provider/model-info.js';
 export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
 import { loadProjectContext } from '../project-context.js';
@@ -79,12 +80,22 @@ export class ReactAgent {
       state: 'running',
     };
 
-    const stateMachine = new StateMachineAgent(config.model.name, [
-      astLocatorTool,
-      webfetchTool as AgentTool<any, any>,
-      websearchTool as AgentTool<any, any>,
-    ]);
-    const model = await buildModel(config.model.name, config.model.provider, config.model.baseUrl, config.model.apiKey);
+    const paramCount =
+      config.model.provider === 'ollama' ? await fetchOllamaParamCount(config.model.baseUrl, config.model.name) : null;
+
+    const stateMachine = new StateMachineAgent(
+      config.model.name,
+      [astLocatorTool, webfetchTool as AgentTool<any, any>, websearchTool as AgentTool<any, any>],
+      paramCount,
+    );
+    const contextRatio = config.model.contextRatio ?? DEFAULT_CONTEXT_RATIO;
+    const model = await buildModel(
+      config.model.name,
+      config.model.provider,
+      config.model.baseUrl,
+      contextRatio,
+      config.model.apiKey,
+    );
 
     const cwd = process.cwd();
     const home = homedir();
@@ -114,14 +125,22 @@ export class ReactAgent {
       safetyConfig: config.safety ?? {},
       safeModifier: new SafeModifier(),
       env,
-      temperature: config.model.temperature ?? LLMConnector.DEFAULT_TEMPERATURE,
+      temperature: config.model.temperature ?? DEFAULT_TEMPERATURE,
+      contextRatio,
+      apiKey: config.model.apiKey ?? 'ollama',
       projectRoot: cwd,
       registerAgent: (a: Agent) => this._activeAgents.add(a),
       unregisterAgent: (a: Agent) => this._activeAgents.delete(a),
       lspClient,
+      heavyThinking: config.heavyThinking,
     };
 
-    const conversationHistory = await compressConversationHistory(initialMessages ?? [], model);
+    const conversationHistory = await compressConversationHistory(
+      initialMessages ?? [],
+      model,
+      contextRatio,
+      cfg.apiKey,
+    );
 
     const clarifyCallback = async (questions: string[]): Promise<string> => {
       onEvent?.({ type: 'clarification_needed', questions });

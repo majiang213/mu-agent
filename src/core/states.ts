@@ -1,24 +1,20 @@
 import { State, type ModelParams, type StateConfig } from './types.js';
 
-/**
- * Detect model capability tier based on parameter count
- */
-export function detectModelParams(modelName: string): ModelParams {
-  const match = modelName.match(/(\d+)(?:b|B)/);
-  const params = match?.[1] ? parseInt(match[1], 10) : 7;
+export function detectModelParams(paramCount: number | null): ModelParams {
+  const billions = paramCount !== null ? paramCount / 1e9 : null;
 
-  if (params <= 7) {
+  if (billions !== null && billions <= 9) {
     return {
       tier: 'SMALL',
-      paramCount: params,
+      paramCount: billions,
       maxFilesPerTask: 2,
       maxRetries: 1,
       strictPlanning: true,
     };
-  } else if (params <= 30) {
+  } else if (billions !== null && billions <= 30) {
     return {
       tier: 'MEDIUM',
-      paramCount: params,
+      paramCount: billions,
       maxFilesPerTask: 4,
       maxRetries: 2,
       strictPlanning: true,
@@ -26,7 +22,7 @@ export function detectModelParams(modelName: string): ModelParams {
   } else {
     return {
       tier: 'LARGE',
-      paramCount: params,
+      paramCount: billions ?? 0,
       maxFilesPerTask: 8,
       maxRetries: 3,
       strictPlanning: false,

@@ -2,7 +2,7 @@ import type { Agent } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import type { StateMachineAgent } from '../session.js';
 import type { EnvContext } from '../prompts/agent.js';
-import type { SafetyConfig } from '../../config/types.js';
+import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';
 import type { SafeModifier } from '../../tool/safety/index.js';
 import type { LspClient } from '../../tool/lsp.js';
 
@@ -18,7 +18,12 @@ export type ExecutionEvent =
   | { type: 'turn_start'; systemPrompt: string; userPrompt: string }
   | { type: 'task_start'; taskIndex: number; taskTotal: number; description: string }
   | { type: 'task_end'; taskIndex: number; taskTotal: number }
-  | { type: 'clarification_needed'; questions: string[] };
+  | { type: 'clarification_needed'; questions: string[] }
+  | { type: 'deliberation_start'; candidateCount: number }
+  | { type: 'deliberation_complete'; selectedPlanId: string; rejectedCount: number; summary: string }
+  | { type: 'deliberation_fallback'; reason: string }
+  | { type: 'deliberation_clarification'; question: string }
+  | { type: 'deliberation_plan_selection'; plans: Array<{ id: string; summary: string; steps: string }> };
 
 export interface Mission {
   id: string;
@@ -33,8 +38,11 @@ export interface RunConfig {
   safeModifier: SafeModifier;
   env: EnvContext;
   temperature: number;
+  contextRatio: number;
+  apiKey: string;
   projectRoot: string;
   registerAgent?: (agent: Agent) => void;
   unregisterAgent?: (agent: Agent) => void;
   lspClient?: LspClient;
+  heavyThinking?: HeavyThinkingConfig;
 }

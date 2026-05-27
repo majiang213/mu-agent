@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import { completeSimple } from '@mariozechner/pi-ai';
+import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 
 export interface CompactionConfig {
   maxTokens: number;
@@ -124,7 +125,6 @@ export function createContextCompactor(config?: Partial<CompactionConfig>): Cont
 }
 
 const SUMMARY_TRIGGER_COUNT = 16;
-const SUMMARY_TRIGGER_TOKENS = 6000;
 const SUMMARY_PRESERVE_LAST_N = 8;
 
 function formatMessagesForSummary(messages: AgentMessage[]): string {
@@ -141,8 +141,11 @@ function formatMessagesForSummary(messages: AgentMessage[]): string {
 export async function compressConversationHistoryWithLLM(
   messages: AgentMessage[],
   model: Model<'openai-completions'>,
+  contextRatio = DEFAULT_CONTEXT_RATIO,
+  apiKey = 'ollama',
 ): Promise<AgentMessage[]> {
-  if (messages.length <= SUMMARY_TRIGGER_COUNT && estimateTokens(messages) <= SUMMARY_TRIGGER_TOKENS) {
+  const triggerTokens = Math.floor(model.contextWindow * contextRatio);
+  if (messages.length <= SUMMARY_TRIGGER_COUNT && estimateTokens(messages) <= triggerTokens) {
     return messages;
   }
 
@@ -153,17 +156,24 @@ export async function compressConversationHistoryWithLLM(
 
   try {
     const formatted = formatMessagesForSummary(head);
-    const result = await completeSimple(model, {
-      systemPrompt:
-        'You are summarizing a conversation history for a coding assistant session. Be concise and factual.',
-      messages: [
-        {
-          role: 'user',
-          content: `Summarize the following conversation. Preserve: what tasks the user requested, what was accomplished or changed, any important context for future tasks. Keep under 200 tokens.\n\nConversation:\n${formatted}`,
-          timestamp: Date.now(),
-        },
-      ],
-    });
+    const result = await completeSimple(
+      model,
+      {
+        systemPrompt:
+          'You are summarizing a conversation history for a coding assistant session. Be concise and factual.',
+        messages: [
+          {
+            role: 'user',
+            content: `Summarize the following conversation. Preserve: what tasks the user requested, what was accomplished or changed, any important context for future tasks. Keep under 200 tokens.\n\nConversation:\n${formatted}`,
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      {
+        temperature: 0,
+        apiKey,
+      },
+    );
 
     const summaryText =
       result.content

@@ -5,7 +5,7 @@ describe('getDefaultConfig', () => {
   it('returns a valid config with required fields', () => {
     const config = getDefaultConfig();
     expect(config.model.provider).toBe('ollama');
-    expect(config.model.name).toBe('qwen2.5:7b');
+    expect(config.model.name).toBe('');
     expect(config.model.baseUrl).toBe('http://localhost:11434');
     expect(config.logLevel).toBe('info');
   });
@@ -14,7 +14,7 @@ describe('getDefaultConfig', () => {
     const a = getDefaultConfig();
     const b = getDefaultConfig();
     a.model.name = 'changed';
-    expect(b.model.name).toBe('qwen2.5:7b');
+    expect(b.model.name).toBe('');
   });
 });
 

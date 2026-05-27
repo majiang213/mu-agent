@@ -10,8 +10,6 @@ import { ContextCompactor } from '../compaction/index.js';
 import type { ExecutionEvent, RunConfig } from './types.js';
 import { State } from '../types.js';
 
-const IN_LOOP_TOKEN_BUDGET = 24000;
-
 export function buildStepAgent(
   systemPrompt: string,
   initialMessages: AgentMessage[],
@@ -46,9 +44,9 @@ export function buildStepAgent(
       if (!(opts as { signal?: AbortSignal })?.signal?.aborted) {
         onEvent?.({ type: 'turn_start', systemPrompt: agentCtx.systemPrompt ?? '', userPrompt: userPromptText });
       }
-      return streamSimple(m, agentCtx, { ...opts, apiKey: 'ollama', temperature: cfg.temperature });
+      return streamSimple(m, agentCtx, { ...opts, apiKey: cfg.apiKey, temperature: cfg.temperature });
     },
-    getApiKey: () => 'ollama',
+    getApiKey: () => cfg.apiKey,
     beforeToolCall: async (toolCtx) => {
       const toolName = toolCtx.toolCall.name;
       if (toolName === 'read' && readFiles) {
@@ -124,7 +122,8 @@ export function buildStepAgent(
         const latestSteer = steerIndices[steerIndices.length - 1]!;
         result = messages.filter((m, i) => m.role !== 'steer' || i === latestSteer);
       }
-      const compactor = new ContextCompactor({ maxTokens: IN_LOOP_TOKEN_BUDGET });
+      const inLoopBudget = Math.floor(cfg.model.contextWindow * cfg.contextRatio);
+      const compactor = new ContextCompactor({ maxTokens: inLoopBudget });
       return compactor.compact(result).messages;
     },
     convertToLlm: (messages) => {

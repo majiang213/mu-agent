@@ -16,9 +16,15 @@ export class StateMachineAgent {
   private toolCalls: ToolCall[];
   private allTools: AgentTool[];
   private fileCount: number;
+  private readonly modelName: string;
+  private readonly extraTools: AgentTool[];
+  private readonly paramCount: number | null;
 
-  constructor(modelName: string, extraTools: AgentTool<any, any>[] = []) {
-    const modelParams = detectModelParams(modelName);
+  constructor(modelName: string, extraTools: AgentTool<any, any>[] = [], paramCount: number | null = null) {
+    this.modelName = modelName;
+    this.extraTools = extraTools;
+    this.paramCount = paramCount;
+    const modelParams = detectModelParams(paramCount);
     const states = getBaseStateConfigs();
 
     this.config = {
@@ -37,6 +43,10 @@ export class StateMachineAgent {
       findTool as AgentTool<any, any>,
       ...extraTools,
     ];
+  }
+
+  clone(): StateMachineAgent {
+    return new StateMachineAgent(this.modelName, this.extraTools, this.paramCount);
   }
 
   /**

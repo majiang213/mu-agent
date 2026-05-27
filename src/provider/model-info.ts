@@ -24,28 +24,44 @@ export async function fetchOllamaModels(baseUrl: string): Promise<ModelInfo[]> {
   }
 }
 
-async function fetchOllamaContextLength(baseUrl: string, modelName: string): Promise<number> {
+interface OllamaShowResponse {
+  model_info?: Record<string, unknown>;
+  parameters?: string;
+}
+
+async function fetchOllamaShow(baseUrl: string, modelName: string): Promise<OllamaShowResponse | null> {
   try {
     const res = await fetch(`${baseUrl}/api/show`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: modelName }),
     });
-    if (!res.ok) return FALLBACK_CONTEXT;
-    const data = (await res.json()) as {
-      model_info?: Record<string, unknown>;
-      parameters?: string;
-    };
-    const ctxFromInfo = data.model_info?.['llama.context_length'];
-    if (typeof ctxFromInfo === 'number' && ctxFromInfo > 0) return ctxFromInfo;
-    if (typeof data.parameters === 'string') {
-      const match = /num_ctx\s+(\d+)/.exec(data.parameters);
-      if (match?.[1]) return parseInt(match[1], 10);
-    }
-    return FALLBACK_CONTEXT;
+    if (!res.ok) return null;
+    return (await res.json()) as OllamaShowResponse;
   } catch {
-    return FALLBACK_CONTEXT;
+    return null;
   }
+}
+
+async function fetchOllamaContextLength(baseUrl: string, modelName: string): Promise<number> {
+  const data = await fetchOllamaShow(baseUrl, modelName);
+  if (!data) return FALLBACK_CONTEXT;
+  const ctxFromInfo = data.model_info?.['llama.context_length'];
+  if (typeof ctxFromInfo === 'number' && ctxFromInfo > 0) return ctxFromInfo;
+  if (typeof data.parameters === 'string') {
+    const match = /num_ctx\s+(\d+)/.exec(data.parameters);
+    if (match?.[1]) return parseInt(match[1], 10);
+  }
+  return FALLBACK_CONTEXT;
+}
+
+export async function fetchOllamaParamCount(baseUrl: string, modelName: string): Promise<number | null> {
+  const url = baseUrl.replace(/\/v1\/?$/, '');
+  const data = await fetchOllamaShow(url, modelName);
+  if (!data) return null;
+  const paramCount = data.model_info?.['general.parameter_count'];
+  if (typeof paramCount === 'number' && paramCount > 0) return paramCount;
+  return null;
 }
 
 export async function fetchCustomModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
