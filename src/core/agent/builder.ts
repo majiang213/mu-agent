@@ -175,7 +175,7 @@ export function subscribeStepEvents(
       onEvent?.({ type: 'tool_execution_end', tool: event.toolName, isError: event.isError });
       const filePath = pendingModifyPaths.get(event.toolCallId);
       pendingModifyPaths.delete(event.toolCallId);
-      if (event.isError) stagnationDetector.recordError(`tool_error:${event.toolName}`);
+      if (event.isError && event.toolName !== 'bash') stagnationDetector.recordError(`tool_error:${event.toolName}`);
       if (
         filePath &&
         !event.isError &&

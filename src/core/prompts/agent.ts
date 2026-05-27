@@ -1,5 +1,6 @@
 import { State, type ModelParams, type StateContext } from '../types.js';
 import type { ProjectContext } from '../project-context.js';
+import type { StepHandoff } from '../types.js';
 
 export interface EnvContext {
   cwd: string;
@@ -113,7 +114,9 @@ Examples:
 - Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
 - Run command:  complete(steps=[{state:"RUN", focus:"run npm install"}], needsClarify=false)
 - Setup:        complete(steps=[{state:"SETUP", focus:"analyze project and generate AGENTS.md"}], needsClarify=false)
-- Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])`,
+- Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])
+- Retry after VERIFY failure: complete(steps=[{state:"ROLLBACK",focus:"restore files to checkpoint"},{state:"DIAGNOSE",focus:"why did the fix not work"},{state:"MODIFY",focus:"apply correct fix based on diagnosis"},{state:"VERIFY",focus:"run tests again"}], needsClarify=false)
+- Accept failure (cannot fix): complete(steps=[], needsClarify=false)`,
 
   [State.CLARIFY]: `The task is ambiguous. Ask the user for the information needed to proceed.
 
@@ -381,15 +384,36 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   return lines.filter(Boolean).join('\n\n').trim();
 }
 
-export function buildUserPrompt(state: State, task: string, focus?: string): string {
+function formatPreviousResults(state: State, previousResults: StepHandoff[]): string {
+  if (previousResults.length === 0) return '';
+
+  const relevant = previousResults.filter((r) => {
+    if (state === State.MODIFY) return r.state === State.DIAGNOSE || r.state === State.LOCATE;
+    if (state === State.VERIFY) return r.state === State.MODIFY;
+    return false;
+  });
+
+  if (relevant.length === 0) return '';
+
+  const lines = relevant.map((r) => {
+    let output = r.output;
+    if (output.length > 600) output = output.slice(0, 600) + '…';
+    return `[${r.state}] ${r.focus}\n${output}`;
+  });
+
+  return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
+}
+
+export function buildUserPrompt(state: State, task: string, focus?: string, previousResults?: StepHandoff[]): string {
   const target = focus ?? task;
+  const context = previousResults ? formatPreviousResults(state, previousResults) : '';
   switch (state) {
     case State.LOCATE:
       return `Locate the code positions for: ${target}`;
     case State.MODIFY:
-      return `Apply the changes for: ${target}`;
+      return `Apply the changes for: ${target}${context}`;
     case State.VERIFY:
-      return `Verify the changes are correct for: ${target}`;
+      return `Verify the changes are correct for: ${target}${context}`;
     default:
       return target;
   }

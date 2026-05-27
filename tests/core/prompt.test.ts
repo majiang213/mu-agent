@@ -302,6 +302,65 @@ describe('buildUserPrompt', () => {
     const p = buildUserPrompt(State.ANSWER, 'what is X');
     expect(p).toContain('what is X');
   });
+
+  it('MODIFY injects DIAGNOSE result from previousResults', () => {
+    const prev = [
+      {
+        state: State.DIAGNOSE,
+        focus: 'why tests fail',
+        output: '{"rootCause":"divide has no zero guard","location":"calc.js:5","fix":"add if b===0 throw"}',
+      },
+    ];
+    const p = buildUserPrompt(State.MODIFY, 'fix calc.js', 'add zero-check guard', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('DIAGNOSE');
+    expect(p).toContain('divide has no zero guard');
+  });
+
+  it('MODIFY injects LOCATE result from previousResults', () => {
+    const prev = [
+      {
+        state: State.LOCATE,
+        focus: 'find divide function',
+        output: '{"locations":[{"file":"calc.js","startLine":5,"endLine":7}]}',
+      },
+    ];
+    const p = buildUserPrompt(State.MODIFY, 'fix calc.js', 'add zero-check', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('LOCATE');
+  });
+
+  it('MODIFY skips irrelevant states from previousResults', () => {
+    const prev = [{ state: State.VERIFY, focus: 'run tests', output: '{"passed":false}' }];
+    const p = buildUserPrompt(State.MODIFY, 'fix calc.js', 'add zero-check', prev);
+    expect(p).not.toContain('previous_step_results');
+  });
+
+  it('VERIFY injects MODIFY result from previousResults', () => {
+    const prev = [{ state: State.MODIFY, focus: 'add zero-check', output: '{"edited":["calc.js"],"linesChanged":2}' }];
+    const p = buildUserPrompt(State.VERIFY, 'fix calc.js', 'run npm test', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('MODIFY');
+  });
+
+  it('LOCATE does not inject previousResults (not needed)', () => {
+    const prev = [{ state: State.DIAGNOSE, focus: 'why fail', output: 'some findings' }];
+    const p = buildUserPrompt(State.LOCATE, 'fix calc.js', 'find divide fn', prev);
+    expect(p).not.toContain('previous_step_results');
+  });
+
+  it('truncates long outputs to 600 chars', () => {
+    const longOutput = 'x'.repeat(1000);
+    const prev = [{ state: State.DIAGNOSE, focus: 'diag', output: longOutput }];
+    const p = buildUserPrompt(State.MODIFY, 'fix', 'apply', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p.length).toBeLessThan(longOutput.length + 500);
+  });
+
+  it('no previousResults arg — no injection', () => {
+    const p = buildUserPrompt(State.MODIFY, 'fix calc.js', 'add zero-check');
+    expect(p).not.toContain('previous_step_results');
+  });
 });
 
 describe('base prompt — new rules from opencode comparison', () => {
@@ -506,6 +565,17 @@ describe('REASON — all routing branches have examples', () => {
     const p = prompt(State.REASON);
     expect(p).toContain('Setup');
     expect(p).toContain('SETUP');
+  });
+
+  it('has example for retry after VERIFY failure', () => {
+    const p = prompt(State.REASON);
+    expect(p).toContain('Retry after VERIFY failure');
+    expect(p).toContain('ROLLBACK');
+  });
+
+  it('has example for accepting failure (cannot fix)', () => {
+    const p = prompt(State.REASON);
+    expect(p).toContain('Accept failure');
   });
 });
 

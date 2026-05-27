@@ -11,13 +11,41 @@ import type { Config } from '../../config/types.js';
 import { LLMConnector } from '../../provider/llm.js';
 import { StateMachineAgent } from '../session.js';
 import { State } from '../types.js';
-import type { StateResult } from '../types.js';
+import type { StateResult, Step, StepHandoff } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, runStep } from './step-runner.js';
 export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
 import { loadProjectContext } from '../project-context.js';
 import { LspClient } from '../../tool/lsp.js';
+
+const MAX_VERIFY_RETRIES = 2;
+
+function stepsSignature(steps: Step[]): string {
+  return steps.map((s) => `${s.state}:${s.focus}`).join('|');
+}
+
+function buildVerifyFailureContext(
+  allStepResults: StepHandoff[],
+  verifyResult: { passed: boolean; issues: string[]; summary: string },
+  retryCount: number,
+): string {
+  const historyLines = allStepResults.map((r) => `- [${r.state}] ${r.focus}: ${r.output.slice(0, 300)}`).join('\n');
+
+  return `[RETRY ${retryCount}/${MAX_VERIFY_RETRIES}]
+Previous execution history:
+${historyLines}
+
+VERIFY FAILED:
+Summary: ${verifyResult.summary}
+Issues:
+${verifyResult.issues.map((i) => `  - ${i}`).join('\n')}
+
+Analyze what went wrong and plan a new approach. Consider:
+- If the code change was wrong → use DIAGNOSE to find root cause, then MODIFY again
+- If tests reveal a deeper bug → use DIAGNOSE first
+- If the modification made things worse → start with ROLLBACK`;
+}
 
 export type { ExecutionEvent };
 
@@ -95,12 +123,14 @@ export class ReactAgent {
 
     const conversationHistory = await compressConversationHistory(initialMessages ?? [], model);
 
-    const { steps } = await runReasonStep(mission, cfg, conversationHistory, onEvent, async (questions) => {
+    const clarifyCallback = async (questions: string[]): Promise<string> => {
       onEvent?.({ type: 'clarification_needed', questions });
       return new Promise<string>((resolve) => {
         this._pendingClarification = resolve;
       });
-    });
+    };
+
+    const { steps } = await runReasonStep(mission, cfg, conversationHistory, onEvent, clarifyCallback);
 
     if (steps.length === 0) {
       mission.state = 'completed';
@@ -108,12 +138,72 @@ export class ReactAgent {
       return { state: State.DONE, success: true, output: '', toolCalls: [], nextState: State.DONE, messages: [] };
     }
 
-    const stepResults = [];
+    const allStepResults: StepHandoff[] = [];
+    let currentSteps = steps;
+    let verifyRetries = 0;
+    let prevStepsSignature = '';
+
     try {
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i]!;
-        const handoff = await runStep(step, i, steps.length, mission, stepResults, cfg, onEvent);
-        stepResults.push(handoff);
+      while (true) {
+        const thisRoundResults: StepHandoff[] = [];
+
+        for (let i = 0; i < currentSteps.length; i++) {
+          const step = currentSteps[i]!;
+          const handoff = await runStep(step, i, currentSteps.length, mission, thisRoundResults, cfg, onEvent);
+          thisRoundResults.push(handoff);
+        }
+
+        allStepResults.push(...thisRoundResults);
+
+        const lastVerify = [...thisRoundResults].reverse().find((h) => h.state === State.VERIFY);
+
+        if (!lastVerify) break;
+
+        let verifyResult: { passed: boolean; issues: string[]; summary: string };
+        try {
+          verifyResult = JSON.parse(lastVerify.output) as typeof verifyResult;
+        } catch {
+          break;
+        }
+        if (verifyResult.passed === true) break;
+
+        if (verifyRetries >= MAX_VERIFY_RETRIES) {
+          mission.state = 'failed';
+          lspClient.dispose();
+          return {
+            state: State.DONE,
+            success: false,
+            output: `Task failed after ${MAX_VERIFY_RETRIES + 1} attempts. Last error: ${verifyResult.summary}`,
+            toolCalls: [],
+            nextState: State.DONE,
+            messages: [],
+          };
+        }
+
+        verifyRetries++;
+
+        const failureSummaryMsg: AgentMessage = {
+          role: 'user',
+          content: buildVerifyFailureContext(allStepResults, verifyResult, verifyRetries),
+          timestamp: Date.now(),
+        };
+        const retryHistory = [...conversationHistory, failureSummaryMsg];
+
+        const { steps: retrySteps } = await runReasonStep(mission, cfg, retryHistory, onEvent, clarifyCallback);
+
+        if (retrySteps.length === 0) break;
+
+        const thisSig = stepsSignature(retrySteps);
+        if (thisSig === prevStepsSignature) break;
+        prevStepsSignature = thisSig;
+
+        const hasModify = retrySteps.some((s) => s.state === State.MODIFY);
+        const hasRollback = retrySteps.some((s) => s.state === State.ROLLBACK);
+        if (hasModify && !hasRollback) {
+          retrySteps.unshift({ state: State.ROLLBACK, focus: 'Restore all modified files to checkpoint before retry' });
+        }
+
+        currentSteps = retrySteps;
       }
     } catch (err) {
       mission.state = 'failed';
@@ -126,7 +216,7 @@ export class ReactAgent {
     return {
       state: State.DONE,
       success: true,
-      output: stepResults[stepResults.length - 1]?.output ?? 'Task completed',
+      output: allStepResults[allStepResults.length - 1]?.output ?? 'Task completed',
       toolCalls: [],
       nextState: State.DONE,
       messages: [],

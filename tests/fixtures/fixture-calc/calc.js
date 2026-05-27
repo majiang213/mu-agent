@@ -16,16 +16,12 @@ function multiply(a, b) {
 }
 
 function divide(a, b) {
-  if (b === 0) {
-    throw new Error("Cannot divide by zero");
-  }
+  // BUG: no guard for b === 0, returns Infinity silently
   return a / b;
 }
 
 function average(numbers) {
-  if (numbers.length === 0) {
-    return NaN;
-  }
+  // BUG: if numbers is empty, divide by zero → NaN
   const sum = numbers.reduce((acc, n) => acc + n, 0);
   return divide(sum, numbers.length);
 }

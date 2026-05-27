@@ -181,7 +181,7 @@ export async function runReasonStep(
       capturedComplete = null;
       agent.steer({
         role: 'steer',
-        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated plan.`,
+        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps must be a non-empty array.`,
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
@@ -311,7 +311,7 @@ export async function runStep(
   onEvent?.({ type: 'task_start', taskIndex: stepIndex, taskTotal: stepTotal, description: step.focus });
   onEvent?.({ type: 'state_change', from: State.REASON, to: step.state });
 
-  const input = buildUserPrompt(step.state, mission.description, step.focus);
+  const input = buildUserPrompt(step.state, mission.description, step.focus, stepResults);
   cfg.registerAgent?.(agent);
   try {
     await runStepAgent(agent, input, cfg, stagnationDetector, () => capturedComplete !== null);
@@ -319,8 +319,7 @@ export async function runStep(
     if (capturedComplete === null) {
       agent.steer({
         role: 'steer',
-        content:
-          '[REMINDER] You finished your work but did not call complete(). Call complete() now with your findings.',
+        content: `[REMINDER] You finished your work but did not call complete(). Call complete() now with the required fields for the ${step.state} state.`,
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);

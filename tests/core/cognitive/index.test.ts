@@ -52,6 +52,14 @@ describe('StagnationDetector', () => {
       expect(result.detected).toBe(true);
       expect(result.type).toBe('repeated_error');
     });
+
+    it('different error strings do not trigger repeated_error', () => {
+      gate.recordError('tool_error:bash');
+      gate.recordError('tool_error:read');
+
+      const result = gate.check();
+      expect(result.detected).toBe(false);
+    });
   });
 
   describe('no progress', () => {
