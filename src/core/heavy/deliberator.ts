@@ -1,88 +1,100 @@
 import { completeSimple } from '@mariozechner/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
-import type { PlanCandidate, DeliberationResult, DeliberateOutcome } from './types.js';
+import type { Step } from '../types.js';
+import type { PlanCandidate, DeliberateOutcome } from './types.js';
 
-const DELIBERATION_SYSTEM_BASE = `You are reviewing multiple execution plans for the same coding task.
-Each plan was generated independently. Your job:
-1. Compare the plans — what are the key differences?
-2. Identify which plan is most likely to succeed and why.
-3. If one plan clearly covers edge cases others miss, prefer it.
-4. If plans are equivalent, prefer the simpler one (fewer steps).
-5. If ALL plans share a potentially wrong assumption and critical information is missing,
-   output needs_clarification (use ONLY when truly necessary, at most once per task).
-6. If you genuinely cannot decide between two or more equally valid but different plans,
-   output needs_plan_selection so the user can choose.
+const DELIBERATION_SYSTEM = `You are a coding task planner reviewing multiple independently generated execution plans for the same task.
 
-Return your decision in EXACTLY one of these formats (no extra text):
+Your job:
+1. Critically evaluate each plan's reasoning (the "why" fields) — do not simply follow the majority.
+2. Synthesize the strongest elements across all plans into a single final plan.
+3. If all plans share a fundamental flaw, re-derive a better plan from scratch based on the task description.
+4. Output only the final execution steps as a JSON array — no meta-analysis, no explanation.
 
-Option A — select a plan:
-selected_plan_id: <id>
-reason: <one sentence>
-rejected: <id>: <why>
+Output format (JSON array only, nothing else):
+[
+  {"state": "LOCATE", "focus": "...", "why": "..."},
+  {"state": "MODIFY", "focus": "..."},
+  ...
+]
 
-Option B — ask for clarification (critical info missing, at most once per task):
-needs_clarification: true
-question: <one specific question for the user>
+Rules:
+- Each step must have "state" (valid state name) and "focus" (what to do).
+- "why" is optional — include only when it adds real information.
+- Maximum 6 steps.
+- If the task is genuinely unclear and you cannot synthesize a plan, output exactly: needs_clarification: true
+  followed by: question: <one specific question>`;
 
-Option C — let user choose (plans are equally valid but genuinely different approaches):
-needs_plan_selection: true`;
+const JUDGE_SYSTEM = `You are evaluating two execution plans for the same coding task.
+Reply with exactly one word: BETTER, WORSE, or SAME.
+BETTER = new plan is more likely to succeed than current best.
+WORSE = new plan is less likely to succeed than current best.
+SAME = both plans are equivalent.
+No explanation. One word only.`;
 
-function buildDeliberationSystem(candidates: PlanCandidate[]): string {
-  const summaryLines = candidates
-    .map((c) => `summary_${c.id}: <one sentence describing this plan's approach>`)
-    .join('\n');
-  return `${DELIBERATION_SYSTEM_BASE}\n${summaryLines}`;
+function formatStepForCache(step: Step): string {
+  const why = step.why ? `\n        why: ${step.why}` : '';
+  return `  [${step.state}] ${step.focus}${why}`;
 }
 
-export async function deliberate(
-  candidates: PlanCandidate[],
+function buildMemoryCache(candidates: PlanCandidate[]): string {
+  const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+  const labels = 'ABCDEFGHIJ';
+  return shuffled
+    .map((c, i) => `--- Plan ${labels[i]} ---\n${c.steps.map(formatStepForCache).join('\n')}`)
+    .join('\n\n');
+}
+
+function formatStepsForJudge(steps: Step[]): string {
+  return steps.map(formatStepForCache).join('\n');
+}
+
+function jaccardSteps(a: Step[], b: Step[]): number {
+  const setA = new Set(a.map((s) => `${s.state}:${s.focus}`));
+  const setB = new Set(b.map((s) => `${s.state}:${s.focus}`));
+  const intersection = [...setA].filter((x) => setB.has(x)).length;
+  const union = new Set([...setA, ...setB]).size;
+  return union === 0 ? 1 : intersection / union;
+}
+
+function parseStepsJson(raw: string): Step[] | null {
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown[];
+    if (!Array.isArray(parsed)) return null;
+    const steps: Step[] = [];
+    for (const item of parsed) {
+      if (typeof item !== 'object' || item === null) return null;
+      const r = item as Record<string, unknown>;
+      if (typeof r['state'] !== 'string' || typeof r['focus'] !== 'string') return null;
+      const step: Step = { state: r['state'] as Step['state'], focus: r['focus'] };
+      if (typeof r['why'] === 'string' && r['why'].length > 0) step.why = r['why'];
+      steps.push(step);
+    }
+    return steps.length > 0 ? steps.slice(0, 6) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function runSingleDeliberation(
+  memoryCache: string,
   mission: Mission,
   cfg: RunConfig,
+  deliberationModel: import('@mariozechner/pi-ai').Model<'openai-completions'>,
+  allowClarification: boolean,
   onEvent?: (event: ExecutionEvent) => void,
-  allowClarification = true,
-): Promise<DeliberateOutcome> {
-  if (candidates.length === 1) {
-    return {
-      type: 'selected',
-      result: {
-        selectedPlan: candidates[0]!,
-        deliberationSummary: 'Single candidate',
-        rejectedPlans: [],
-      },
-    };
-  }
-
-  if (allPlansSimilar(candidates)) {
-    onEvent?.({ type: 'deliberation_fallback', reason: 'all plans similar, skipping deliberation' });
-    return {
-      type: 'selected',
-      result: {
-        selectedPlan: pickShortest(candidates),
-        deliberationSummary: 'Plans too similar',
-        rejectedPlans: [],
-      },
-    };
-  }
-
-  const candidatesText = candidates
-    .map((c) => `Plan ${c.id}:\n${c.steps.map((s, i) => `  Step ${i + 1}: [${s.state}] ${s.focus}`).join('\n')}`)
-    .join('\n\n');
-
-  const systemPrompt = buildDeliberationSystem(candidates);
-  const userPrompt = `Task: ${mission.description}\n\n${candidatesText}`;
+): Promise<DeliberateOutcome | null> {
+  const userPrompt = `Task: ${mission.description}\n\n${memoryCache}`;
 
   let raw: string;
   try {
     const result = await completeSimple(
-      cfg.model,
-      {
-        systemPrompt,
-        messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }],
-      },
-      {
-        temperature: cfg.temperature,
-        apiKey: cfg.apiKey,
-      },
+      deliberationModel,
+      { systemPrompt: DELIBERATION_SYSTEM, messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }] },
+      { temperature: cfg.temperature, apiKey: cfg.apiKey },
     );
     raw = result.content
       .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
@@ -92,88 +104,163 @@ export async function deliberate(
     onEvent?.({ type: 'deliberation_fallback', reason: 'LLM call failed' });
     return {
       type: 'selected',
-      result: {
-        selectedPlan: pickShortest(candidates),
-        deliberationSummary: 'Deliberation failed',
-        rejectedPlans: [],
-      },
+      result: { synthesizedSteps: pickShortest([] as PlanCandidate[]).steps, deliberationSummary: 'LLM call failed' },
     };
   }
 
-  return parseDeliberationResponse(raw, candidates, onEvent, allowClarification);
+  if (/needs_clarification:\s*true/i.test(raw)) {
+    if (allowClarification) {
+      const qMatch = raw.match(/question:\s*(.+)/);
+      const question = qMatch?.[1]?.trim() ?? 'Can you provide more details about the task?';
+      return { type: 'needs_clarification', question };
+    }
+    onEvent?.({ type: 'deliberation_fallback', reason: 'needs_clarification suppressed (allowClarification=false)' });
+    return null;
+  }
+
+  const steps = parseStepsJson(raw);
+  if (steps && steps.length > 0) {
+    return {
+      type: 'selected',
+      result: { synthesizedSteps: steps, deliberationSummary: raw.slice(0, 200) },
+    };
+  }
+
+  onEvent?.({ type: 'deliberation_fallback', reason: 'parse failed, no valid steps JSON in response' });
+  return null;
 }
 
-function parseDeliberationResponse(
-  raw: string,
+async function judgeRefinement(
+  mission: Mission,
+  bestSteps: Step[],
+  newSteps: Step[],
+  deliberationModel: import('@mariozechner/pi-ai').Model<'openai-completions'>,
+  apiKey: string,
+): Promise<'BETTER' | 'WORSE' | 'SAME'> {
+  const userPrompt = `Task: ${mission.description}
+
+Current best plan:
+${formatStepsForJudge(bestSteps)}
+
+New plan:
+${formatStepsForJudge(newSteps)}`;
+
+  try {
+    const result = await completeSimple(
+      deliberationModel,
+      { systemPrompt: JUDGE_SYSTEM, messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }] },
+      { temperature: 0, apiKey },
+    );
+    const raw = result.content
+      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+      .map((c) => c.text)
+      .join('')
+      .trim()
+      .toUpperCase();
+
+    if (raw.startsWith('BETTER')) return 'BETTER';
+    if (raw.startsWith('WORSE')) return 'WORSE';
+    return 'SAME';
+  } catch {
+    return 'SAME';
+  }
+}
+
+export async function deliberate(
   candidates: PlanCandidate[],
+  mission: Mission,
+  cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
   allowClarification = true,
-): DeliberateOutcome {
-  if (/needs_clarification:\s*true/i.test(raw)) {
-    if (!allowClarification) {
-      const summaries = candidates.map((c) => c.steps.map((s) => `[${s.state}] ${s.focus}`).join(' → '));
-      return { type: 'needs_plan_selection', candidates, summaries };
+): Promise<DeliberateOutcome> {
+  if (candidates.length === 0) {
+    onEvent?.({ type: 'deliberation_fallback', reason: 'no candidates' });
+    return { type: 'selected', result: { synthesizedSteps: [], deliberationSummary: 'no candidates' } };
+  }
+
+  if (candidates.length === 1) {
+    return {
+      type: 'selected',
+      result: { synthesizedSteps: candidates[0]!.steps, deliberationSummary: 'single candidate' },
+    };
+  }
+
+  if (allPlansSimilar(candidates)) {
+    onEvent?.({ type: 'deliberation_fallback', reason: 'all plans similar, skipping deliberation' });
+    return {
+      type: 'selected',
+      result: { synthesizedSteps: pickShortest(candidates).steps, deliberationSummary: 'plans too similar' },
+    };
+  }
+
+  const deliberationModel = cfg.heavyThinking?.deliberationModel
+    ? { ...cfg.model, id: cfg.heavyThinking.deliberationModel, name: cfg.heavyThinking.deliberationModel }
+    : cfg.model;
+
+  let memoryCache = buildMemoryCache(candidates);
+
+  const firstOutcome = await runSingleDeliberation(
+    memoryCache,
+    mission,
+    cfg,
+    deliberationModel,
+    allowClarification,
+    onEvent,
+  );
+
+  if (!firstOutcome) {
+    return {
+      type: 'selected',
+      result: { synthesizedSteps: pickShortest(candidates).steps, deliberationSummary: 'deliberation failed' },
+    };
+  }
+
+  if (firstOutcome.type === 'needs_clarification') return firstOutcome;
+
+  let bestSteps = firstOutcome.result.synthesizedSteps;
+
+  for (let iter = 0; iter < 8; iter++) {
+    const iterLabel = `Refinement round ${iter + 1}`;
+    memoryCache += `\n\n--- Deliberation result (round ${iter + 1}) ---\n${bestSteps.map(formatStepForCache).join('\n')}`;
+
+    const nextOutcome = await runSingleDeliberation(memoryCache, mission, cfg, deliberationModel, false, onEvent);
+
+    if (!nextOutcome || nextOutcome.type !== 'selected') break;
+
+    const newSteps = nextOutcome.result.synthesizedSteps;
+
+    const verdict = await judgeRefinement(mission, bestSteps, newSteps, deliberationModel, cfg.apiKey);
+
+    if (verdict === 'WORSE' || verdict === 'SAME') {
+      onEvent?.({ type: 'deliberation_fallback', reason: `${iterLabel}: judge=${verdict}, stopping refinement` });
+      break;
     }
-    const qMatch = raw.match(/question:\s*(.+)/);
-    const question = qMatch?.[1]?.trim() ?? 'Can you provide more details about the task?';
-    return { type: 'needs_clarification', question };
-  }
 
-  if (/needs_plan_selection:\s*true/i.test(raw)) {
-    const summaries = candidates.map((c) => {
-      const m = raw.match(new RegExp(`summary_${c.id}:\\s*(.+)`));
-      return m?.[1]?.trim() ?? c.steps.map((s) => `[${s.state}] ${s.focus}`).join(' → ');
-    });
-    return { type: 'needs_plan_selection', candidates, summaries };
-  }
-
-  const idSet = new Set(candidates.map((c) => c.id));
-
-  const match = raw.match(/selected_plan_id:\s*(\S+)/);
-  if (match && idSet.has(match[1]!)) {
-    return { type: 'selected', result: buildResult(match[1]!, raw, candidates) };
-  }
-
-  for (const id of idSet) {
-    if (raw.includes(id)) {
-      onEvent?.({ type: 'deliberation_fallback', reason: 'non-standard format, id scanned from text' });
-      return { type: 'selected', result: buildResult(id, raw, candidates) };
+    if (jaccardSteps(newSteps, bestSteps) > 0.85) {
+      onEvent?.({ type: 'deliberation_fallback', reason: `${iterLabel}: converged (Jaccard>0.85)` });
+      bestSteps = newSteps;
+      break;
     }
+
+    bestSteps = newSteps;
   }
 
-  onEvent?.({ type: 'deliberation_fallback', reason: 'parse failed, presenting plans to user' });
-  const summaries = candidates.map((c) => c.steps.map((s) => `[${s.state}] ${s.focus}`).join(' → '));
-  return { type: 'needs_plan_selection', candidates, summaries };
-}
-
-function buildResult(selectedId: string, raw: string, candidates: PlanCandidate[]): DeliberationResult {
-  const selected = candidates.find((c) => c.id === selectedId)!;
-  const rejected = candidates
-    .filter((c) => c.id !== selectedId)
-    .map((plan) => {
-      const m = raw.match(new RegExp(`${plan.id}:\\s*([^,\\n]+)`));
-      return { plan, reason: m?.[1]?.trim() ?? 'not selected' };
-    });
-  return { selectedPlan: selected, deliberationSummary: raw, rejectedPlans: rejected };
-}
-
-function jaccard(a: PlanCandidate, b: PlanCandidate): number {
-  const setA = new Set(a.steps.map((s) => `${s.state}:${s.focus}`));
-  const setB = new Set(b.steps.map((s) => `${s.state}:${s.focus}`));
-  const intersection = [...setA].filter((x) => setB.has(x)).length;
-  const union = new Set([...setA, ...setB]).size;
-  return union === 0 ? 1 : intersection / union;
+  return {
+    type: 'selected',
+    result: { synthesizedSteps: bestSteps, deliberationSummary: `synthesized from ${candidates.length} plans` },
+  };
 }
 
 function allPlansSimilar(candidates: PlanCandidate[], threshold = 0.8): boolean {
   for (let i = 0; i < candidates.length; i++) {
     for (let j = i + 1; j < candidates.length; j++) {
-      if (jaccard(candidates[i]!, candidates[j]!) < threshold) return false;
+      if (jaccardSteps(candidates[i]!.steps, candidates[j]!.steps) < threshold) return false;
     }
   }
   return true;
 }
 
 export function pickShortest(candidates: PlanCandidate[]): PlanCandidate {
+  if (candidates.length === 0) return { id: 'empty', steps: [], sampledAt: Date.now() };
   return candidates.reduce((a, b) => (a.steps.length <= b.steps.length ? a : b));
 }

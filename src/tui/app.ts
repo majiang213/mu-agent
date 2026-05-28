@@ -606,18 +606,11 @@ export class TuiApp {
       } else if (event.type === 'deliberation_start') {
         this.insertBefore(new Text(C.dim(`  ⚡ Sampling ${event.candidateCount} plans...`), 0, 0));
       } else if (event.type === 'deliberation_complete') {
-        this.insertBefore(
-          new Text(C.dim(`  ✓ Selected ${event.selectedPlanId} (rejected ${event.rejectedCount})`), 0, 0),
-        );
+        this.insertBefore(new Text(C.dim(`  ✓ Synthesized plan (${event.synthesizedStepCount} steps)`), 0, 0));
       } else if (event.type === 'deliberation_fallback') {
         this.insertBefore(new Text(C.dim(`  ⚠ Deliberation: ${event.reason}`), 0, 0));
       } else if (event.type === 'deliberation_clarification') {
         this.insertBefore(new Text(C.dim(`  ? ${event.question}`), 0, 0));
-        this.pendingClarificationAgent = this.currentAgent;
-        this.editor.disableSubmit = false;
-      } else if (event.type === 'deliberation_plan_selection') {
-        const planList = event.plans.map((p, i) => `  ${i + 1}. [${p.id}] ${p.summary}\n     ${p.steps}`).join('\n');
-        this.insertBefore(new Text(C.dim('  Multiple plans found. Choose one:\n') + planList, 0, 0));
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       }

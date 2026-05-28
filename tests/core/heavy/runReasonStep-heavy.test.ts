@@ -82,7 +82,7 @@ function makePlan(id: string, states: State[]): PlanCandidate {
   return { id, steps: states.map((s, i) => ({ state: s, focus: `focus ${i}` })), sampledAt: 0 };
 }
 
-function makeCfg(heavy?: RunConfig['heavy']): RunConfig {
+function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {
   return {
     model: { id: 'test-model', provider: 'ollama', baseUrl: 'http://localhost/v1' } as RunConfig['model'],
     stateMachine: {
@@ -102,10 +102,21 @@ function makeCfg(heavy?: RunConfig['heavy']): RunConfig {
     safeModifier: { clearAll: vi.fn() } as unknown as RunConfig['safeModifier'],
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' } as RunConfig['env'],
     temperature: 0.1,
+    contextRatio: 0.75,
+    apiKey: 'ollama',
     projectRoot: '/tmp',
     registerAgent: vi.fn(),
     unregisterAgent: vi.fn(),
-    heavy,
+    heavyThinking,
+  };
+}
+
+function makeSelectedOutcome(
+  plan: PlanCandidate,
+): Extract<Awaited<ReturnType<typeof deliberate>>, { type: 'selected' }> {
+  return {
+    type: 'selected',
+    result: { synthesizedSteps: plan.steps, deliberationSummary: 'synthesized' },
   };
 }
 
@@ -115,58 +126,47 @@ describe('runReasonStep — heavy path', () => {
   });
 
   it('fires deliberation_start with correct candidateCount', async () => {
-    const cfg = makeCfg({ enabled: true, sampleCount: 3 });
+    const cfg = makeCfg({ planCount: 3 });
     const plan = makePlan('plan-0', [State.MODIFY]);
     vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'selected',
-      result: { selectedPlan: plan, deliberationSummary: 'single', rejectedPlans: [] },
-    });
+    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
     const events: ExecutionEvent[] = [];
     await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], (e) => events.push(e));
     expect(events.some((e) => e.type === 'deliberation_start' && e.candidateCount === 3)).toBe(true);
   });
 
-  it('skips deliberate when all samples fail (verifies via no deliberate call)', async () => {
-    const cfg = makeCfg({ enabled: true });
+  it('calls deliberate once when sampling succeeds', async () => {
+    const cfg = makeCfg();
     const plan = makePlan('plan-0', [State.MODIFY]);
     vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'selected',
-      result: { selectedPlan: plan, deliberationSummary: 'ok', rejectedPlans: [] },
-    });
+    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
     await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, []);
     expect(deliberate).toHaveBeenCalledTimes(1);
   });
 
-  it('returns selected plan steps', async () => {
-    const cfg = makeCfg({ enabled: true });
+  it('returns synthesized steps', async () => {
+    const cfg = makeCfg();
     const plan0 = makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]);
     const plan1 = makePlan('plan-1', [State.MODIFY, State.VERIFY]);
+    const synthesized = makePlan('synthesized', [State.DIAGNOSE, State.LOCATE, State.MODIFY, State.VERIFY]);
     vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'selected',
-      result: { selectedPlan: plan1, deliberationSummary: 'simpler', rejectedPlans: [{ plan: plan0, reason: 'long' }] },
-    });
+    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(synthesized));
     const events: ExecutionEvent[] = [];
     const result = await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], (e) =>
       events.push(e),
     );
-    expect(result.steps).toEqual(plan1.steps);
-    expect(events.some((e) => e.type === 'deliberation_complete' && e.selectedPlanId === 'plan-1')).toBe(true);
+    expect(result.steps).toEqual(synthesized.steps);
+    expect(events.some((e) => e.type === 'deliberation_complete' && e.synthesizedStepCount === 4)).toBe(true);
   });
 
   it('re-samples after clarification answer', async () => {
-    const cfg = makeCfg({ enabled: true });
+    const cfg = makeCfg();
     const plan0 = makePlan('plan-0', [State.LOCATE, State.MODIFY]);
     const plan1 = makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]);
     vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
     vi.mocked(deliberate)
       .mockResolvedValueOnce({ type: 'needs_clarification', question: 'Which file?' })
-      .mockResolvedValueOnce({
-        type: 'selected',
-        result: { selectedPlan: plan0, deliberationSummary: 'ok', rejectedPlans: [] },
-      });
+      .mockResolvedValueOnce(makeSelectedOutcome(plan0));
     const events: ExecutionEvent[] = [];
     const result = await runReasonStep(
       { id: 't', description: 'fix bug', state: 'running' },
@@ -184,7 +184,7 @@ describe('runReasonStep — heavy path', () => {
   });
 
   it('second deliberate uses allowClarification=false', async () => {
-    const cfg = makeCfg({ enabled: true });
+    const cfg = makeCfg();
     const plans = [
       makePlan('plan-0', [State.LOCATE, State.MODIFY]),
       makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
@@ -192,88 +192,32 @@ describe('runReasonStep — heavy path', () => {
     vi.mocked(samplePlans).mockResolvedValue(plans);
     vi.mocked(deliberate)
       .mockResolvedValueOnce({ type: 'needs_clarification', question: 'Which file?' })
-      .mockResolvedValueOnce({
-        type: 'selected',
-        result: { selectedPlan: plans[0]!, deliberationSummary: 'ok', rejectedPlans: [] },
-      });
+      .mockResolvedValueOnce(makeSelectedOutcome(plans[0]!));
     await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], undefined, async () => 'answer');
     expect(vi.mocked(deliberate).mock.calls[1]![4]).toBe(false);
   });
 
-  it('shows plan_selection and picks user choice', async () => {
-    const cfg = makeCfg({ enabled: true });
-    const plan0 = makePlan('plan-0', [State.LOCATE, State.MODIFY]);
-    const plan1 = makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'needs_plan_selection',
-      candidates: [plan0, plan1],
-      summaries: ['A', 'B'],
-    });
-    const events: ExecutionEvent[] = [];
-    const result = await runReasonStep(
-      { id: 't', description: 'fix', state: 'running' },
-      cfg,
-      [],
-      (e) => events.push(e),
-      async () => 'plan-1',
-    );
-    expect(events.some((e) => e.type === 'deliberation_plan_selection')).toBe(true);
-    expect(result.steps).toEqual(plan1.steps);
-  });
-
-  it('re-prompts on invalid plan id', async () => {
-    const cfg = makeCfg({ enabled: true });
-    const plan0 = makePlan('plan-0', [State.MODIFY]);
-    const plan1 = makePlan('plan-1', [State.LOCATE, State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'needs_plan_selection',
-      candidates: [plan0, plan1],
-      summaries: ['a', 'b'],
-    });
-    const answers = ['bad', '0'];
-    const selectionEvents: ExecutionEvent[] = [];
-    const result = await runReasonStep(
-      { id: 't', description: 'fix', state: 'running' },
-      cfg,
-      [],
-      (e) => {
-        if (e.type === 'deliberation_plan_selection') selectionEvents.push(e);
-      },
-      async () => answers.shift()!,
-    );
-    expect(selectionEvents).toHaveLength(2);
-    expect(result.steps).toEqual(plan0.steps);
-  });
-
-  it('uses pickShortest fallback when no onNeedsClarify for plan_selection', async () => {
-    const cfg = makeCfg({ enabled: true });
-    const plan0 = makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    const plan1 = makePlan('plan-1', [State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'needs_plan_selection',
-      candidates: [plan0, plan1],
-      summaries: ['long', 'short'],
-    });
-    const result = await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, []);
-    expect(result.steps).toEqual(plan1.steps);
-  });
-
   it('defaults to SMALL tier count of 3', async () => {
-    const cfg = makeCfg({ enabled: true });
+    const cfg = makeCfg();
     const plan = makePlan('plan-0', [State.MODIFY]);
     vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'selected',
-      result: { selectedPlan: plan, deliberationSummary: 'ok', rejectedPlans: [] },
-    });
+    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
     const events: ExecutionEvent[] = [];
     await runReasonStep({ id: 't', description: 'x', state: 'running' }, cfg, [], (e) => events.push(e));
     const startEvent = events.find(
       (e): e is Extract<ExecutionEvent, { type: 'deliberation_start' }> => e.type === 'deliberation_start',
     );
     expect(startEvent?.candidateCount).toBe(3);
+  });
+
+  it('fires deliberation_start and deliberation_fallback when samples array is empty', async () => {
+    const cfg = makeCfg();
+    vi.mocked(samplePlans).mockResolvedValue([]);
+    const events: ExecutionEvent[] = [];
+    const promise = runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], (e) => events.push(e));
+    await Promise.race([promise, new Promise((resolve) => setTimeout(resolve, 100))]);
+    expect(deliberate).not.toHaveBeenCalled();
+    expect(events.some((e) => e.type === 'deliberation_start')).toBe(true);
+    expect(events.some((e) => e.type === 'deliberation_fallback')).toBe(true);
   });
 });

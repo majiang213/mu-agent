@@ -7,7 +7,10 @@ const COMPLETE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> =
     steps: Type.Array(
       Type.Object({
         state: Type.String({ description: 'State name, e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH' }),
-        focus: Type.String({ description: 'Specific goal for this step' }),
+        focus: Type.String({ description: 'What to do in this step' }),
+        why: Type.Optional(
+          Type.String({ description: 'In max 15 words: why this step and why this approach. Skip for obvious steps.' }),
+        ),
       }),
     ),
     needsClarify: Type.Boolean(),

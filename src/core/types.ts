@@ -100,6 +100,14 @@ export interface ExitCheckResult {
 export interface Step {
   state: State;
   focus: string;
+  /** Optional: reasoning behind this step — why this state, why this approach.
+   *  Max ~15 words. Only filled during heavy thinking sampling for deliberation use. */
+  why?: string;
+}
+
+/** A Step that has been executed — output is guaranteed to be present */
+export interface ExecutedStep extends Step {
+  output: string;
 }
 
 /** An item in the agent's agenda (step + its execution trajectory) */
@@ -110,10 +118,4 @@ export interface AgendaItem {
   /** For multi-step agendas, the id used to track dependencies */
   id?: string;
   dependencies?: string[];
-}
-
-export interface StepHandoff {
-  state: State;
-  focus: string;
-  output: string;
 }

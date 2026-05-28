@@ -1,6 +1,6 @@
 import { State, type ModelParams, type StateContext } from '../types.js';
 import type { ProjectContext } from '../project-context.js';
-import type { StepHandoff } from '../types.js';
+import type { ExecutedStep } from '../types.js';
 
 export interface EnvContext {
   cwd: string;
@@ -101,6 +101,9 @@ Choose the MINIMUM steps needed based on the task description alone:
 
 Each step needs a "focus" describing exactly what to do. Maximum 6 steps.
 
+For each step, optionally add "why" (max 15 words): your key assumption or reasoning.
+Only fill "why" when it adds real information — skip for obvious steps.
+
 Call complete(steps=[...], needsClarify=false).
 If intent is genuinely unclear, call complete(steps=[], needsClarify=true, questions=["<question>"]).
 
@@ -110,8 +113,8 @@ Examples:
 - Web search:   complete(steps=[{state:"RESEARCH", focus:"search for best practices for JWT expiry"}], needsClarify=false)
 - Review code:  complete(steps=[{state:"REVIEW", focus:"review auth.js for security issues"}], needsClarify=false)
 - Simple edit:  complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
-- Fix bug:      complete(steps=[{state:"LOCATE",focus:"find divide function"},{state:"MODIFY",focus:"add zero-check guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
-- Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
+- Fix bug:      complete(steps=[{state:"LOCATE",focus:"find divide function",why:"bug likely in zero-check guard"},{state:"MODIFY",focus:"add zero-check before division",why:"input not validated upstream"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
+- Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users",why:"recent auth refactor may have broken session handling"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
 - Run command:  complete(steps=[{state:"RUN", focus:"run npm install"}], needsClarify=false)
 - Setup:        complete(steps=[{state:"SETUP", focus:"analyze project and generate AGENTS.md"}], needsClarify=false)
 - Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])
@@ -384,7 +387,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   return lines.filter(Boolean).join('\n\n').trim();
 }
 
-function formatPreviousResults(state: State, previousResults: StepHandoff[]): string {
+function formatPreviousResults(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
 
   const relevant = previousResults.filter((r) => {
@@ -404,7 +407,7 @@ function formatPreviousResults(state: State, previousResults: StepHandoff[]): st
   return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
 }
 
-export function buildUserPrompt(state: State, task: string, focus?: string, previousResults?: StepHandoff[]): string {
+export function buildUserPrompt(state: State, task: string, focus?: string, previousResults?: ExecutedStep[]): string {
   const target = focus ?? task;
   const context = previousResults ? formatPreviousResults(state, previousResults) : '';
   switch (state) {

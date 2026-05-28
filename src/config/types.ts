@@ -36,9 +36,8 @@ export interface SafetyConfig {
 
 export interface HeavyThinkingConfig {
   planCount?: number;
-  /** Temperature used for parallel plan sampling. Higher values (0.7) produce more diverse plans.
-   *  Default 0.7. Set to model's generation temperature for RL-trained models (e.g. Qwen3, DeepSeek-R1). */
   samplingTemperature?: number;
+  deliberationModel?: string;
 }
 
 export interface Config {

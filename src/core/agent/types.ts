@@ -20,10 +20,9 @@ export type ExecutionEvent =
   | { type: 'task_end'; taskIndex: number; taskTotal: number }
   | { type: 'clarification_needed'; questions: string[] }
   | { type: 'deliberation_start'; candidateCount: number }
-  | { type: 'deliberation_complete'; selectedPlanId: string; rejectedCount: number; summary: string }
+  | { type: 'deliberation_complete'; synthesizedStepCount: number; summary: string }
   | { type: 'deliberation_fallback'; reason: string }
-  | { type: 'deliberation_clarification'; question: string }
-  | { type: 'deliberation_plan_selection'; plans: Array<{ id: string; summary: string; steps: string }> };
+  | { type: 'deliberation_clarification'; question: string };
 
 export interface Mission {
   id: string;
