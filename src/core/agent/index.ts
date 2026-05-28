@@ -1,15 +1,14 @@
 import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { astLocatorTool } from '../../tool/locator.js';
 import { SafeModifier } from '../../tool/safety/index.js';
 import { webfetchTool } from '../../tool/webfetch.js';
 import { websearchTool } from '../../tool/websearch.js';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
 import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
-import { StateMachineAgent } from '../session.js';
+import { StateMachineAgent } from '../session/index.js';
 import { State } from '../types.js';
 import type { StateResult, Step, ExecutedStep } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
@@ -17,7 +16,7 @@ import { buildModel, compressConversationHistory, runReasonStep, runStep } from 
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
 export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
-import { loadProjectContext } from '../project-context.js';
+import { loadContext } from './context.js';
 import { LspClient } from '../../tool/lsp.js';
 
 const MAX_VERIFY_RETRIES = 2;
@@ -85,6 +84,8 @@ export class ReactAgent {
 
     const stateMachine = new StateMachineAgent(
       config.model.name,
+      // Cast needed: pi-agent-core's AgentTool<TParameters> requires TSchema [Kind] symbol
+      // which @sinclair/typebox TObject lacks — pre-existing upstream type gap
       [astLocatorTool, webfetchTool as AgentTool<any, any>, websearchTool as AgentTool<any, any>],
       paramCount,
     );
@@ -113,7 +114,7 @@ export class ReactAgent {
       platform: process.platform,
       isGitRepo,
       date: new Date().toDateString(),
-      projectContext: loadProjectContext(cwd) ?? undefined,
+      projectContext: loadContext(cwd) ?? undefined,
     };
 
     const lspClient = new LspClient();
