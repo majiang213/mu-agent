@@ -11,7 +11,7 @@ import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { StateMachineAgent } from '../session.js';
 import { State } from '../types.js';
-import type { StateResult, Step, StepHandoff } from '../types.js';
+import type { StateResult, Step, ExecutedStep } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, runStep } from './step-runner.js';
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
@@ -27,7 +27,7 @@ function stepsSignature(steps: Step[]): string {
 }
 
 function buildVerifyFailureContext(
-  allStepResults: StepHandoff[],
+  allStepResults: ExecutedStep[],
   verifyResult: { passed: boolean; issues: string[]; summary: string },
   retryCount: number,
 ): string {
@@ -157,14 +157,14 @@ export class ReactAgent {
       return { state: State.DONE, success: true, output: '', toolCalls: [], nextState: State.DONE, messages: [] };
     }
 
-    const allStepResults: StepHandoff[] = [];
+    const allStepResults: ExecutedStep[] = [];
     let currentSteps = steps;
     let verifyRetries = 0;
     let prevStepsSignature = '';
 
     try {
       while (true) {
-        const thisRoundResults: StepHandoff[] = [];
+        const thisRoundResults: ExecutedStep[] = [];
 
         for (let i = 0; i < currentSteps.length; i++) {
           const step = currentSteps[i]!;

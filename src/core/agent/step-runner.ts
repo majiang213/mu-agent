@@ -18,7 +18,7 @@ import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { samplePlans, deliberate, pickShortest } from '../heavy/index.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
-import type { Step, StepHandoff } from '../types.js';
+import type { Step, ExecutedStep } from '../types.js';
 
 export async function buildModel(
   modelName: string,
@@ -205,62 +205,14 @@ export async function runReasonStep(
     const { result } = outcome;
     onEvent?.({
       type: 'deliberation_complete',
-      selectedPlanId: result.selectedPlan.id,
-      rejectedCount: result.rejectedPlans.length,
+      synthesizedStepCount: result.synthesizedSteps.length,
       summary: result.deliberationSummary,
     });
-    return { steps: result.selectedPlan.steps };
+    return { steps: result.synthesizedSteps };
   }
 
-  if (outcome.type !== 'needs_plan_selection') {
-    const fallback = pickShortest(candidates);
-    return { steps: fallback.steps };
-  }
-
-  return handlePlanSelection(outcome.candidates, outcome.summaries, onNeedsClarify, onEvent);
-}
-
-async function handlePlanSelection(
-  candidates: import('../heavy/types.js').PlanCandidate[],
-  summaries: string[],
-  onNeedsClarify: ((questions: string[]) => Promise<string>) | undefined,
-  onEvent: ((event: ExecutionEvent) => void) | undefined,
-): Promise<{ steps: Step[] }> {
-  const idSet = new Set(candidates.map((c) => c.id));
-  const plans = candidates.map((c, i) => ({
-    id: c.id,
-    summary: summaries[i] ?? '',
-    steps: c.steps.map((s) => `[${s.state}] ${s.focus}`).join(' → '),
-  }));
-
-  let selectedId: string | null = null;
-  if (onNeedsClarify) {
-    onEvent?.({ type: 'deliberation_plan_selection', plans });
-    while (!selectedId) {
-      const validIds = [...idSet].join(' / ');
-      const answer = await onNeedsClarify([`Please choose a plan to execute. Reply with one of: ${validIds}`]);
-      const trimmed = answer.trim().toLowerCase();
-      for (const id of idSet) {
-        if (trimmed === id || trimmed === id.replace('plan-', '')) {
-          selectedId = id;
-          break;
-        }
-      }
-      if (!selectedId) {
-        onEvent?.({ type: 'deliberation_plan_selection', plans });
-      }
-    }
-  }
-
-  const chosen = selectedId ? candidates.find((c) => c.id === selectedId)! : pickShortest(candidates);
-
-  onEvent?.({
-    type: 'deliberation_complete',
-    selectedPlanId: chosen.id,
-    rejectedCount: candidates.length - 1,
-    summary: `User selected ${chosen.id}`,
-  });
-  return { steps: chosen.steps };
+  const fallback = pickShortest(candidates);
+  return { steps: fallback.steps };
 }
 
 async function runSingleReasonAttempt(
@@ -362,10 +314,10 @@ export async function runStep(
   stepIndex: number,
   stepTotal: number,
   mission: Mission,
-  stepResults: StepHandoff[],
+  stepResults: ExecutedStep[],
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
-): Promise<StepHandoff> {
+): Promise<ExecutedStep> {
   const trajectory = [step.state, State.DONE];
   cfg.stateMachine.resetForNextTask(step.state);
 

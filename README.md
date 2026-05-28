@@ -86,16 +86,18 @@ REASON 输出:
 | RUN | bash, complete | 执行命令 |
 | SETUP | read, write, complete | 项目初始化 |
 
-状态机根据模型规模动态调整约束：
+状态机根据模型规模动态调整约束（tier 由 Ollama API `general.parameter_count` 决定，custom provider 默认 LARGE）：
 
 ```typescript
-// 7B 小模型
+// SMALL（≤9B）
 { maxFilesPerTask: 2, maxRetries: 1, strictPlanning: true }
-// 30B 中模型
+// MEDIUM（10-30B）
 { maxFilesPerTask: 4, maxRetries: 2, strictPlanning: true }
-// 70B+ 大模型
+// LARGE（>30B 或 unknown）
 { maxFilesPerTask: 8, maxRetries: 3, strictPlanning: false }
 ```
+
+SMALL/MEDIUM 模型自动启用 **Heavy Thinking**：并行生成多个执行方案，审议选最优，显著提升规划质量。高级用户可通过 `config.json` 的 `heavyThinking` 字段调整 `planCount` 和 `samplingTemperature`。
 
 ---
 
@@ -161,12 +163,12 @@ src/
 │   ├── compaction/           # ContextCompactor（Token 预算压缩）
 │   ├── failure/              # FailureHandler（四层降级）
 │   ├── graph/                # BM25 + Call Graph 代码定位（SQLite）
+│   ├── heavy/                # Heavy Thinking：Sampling + Deliberation（SMALL/MEDIUM 自动启用）
 │   ├── prompts/              # 各状态的 system prompt
-│   ├── session.ts            # StateMachineAgent（工具白名单 + 状态管理）
-│   └── states.ts             # 状态配置，模型规模检测
+│   ├── session.ts            # StateMachineAgent（工具白名单 + 状态管理 + clone）
+│   └── states.ts             # 状态配置，tier 由 Ollama API 参数量决定
 ├── provider/
-│   ├── llm.ts                # LLMConnector
-│   └── model-info.ts         # 动态获取上下文长度
+│   └── model-info.ts         # 动态获取上下文长度 + 模型参数量
 ├── tool/
 │   ├── complete.ts           # complete() 工具（各状态 schema）
 │   ├── locator.ts            # AST 定位工具
