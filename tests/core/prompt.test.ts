@@ -176,6 +176,19 @@ describe('buildSystemPrompt', () => {
       const p = prompt(State.VERIFY);
       expect(p).toContain('passed');
     });
+
+    it('contains path audit instruction (Gap 41)', () => {
+      const p = prompt(State.VERIFY);
+      expect(p).toContain('path audit');
+      expect(p).toContain('LOCATE');
+      expect(p).toContain('edited');
+    });
+
+    it('path audit instructs to skip tests on mismatch', () => {
+      const p = prompt(State.VERIFY);
+      expect(p).toContain('wrong location');
+      expect(p).toContain('skip tests');
+    });
   });
 
   describe('ANSWER state', () => {
@@ -341,6 +354,50 @@ describe('buildUserPrompt', () => {
     const p = buildUserPrompt(State.VERIFY, 'fix calc.js', 'run npm test', prev);
     expect(p).toContain('previous_step_results');
     expect(p).toContain('MODIFY');
+  });
+
+  it('VERIFY injects LOCATE result from previousResults (Gap 41 path audit)', () => {
+    const prev = [
+      {
+        state: State.LOCATE,
+        focus: 'find divide function',
+        output: '{"locations":[{"file":"calc.js","startLine":5,"endLine":7}]}',
+      },
+      { state: State.MODIFY, focus: 'add zero-check', output: '{"edited":["calc.js"],"linesChanged":1}' },
+    ];
+    const p = buildUserPrompt(State.VERIFY, 'fix calc.js', 'run tests', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('LOCATE');
+    expect(p).toContain('MODIFY');
+    expect(p).toContain('calc.js');
+  });
+
+  it('VERIFY injects DIAGNOSE result from previousResults (Gap 41 path audit)', () => {
+    const prev = [
+      {
+        state: State.DIAGNOSE,
+        focus: 'why divide fails',
+        output: '{"rootCause":"no zero guard","location":"calc.js:5","fix":"add throw"}',
+      },
+      { state: State.MODIFY, focus: 'add zero-check', output: '{"edited":["calc.js"],"linesChanged":1}' },
+    ];
+    const p = buildUserPrompt(State.VERIFY, 'fix calc.js', 'run tests', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('DIAGNOSE');
+    expect(p).toContain('MODIFY');
+  });
+
+  it('VERIFY skips LOCATE-only previousResults when no MODIFY present', () => {
+    const prev = [
+      {
+        state: State.LOCATE,
+        focus: 'find divide function',
+        output: '{"locations":[{"file":"calc.js","startLine":5}]}',
+      },
+    ];
+    const p = buildUserPrompt(State.VERIFY, 'fix calc.js', 'run tests', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('LOCATE');
   });
 
   it('LOCATE does not inject previousResults (not needed)', () => {

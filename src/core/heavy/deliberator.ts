@@ -1,4 +1,5 @@
 import { completeSimple } from '@mariozechner/pi-ai';
+import type { Model } from '@mariozechner/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
 import type { Step } from '../types.js';
 import type { PlanCandidate, DeliberateOutcome } from './types.js';
@@ -39,9 +40,9 @@ function formatStepForCache(step: Step): string {
 
 function buildMemoryCache(candidates: PlanCandidate[]): string {
   const shuffled = [...candidates].sort(() => Math.random() - 0.5);
-  const labels = 'ABCDEFGHIJ';
+  const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   return shuffled
-    .map((c, i) => `--- Plan ${labels[i]} ---\n${c.steps.map(formatStepForCache).join('\n')}`)
+    .map((c, i) => `--- Plan ${labels[i] ?? String(i + 1)} ---\n${c.steps.map(formatStepForCache).join('\n')}`)
     .join('\n\n');
 }
 
@@ -83,7 +84,7 @@ async function runSingleDeliberation(
   memoryCache: string,
   mission: Mission,
   cfg: RunConfig,
-  deliberationModel: import('@mariozechner/pi-ai').Model<'openai-completions'>,
+  deliberationModel: Model<'openai-completions'>,
   allowClarification: boolean,
   onEvent?: (event: ExecutionEvent) => void,
 ): Promise<DeliberateOutcome | null> {
@@ -102,10 +103,7 @@ async function runSingleDeliberation(
       .join('');
   } catch {
     onEvent?.({ type: 'deliberation_fallback', reason: 'LLM call failed' });
-    return {
-      type: 'selected',
-      result: { synthesizedSteps: pickShortest([] as PlanCandidate[]).steps, deliberationSummary: 'LLM call failed' },
-    };
+    return null;
   }
 
   if (/needs_clarification:\s*true/i.test(raw)) {
@@ -134,7 +132,7 @@ async function judgeRefinement(
   mission: Mission,
   bestSteps: Step[],
   newSteps: Step[],
-  deliberationModel: import('@mariozechner/pi-ai').Model<'openai-completions'>,
+  deliberationModel: Model<'openai-completions'>,
   apiKey: string,
 ): Promise<'BETTER' | 'WORSE' | 'SAME'> {
   const userPrompt = `Task: ${mission.description}

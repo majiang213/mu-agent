@@ -1,5 +1,5 @@
 import { State, type ModelParams, type StateContext } from '../types.js';
-import type { ProjectContext } from '../project-context.js';
+import type { AgentContext } from '../agent/context.js';
 import type { ExecutedStep } from '../types.js';
 
 export interface EnvContext {
@@ -10,7 +10,7 @@ export interface EnvContext {
   projectTree?: string;
   suggestedFiles?: Array<{ path: string; hint?: string }>;
   snippets?: Record<string, string>;
-  projectContext?: ProjectContext;
+  projectContext?: AgentContext;
 }
 
 export interface SystemPromptOptions {
@@ -175,6 +175,11 @@ complete(edited=["calc.js"], linesChanged=1)
 When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
 
   [State.VERIFY]: `Verify the changes work correctly.
+
+If <previous_step_results> is present, first do a path audit before running tests:
+1. Check if the files in MODIFY edited[] overlap with the files in LOCATE locations[]. File-level match is sufficient.
+2. If they clearly do NOT overlap (e.g. MODIFY touched unrelated files), call complete(passed=false, issues=["wrong location: LOCATE found <locate_file> but MODIFY edited <modify_file>"]) — skip tests.
+3. If they match (or no LOCATE result is present), proceed to run tests as normal.
 
 - Run the project's test command (check package.json scripts, README, or ask — NEVER assume the test command).
 - If the project has a build/typecheck command (e.g. tsc --noEmit, cargo build, go build), run it.
@@ -387,12 +392,13 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   return lines.filter(Boolean).join('\n\n').trim();
 }
 
-function formatPreviousResults(state: State, previousResults: ExecutedStep[]): string {
+function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
 
   const relevant = previousResults.filter((r) => {
     if (state === State.MODIFY) return r.state === State.DIAGNOSE || r.state === State.LOCATE;
-    if (state === State.VERIFY) return r.state === State.MODIFY;
+    if (state === State.VERIFY)
+      return r.state === State.MODIFY || r.state === State.LOCATE || r.state === State.DIAGNOSE;
     return false;
   });
 
@@ -409,7 +415,7 @@ function formatPreviousResults(state: State, previousResults: ExecutedStep[]): s
 
 export function buildUserPrompt(state: State, task: string, focus?: string, previousResults?: ExecutedStep[]): string {
   const target = focus ?? task;
-  const context = previousResults ? formatPreviousResults(state, previousResults) : '';
+  const context = previousResults ? fmtPreStepCtx(state, previousResults) : '';
   switch (state) {
     case State.LOCATE:
       return `Locate the code positions for: ${target}`;

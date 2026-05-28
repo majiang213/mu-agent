@@ -401,4 +401,17 @@ describe('deliberate', () => {
     const judgeCallOpts = allCalls[judgeCallIdx]![2] as { temperature: number };
     expect(judgeCallOpts.temperature).toBe(0);
   });
+
+  it('LLM call failure falls back to pickShortest, not empty steps', async () => {
+    vi.mocked(completeSimple).mockRejectedValueOnce(new Error('network error'));
+    const plans = [
+      makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]),
+      makePlan('plan-1', [State.MODIFY, State.VERIFY]),
+    ];
+    const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
+    expect(result.type).toBe('selected');
+    if (result.type === 'selected') {
+      expect(result.result.synthesizedSteps.length).toBeGreaterThan(0);
+    }
+  });
 });
