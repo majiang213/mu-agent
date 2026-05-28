@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { SessionStore } from '../../src/core/session-store.js';
+import { SessionStore } from '../../src/core/session/store.js';
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `ss-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);

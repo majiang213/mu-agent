@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadProjectContext } from '../../src/core/project-context.js';
+import { loadContext } from '../../src/core/agent/context.js';
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `ctx-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -10,7 +10,7 @@ function makeTmpDir(): string {
   return dir;
 }
 
-describe('loadProjectContext', () => {
+describe('loadContext', () => {
   let dir: string;
 
   beforeEach(() => {
@@ -23,21 +23,21 @@ describe('loadProjectContext', () => {
 
   describe('file not found', () => {
     it('returns null when no context file exists', () => {
-      expect(loadProjectContext(dir)).toBeNull();
+      expect(loadContext(dir)).toBeNull();
     });
   });
 
   describe('priority order: AGENTS.md > CLAUDE.md > .local-agent/context.md', () => {
     it('returns AGENTS.md when only AGENTS.md exists', () => {
       writeFileSync(join(dir, 'AGENTS.md'), '# agents content');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.source).toBe('AGENTS.md');
       expect(ctx?.content).toBe('# agents content');
     });
 
     it('returns CLAUDE.md when only CLAUDE.md exists', () => {
       writeFileSync(join(dir, 'CLAUDE.md'), '# claude content');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.source).toBe('CLAUDE.md');
       expect(ctx?.content).toBe('# claude content');
     });
@@ -45,7 +45,7 @@ describe('loadProjectContext', () => {
     it('returns .local-agent/context.md when only that exists', () => {
       mkdirSync(join(dir, '.local-agent'), { recursive: true });
       writeFileSync(join(dir, '.local-agent', 'context.md'), '# context content');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.source).toBe('.local-agent/context.md');
       expect(ctx?.content).toBe('# context content');
     });
@@ -53,7 +53,7 @@ describe('loadProjectContext', () => {
     it('prefers AGENTS.md over CLAUDE.md when both exist', () => {
       writeFileSync(join(dir, 'AGENTS.md'), '# agents');
       writeFileSync(join(dir, 'CLAUDE.md'), '# claude');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.source).toBe('AGENTS.md');
       expect(ctx?.content).toBe('# agents');
     });
@@ -62,7 +62,7 @@ describe('loadProjectContext', () => {
       writeFileSync(join(dir, 'CLAUDE.md'), '# claude');
       mkdirSync(join(dir, '.local-agent'), { recursive: true });
       writeFileSync(join(dir, '.local-agent', 'context.md'), '# context');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.source).toBe('CLAUDE.md');
     });
 
@@ -71,7 +71,7 @@ describe('loadProjectContext', () => {
       writeFileSync(join(dir, 'CLAUDE.md'), '# claude');
       mkdirSync(join(dir, '.local-agent'), { recursive: true });
       writeFileSync(join(dir, '.local-agent', 'context.md'), '# context');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.source).toBe('AGENTS.md');
     });
   });
@@ -80,7 +80,7 @@ describe('loadProjectContext', () => {
     it('returns full content regardless of length', () => {
       const longContent = 'x'.repeat(10000);
       writeFileSync(join(dir, 'AGENTS.md'), longContent);
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.content.length).toBe(10000);
       expect(ctx?.content).toBe(longContent);
     });
@@ -88,7 +88,7 @@ describe('loadProjectContext', () => {
     it('does not add truncation markers', () => {
       const longContent = 'line\n'.repeat(500);
       writeFileSync(join(dir, 'AGENTS.md'), longContent);
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.content).not.toContain('[...truncated]');
       expect(ctx?.content).not.toContain('truncated');
     });
@@ -97,7 +97,7 @@ describe('loadProjectContext', () => {
   describe('interface shape', () => {
     it('returned object has content and source fields only', () => {
       writeFileSync(join(dir, 'AGENTS.md'), 'hello');
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx).not.toBeNull();
       expect(typeof ctx?.content).toBe('string');
       expect(typeof ctx?.source).toBe('string');
@@ -107,7 +107,7 @@ describe('loadProjectContext', () => {
     it('content matches file exactly', () => {
       const content = '# Project\n\n- Use npm test\n- TypeScript 5\n';
       writeFileSync(join(dir, 'AGENTS.md'), content);
-      const ctx = loadProjectContext(dir);
+      const ctx = loadContext(dir);
       expect(ctx?.content).toBe(content);
     });
   });

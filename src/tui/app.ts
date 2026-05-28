@@ -16,11 +16,11 @@ import { homedir } from 'node:os';
 import { ReactAgent } from '../core/agent/index.js';
 import type { ExecutionEvent } from '../core/agent/index.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
-import { MetricsCollector } from '../core/metrics.js';
+import { MetricsCollector } from './metrics.js';
 import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import type { Config } from '../config/types.js';
 import { getLspStatus } from '../config/lsp-status.js';
-import { SessionStore } from '../core/session-store.js';
+import { SessionStore } from '../core/session/store.js';
 
 export interface TuiAppOptions {
   config: Config;

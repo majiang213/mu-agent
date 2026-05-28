@@ -1,6 +1,6 @@
 import type { Agent } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
-import type { StateMachineAgent } from '../session.js';
+import type { StateMachineAgent } from '../session/index.js';
 import type { EnvContext } from '../prompts/agent.js';
 import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';
 import type { SafeModifier } from '../../tool/safety/index.js';

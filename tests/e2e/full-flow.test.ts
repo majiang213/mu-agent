@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { StateMachineAgent } from '../../src/core/session.js';
-import { MetricsCollector } from '../../src/core/metrics.js';
+import { StateMachineAgent } from '../../src/core/session/index.js';
+import { MetricsCollector } from '../../src/tui/metrics.js';
 import { State, type Step } from '../../src/core/types.js';
 
 vi.mock('../../src/provider/llm.js', () => ({

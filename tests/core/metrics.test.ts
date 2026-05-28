@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MetricsCollector, createMetricsCollector } from '../../src/core/metrics.js';
+import { MetricsCollector, createMetricsCollector } from '../../src/tui/metrics.js';
 
 describe('MetricsCollector', () => {
   let collector: MetricsCollector;

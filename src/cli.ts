@@ -4,7 +4,7 @@ import { loadConfig, saveConfig, ConfigNotFoundError } from './config/index.js';
 import { getLspStatus } from './config/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
-import { SessionStore } from './core/session-store.js';
+import { SessionStore } from './core/session/store.js';
 
 const program = new Command();
 
