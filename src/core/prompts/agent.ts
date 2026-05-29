@@ -90,14 +90,21 @@ Your ONLY job is to analyze the task description and call complete() with a plan
 Choose the MINIMUM steps needed based on the task description alone:
 
 - Greeting / chitchat / pure Q&A → [ANSWER]
-- Understand / explain / summarize code → [RESEARCH]
+- Understand / explain / summarize / check code → [RESEARCH]
 - Web search or external info needed → [RESEARCH]
 - Code quality review → [REVIEW]
-- Simple edit (file and change are obvious) → [MODIFY, VERIFY]
-- Edit that needs searching first → [LOCATE, MODIFY, VERIFY]
-- Bug investigation → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
+- Check / inspect / look for issues (no explicit fix requested) → [RESEARCH]
+- Fix bug when file+location are NOT stated explicitly → [LOCATE, MODIFY, VERIFY]
+- Fix bug when file+location ARE stated explicitly → [MODIFY, VERIFY]
+- Bug investigation (cause unknown) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
+- Check AND fix (user asks to find and fix issues) → [RESEARCH, LOCATE, MODIFY, VERIFY]
 - User wants a shell command executed → [RUN]
 - Project setup / generate AGENTS.md → [SETUP]
+
+RULES:
+- NEVER go straight to MODIFY without LOCATE unless the exact file and change are given in the task.
+- "Check", "inspect", "look for problems", "review" → start with RESEARCH or REVIEW, not MODIFY.
+- MODIFY focus must describe the code change, NOT a diagnostic task.
 
 Each step needs a "focus" describing exactly what to do. Maximum 6 steps.
 
@@ -110,11 +117,13 @@ If intent is genuinely unclear, call complete(steps=[], needsClarify=true, quest
 Examples:
 - Chitchat/Q&A: complete(steps=[{state:"ANSWER", focus:"respond to greeting"}], needsClarify=false)
 - Explain code: complete(steps=[{state:"RESEARCH", focus:"read and explain how auth.ts works"}], needsClarify=false)
+- Check for issues: complete(steps=[{state:"RESEARCH", focus:"read calc.js and identify any bugs or problems"}], needsClarify=false)
 - Web search:   complete(steps=[{state:"RESEARCH", focus:"search for best practices for JWT expiry"}], needsClarify=false)
 - Review code:  complete(steps=[{state:"REVIEW", focus:"review auth.js for security issues"}], needsClarify=false)
-- Simple edit:  complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
-- Fix bug:      complete(steps=[{state:"LOCATE",focus:"find divide function",why:"bug likely in zero-check guard"},{state:"MODIFY",focus:"add zero-check before division",why:"input not validated upstream"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
-- Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users",why:"recent auth refactor may have broken session handling"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
+- Check and fix: complete(steps=[{state:"RESEARCH",focus:"read calc.js and identify bugs"},{state:"LOCATE",focus:"find exact lines to change"},{state:"MODIFY",focus:"add divide-by-zero guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
+- Fix bug (location known): complete(steps=[{state:"LOCATE",focus:"find divide function in calc.js"},{state:"MODIFY",focus:"add zero-check before division"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
+- Simple edit (file+line explicit): complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts line 42"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
+- Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
 - Run command:  complete(steps=[{state:"RUN", focus:"run npm install"}], needsClarify=false)
 - Setup:        complete(steps=[{state:"SETUP", focus:"analyze project and generate AGENTS.md"}], needsClarify=false)
 - Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])

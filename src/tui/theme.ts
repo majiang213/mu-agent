@@ -48,6 +48,7 @@ export const C = {
   stateRun: (s: string) => bold(fg(255, 184, 108)(s)),
   stateResearch: (s: string) => bold(fg(98, 209, 255)(s)),
   stateSetup: (s: string) => bold(fg(160, 214, 102)(s)),
+  stateSampling: (s: string) => bold(fg(255, 184, 108)(s)),
   stateIdle: fg(110, 118, 129),
   headerCwd: fg(110, 118, 129),
   headerBranch: fg(63, 185, 80),
@@ -74,6 +75,7 @@ export const STATE_FN: Record<string, (s: string) => string> = {
   RESEARCH: C.stateResearch,
   SETUP: C.stateSetup,
   IDLE: C.stateIdle,
+  SAMPLING: C.stateSampling,
 };
 
 export function stateColor(s: string): (t: string) => string {

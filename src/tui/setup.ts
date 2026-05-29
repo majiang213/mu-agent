@@ -124,11 +124,22 @@ export class SetupWizard {
 
     const modelName = await this.pickModel(provider, baseUrl, existing.name);
 
+    let modelSize: number | undefined;
+    if (provider === 'custom') {
+      this.addStepText(
+        `\n  模型大小（单位：B，如 7 表示 7B，影响 Heavy Thinking 和约束强度）\n  留空跳过（默认视为大模型）:\n  模型大小:`,
+      );
+      const raw = await this.waitForInput(existing.modelSize != null ? String(existing.modelSize) : '');
+      const parsed = parseFloat(raw.trim());
+      if (!isNaN(parsed) && parsed > 0) modelSize = parsed;
+    }
+
     saveConfig({
       model: {
         provider: provider as 'ollama' | 'custom',
         name: modelName,
         baseUrl,
+        ...(modelSize != null ? { modelSize } : {}),
       },
     });
 

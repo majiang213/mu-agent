@@ -16,6 +16,9 @@ export interface ModelConfig {
   /** Fraction of context window used for input before compaction triggers, default 0.75.
    *  Output maxTokens = contextWindow * (1 - contextRatio). */
   contextRatio?: number;
+  /** Model size in billions of parameters, e.g. 7 for a 7B model (custom provider only).
+   *  Determines tier: ≤9 → SMALL, ≤30 → MEDIUM, >30 → LARGE. */
+  modelSize?: number;
 }
 
 export interface ToolOutputConfig {

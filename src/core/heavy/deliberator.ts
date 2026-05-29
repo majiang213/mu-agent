@@ -1,7 +1,7 @@
 import { completeSimple } from '@mariozechner/pi-ai';
 import type { Model } from '@mariozechner/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
-import type { Step } from '../types.js';
+import { State, type Step } from '../types.js';
 import type { PlanCandidate, DeliberateOutcome } from './types.js';
 
 const DELIBERATION_SYSTEM = `You are a coding task planner reviewing multiple independently generated execution plans for the same task.
@@ -62,14 +62,16 @@ function parseStepsJson(raw: string): Step[] | null {
   const start = raw.indexOf('[');
   const end = raw.lastIndexOf(']');
   if (start === -1 || end === -1 || end <= start) return null;
+  const validStates = new Set(Object.values(State));
   try {
     const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown[];
     if (!Array.isArray(parsed)) return null;
     const steps: Step[] = [];
     for (const item of parsed) {
-      if (typeof item !== 'object' || item === null) return null;
+      if (typeof item !== 'object' || item === null) continue;
       const r = item as Record<string, unknown>;
-      if (typeof r['state'] !== 'string' || typeof r['focus'] !== 'string') return null;
+      if (typeof r['state'] !== 'string' || !validStates.has(r['state'] as State)) continue;
+      if (typeof r['focus'] !== 'string' || r['focus'].length === 0) continue;
       const step: Step = { state: r['state'] as Step['state'], focus: r['focus'] };
       if (typeof r['why'] === 'string' && r['why'].length > 0) step.why = r['why'];
       steps.push(step);
@@ -102,7 +104,7 @@ async function runSingleDeliberation(
       .map((c) => c.text)
       .join('');
   } catch {
-    onEvent?.({ type: 'deliberation_fallback', reason: 'LLM call failed' });
+    onEvent?.({ type: 'deliberation_fallback', reason: 'LLM 调用失败' });
     return null;
   }
 
@@ -112,7 +114,7 @@ async function runSingleDeliberation(
       const question = qMatch?.[1]?.trim() ?? 'Can you provide more details about the task?';
       return { type: 'needs_clarification', question };
     }
-    onEvent?.({ type: 'deliberation_fallback', reason: 'needs_clarification suppressed (allowClarification=false)' });
+    onEvent?.({ type: 'deliberation_fallback', reason: '需要澄清，已跳过' });
     return null;
   }
 
@@ -124,7 +126,7 @@ async function runSingleDeliberation(
     };
   }
 
-  onEvent?.({ type: 'deliberation_fallback', reason: 'parse failed, no valid steps JSON in response' });
+  onEvent?.({ type: 'deliberation_fallback', reason: '解析失败，响应中无有效 steps' });
   return null;
 }
 
@@ -172,7 +174,7 @@ export async function deliberate(
   allowClarification = true,
 ): Promise<DeliberateOutcome> {
   if (candidates.length === 0) {
-    onEvent?.({ type: 'deliberation_fallback', reason: 'no candidates' });
+    onEvent?.({ type: 'deliberation_fallback', reason: '无可用方案' });
     return { type: 'selected', result: { synthesizedSteps: [], deliberationSummary: 'no candidates' } };
   }
 
@@ -184,7 +186,7 @@ export async function deliberate(
   }
 
   if (allPlansSimilar(candidates)) {
-    onEvent?.({ type: 'deliberation_fallback', reason: 'all plans similar, skipping deliberation' });
+    onEvent?.({ type: 'deliberation_fallback', reason: '所有方案相似，直接采用' });
     return {
       type: 'selected',
       result: { synthesizedSteps: pickShortest(candidates).steps, deliberationSummary: 'plans too similar' },
@@ -218,8 +220,8 @@ export async function deliberate(
   let bestSteps = firstOutcome.result.synthesizedSteps;
 
   for (let iter = 0; iter < 8; iter++) {
-    const iterLabel = `Refinement round ${iter + 1}`;
-    memoryCache += `\n\n--- Deliberation result (round ${iter + 1}) ---\n${bestSteps.map(formatStepForCache).join('\n')}`;
+    const round = iter + 1;
+    memoryCache += `\n\n--- Deliberation result (round ${round}) ---\n${bestSteps.map(formatStepForCache).join('\n')}`;
 
     const nextOutcome = await runSingleDeliberation(memoryCache, mission, cfg, deliberationModel, false, onEvent);
 
@@ -230,16 +232,17 @@ export async function deliberate(
     const verdict = await judgeRefinement(mission, bestSteps, newSteps, deliberationModel, cfg.apiKey);
 
     if (verdict === 'WORSE' || verdict === 'SAME') {
-      onEvent?.({ type: 'deliberation_fallback', reason: `${iterLabel}: judge=${verdict}, stopping refinement` });
+      onEvent?.({ type: 'deliberation_refinement', round, verdict });
       break;
     }
 
     if (jaccardSteps(newSteps, bestSteps) > 0.85) {
-      onEvent?.({ type: 'deliberation_fallback', reason: `${iterLabel}: converged (Jaccard>0.85)` });
+      onEvent?.({ type: 'deliberation_refinement', round, verdict: 'converged' });
       bestSteps = newSteps;
       break;
     }
 
+    onEvent?.({ type: 'deliberation_refinement', round, verdict: 'BETTER' });
     bestSteps = newSteps;
   }
 

@@ -20,6 +20,12 @@ export type ExecutionEvent =
   | { type: 'task_end'; taskIndex: number; taskTotal: number }
   | { type: 'clarification_needed'; questions: string[] }
   | { type: 'deliberation_start'; candidateCount: number }
+  | { type: 'sample_start'; index: number; total: number }
+  | { type: 'sample_thinking'; index: number; content: string }
+  | { type: 'sample_complete'; index: number; steps: import('../types.js').Step[] }
+  | { type: 'sample_failed'; index: number }
+  | { type: 'sampling_progress'; completed: number; total: number }
+  | { type: 'deliberation_refinement'; round: number; verdict: 'BETTER' | 'WORSE' | 'SAME' | 'converged' }
   | { type: 'deliberation_complete'; synthesizedStepCount: number; summary: string }
   | { type: 'deliberation_fallback'; reason: string }
   | { type: 'deliberation_clarification'; question: string };

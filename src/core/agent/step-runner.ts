@@ -159,16 +159,20 @@ export async function runReasonStep(
   }
 
   const planCount = htCfg?.planCount ?? (tier === 'SMALL' ? 3 : 2);
+  onEvent?.({ type: 'state_change', from: 'IDLE', to: 'SAMPLING' });
   onEvent?.({ type: 'deliberation_start', candidateCount: planCount });
 
   let currentMission = mission;
-  let candidates = await samplePlans(currentMission, cfg, conversationHistory, {
-    planCount,
-    samplingTemperature: htCfg?.samplingTemperature,
-  });
+  let candidates = await samplePlans(
+    currentMission,
+    cfg,
+    conversationHistory,
+    { planCount, samplingTemperature: htCfg?.samplingTemperature },
+    onEvent,
+  );
 
   if (candidates.length === 0) {
-    onEvent?.({ type: 'deliberation_fallback', reason: 'all samples failed, falling back to single attempt' });
+    onEvent?.({ type: 'deliberation_fallback', reason: '所有采样失败，回退到单次规划' });
     return runSingleReasonAttempt(mission, cfg, conversationHistory, onEvent, onNeedsClarify, 'IDLE');
   }
 

@@ -1,13 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session/index.js';
 import { MetricsCollector } from '../../src/tui/metrics.js';
 import { State, type Step } from '../../src/core/types.js';
-
-vi.mock('../../src/provider/llm.js', () => ({
-  LLMConnector: vi.fn().mockImplementation(() => ({
-    generate: vi.fn().mockResolvedValue({ content: '{"summary":"done"}', toolCalls: [] }),
-  })),
-}));
 
 describe('E2E: Full Agent Flow (mock LLM)', () => {
   it('StateMachineAgent completes full state transition sequence', () => {
@@ -32,6 +26,11 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     const step: Step = { state: State.MODIFY, focus: '在 login() 后添加 logout() 方法' };
     expect(step.state).toBe(State.MODIFY);
     expect(step.focus).toContain('logout');
+  });
+
+  it('Step supports optional why field', () => {
+    const step: Step = { state: State.LOCATE, focus: '定位 auth.ts', why: '需要先找到入口函数' };
+    expect(step.why).toBe('需要先找到入口函数');
   });
 
   it('dynamic agenda: multi-step plan from REASON output', () => {
@@ -87,5 +86,50 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     const summary = metrics.getSummary();
     expect(summary.totalTasks).toBe(1);
     expect(summary.successRate).toBe(1.0);
+  });
+
+  it('StateMachineAgent clone produces independent instance', () => {
+    const agent = new StateMachineAgent('qwen2.5:7b');
+    agent.transitionTo(State.LOCATE);
+
+    const clone = agent.clone();
+    expect(clone.getCurrentState()).toBe(State.REASON);
+
+    clone.transitionTo(State.MODIFY);
+    expect(agent.getCurrentState()).toBe(State.LOCATE);
+    expect(clone.getCurrentState()).toBe(State.MODIFY);
+  });
+
+  it('StateMachineAgent getAllowedTools returns only state-appropriate tools', () => {
+    const agent = new StateMachineAgent('qwen2.5:7b');
+
+    agent.transitionTo(State.VERIFY);
+    const verifyTools = agent.getAllowedTools().map((t) => t.name);
+    expect(verifyTools).toContain('bash');
+    expect(verifyTools).not.toContain('edit');
+    expect(verifyTools).not.toContain('write');
+
+    agent.transitionTo(State.MODIFY);
+    const modifyTools = agent.getAllowedTools().map((t) => t.name);
+    expect(modifyTools).toContain('edit');
+    expect(modifyTools).toContain('write');
+    expect(modifyTools).not.toContain('bash');
+
+    agent.transitionTo(State.LOCATE);
+    const locateTools = agent.getAllowedTools().map((t) => t.name);
+    expect(locateTools).toContain('read');
+    expect(locateTools).not.toContain('edit');
+    expect(locateTools).not.toContain('bash');
+  });
+
+  it('StateMachineAgent resetForRetry resets to REASON', () => {
+    const agent = new StateMachineAgent('qwen2.5:7b');
+    agent.transitionTo(State.MODIFY);
+    agent.recordToolCall('edit', {}, {});
+    agent.resetForRetry();
+
+    expect(agent.getCurrentState()).toBe(State.REASON);
+    expect(agent.getIteration()).toBe(0);
+    expect(agent.getFileCount()).toBe(0);
   });
 });

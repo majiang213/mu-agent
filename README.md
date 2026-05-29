@@ -72,7 +72,7 @@ npx tsx src/cli.ts run "修复 src/auth.ts 中的登录 bug"
 
 ```bash
 npx tsx src/cli.ts config                      # 查看当前配置（含 LSP 状态）
-npx tsx src/cli.ts config -m qwen2.5-coder:7b  # 切换模型
+npx tsx src/cli.ts config -m gemma4:e4b  # 切换模型
 ```
 
 ---

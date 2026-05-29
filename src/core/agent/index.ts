@@ -80,7 +80,11 @@ export class ReactAgent {
     };
 
     const paramCount =
-      config.model.provider === 'ollama' ? await fetchOllamaParamCount(config.model.baseUrl, config.model.name) : null;
+      config.model.provider === 'ollama'
+        ? await fetchOllamaParamCount(config.model.baseUrl, config.model.name)
+        : config.model.modelSize != null
+          ? config.model.modelSize * 1e9
+          : null;
 
     const stateMachine = new StateMachineAgent(
       config.model.name,

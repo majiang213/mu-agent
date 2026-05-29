@@ -312,7 +312,7 @@ describe('deliberate', () => {
     expect(result.type).toBe('selected');
     const fallback = events.find((e) => e.type === 'deliberation_fallback');
     expect(fallback).toBeDefined();
-    expect(fallback?.reason).toContain('suppressed');
+    expect(fallback?.reason).toContain('澄清');
   });
 
   it('allPlansSimilar: 3 plans where 2 are similar but 1 is different triggers deliberation', async () => {
@@ -357,7 +357,9 @@ describe('deliberate', () => {
     if (result.type === 'selected') {
       expect(result.result.synthesizedSteps).toHaveLength(2);
     }
-    const convergenceEvent = events.find((e) => e.type === 'deliberation_fallback' && e.reason?.includes('converged'));
+    const convergenceEvent = events.find(
+      (e) => e.type === 'deliberation_refinement' && (e as any).verdict === 'converged',
+    );
     expect(convergenceEvent).toBeDefined();
   });
 

@@ -423,6 +423,115 @@ class AssistantTurn implements Component {
   }
 }
 
+// ─── SampleTurn ───────────────────────────────────────────────────────────────
+
+class SampleTurn implements Component {
+  private index: number;
+  private total: number;
+  private thinking = '';
+  private steps: import('../core/types.js').Step[] | null = null;
+  private failed = false;
+  private streaming = true;
+  expanded = false;
+
+  constructor(index: number, total: number) {
+    this.index = index;
+    this.total = total;
+  }
+
+  updateThinking(content: string): void {
+    this.thinking = content;
+  }
+
+  complete(steps: import('../core/types.js').Step[]): void {
+    this.steps = steps;
+    this.streaming = false;
+  }
+
+  fail(): void {
+    this.failed = true;
+    this.streaming = false;
+  }
+
+  toggle(): void {
+    this.expanded = !this.expanded;
+  }
+
+  setExpanded(v: boolean): void {
+    this.expanded = v;
+  }
+
+  invalidate(): void {}
+
+  private isLast(): boolean {
+    return this.index === this.total - 1;
+  }
+
+  render(width: number): string[] {
+    const branch = this.isLast() ? '└' : '├';
+    const label = C.dim(`  ${branch} 方案 ${this.index + 1}`);
+
+    let status: string;
+    if (this.failed) {
+      status = C.err('✗');
+    } else if (this.streaming) {
+      status = C.dim('⠿');
+    } else if (this.steps !== null) {
+      const chain = this.steps.map((s) => s.state).join(' → ');
+      status = C.ok('✓') + C.dim('  ' + chain);
+    } else {
+      status = C.dim('?');
+    }
+
+    const arrow = this.expanded ? '▾' : '▸';
+    const toggle = C.dim(` ${arrow}`);
+    const header = label + toggle + '  ' + status;
+    const lines: string[] = [header];
+
+    if (this.expanded && this.thinking) {
+      for (const line of this.thinking.split('\n').slice(0, 20)) {
+        lines.push('  │  ' + C.dimItalic(truncateToWidth(line, width - 8)));
+      }
+    }
+
+    return lines;
+  }
+}
+
+// ─── SamplingBlock ────────────────────────────────────────────────────────────
+
+class SamplingBlock implements Component {
+  private sampleTurns: SampleTurn[] = [];
+  private extraLines: string[] = [];
+
+  addSample(turn: SampleTurn): void {
+    this.sampleTurns.push(turn);
+  }
+
+  getSample(index: number): SampleTurn | undefined {
+    return this.sampleTurns[index];
+  }
+
+  addLine(text: string): void {
+    this.extraLines.push(text);
+  }
+
+  allSampleTurns(): SampleTurn[] {
+    return this.sampleTurns;
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    if (this.sampleTurns.length === 0 && this.extraLines.length === 0) return [];
+    const lines: string[] = ['', C.dim('  ⚡ Heavy Thinking')];
+    for (const turn of this.sampleTurns) lines.push(...turn.render(width));
+    for (const l of this.extraLines) lines.push(C.dim(l));
+    lines.push('');
+    return lines;
+  }
+}
+
 // ─── TuiApp ───────────────────────────────────────────────────────────────────
 
 export class TuiApp {
@@ -435,6 +544,7 @@ export class TuiApp {
   private debugMode = false;
   private allThinkingBlocks: ThinkingBlock[] = [];
   private allDebugBlocks: DebugBlock[] = [];
+  private allSampleTurns: SampleTurn[] = [];
   private conversationHistory: AgentMessage[] = [];
   private sessionStore: SessionStore;
   private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
@@ -469,9 +579,10 @@ export class TuiApp {
         return { consume: true };
       }
       if (data === '\t') {
-        if (this.allThinkingBlocks.length > 0) {
-          const anyExpanded = this.allThinkingBlocks.some((b) => b.expanded);
-          for (const b of this.allThinkingBlocks) b.setExpanded(!anyExpanded);
+        const expandables = [...this.allThinkingBlocks, ...this.allSampleTurns];
+        if (expandables.length > 0) {
+          const anyExpanded = expandables.some((b) => b.expanded);
+          for (const b of expandables) b.setExpanded(!anyExpanded);
           this.tui.requestRender(true);
         }
         return { consume: true };
@@ -540,6 +651,8 @@ export class TuiApp {
       return turn;
     };
 
+    let samplingBlock: SamplingBlock | null = null;
+
     return (event: ExecutionEvent): void => {
       if (event.type === 'state_change') {
         currentState = event.to;
@@ -547,7 +660,7 @@ export class TuiApp {
         loader.setMessage(`[${event.to}]`);
         this.metrics.recordStateExit(taskId, event.from);
         this.metrics.recordStateEntry(taskId, event.to);
-        if (event.to !== 'DONE') {
+        if (event.to !== 'DONE' && event.to !== 'SAMPLING') {
           const turn = new AssistantTurn(event.to);
           const idx = this.tui.children.indexOf(loader);
           this.tui.children.splice(idx, 0, turn);
@@ -597,20 +710,46 @@ export class TuiApp {
       } else if (event.type === 'task_start') {
         this.header.setState(event.description.slice(0, 20), event.taskIndex + 1, event.taskTotal);
       } else if (event.type === 'task_end') {
-        this.insertBefore(new Text(C.dim(`  ✓ 子任务 [${event.taskIndex + 1}/${event.taskTotal}] 完成`), 0, 0));
+        void event;
       } else if (event.type === 'clarification_needed') {
         const questions = event.questions.map((q, i) => `  ${i + 1}. ${q}`).join('\n');
         this.insertBefore(new Text(C.dim('  需要确认以下信息：\n') + questions, 0, 0));
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       } else if (event.type === 'deliberation_start') {
-        this.insertBefore(new Text(C.dim(`  ⚡ Sampling ${event.candidateCount} plans...`), 0, 0));
+        samplingBlock = new SamplingBlock();
+        const idx = this.tui.children.indexOf(loader);
+        this.tui.children.splice(idx, 0, samplingBlock);
+      } else if (event.type === 'sample_start') {
+        if (samplingBlock) {
+          const turn = new SampleTurn(event.index, event.total);
+          samplingBlock.addSample(turn);
+          this.allSampleTurns.push(turn);
+        }
+      } else if (event.type === 'sample_thinking') {
+        samplingBlock?.getSample(event.index)?.updateThinking(event.content);
+      } else if (event.type === 'sample_complete') {
+        samplingBlock?.getSample(event.index)?.complete(event.steps);
+      } else if (event.type === 'sample_failed') {
+        samplingBlock?.getSample(event.index)?.fail();
+      } else if (event.type === 'sampling_progress') {
+        void event;
+      } else if (event.type === 'deliberation_refinement') {
+        const label =
+          event.verdict === 'converged'
+            ? '收敛'
+            : event.verdict === 'BETTER'
+              ? '更优'
+              : event.verdict === 'SAME'
+                ? '相同'
+                : '较差';
+        samplingBlock?.addLine(`  ↻ Refinement ${event.round}: ${label}`);
       } else if (event.type === 'deliberation_complete') {
-        this.insertBefore(new Text(C.dim(`  ✓ Synthesized plan (${event.synthesizedStepCount} steps)`), 0, 0));
+        void event;
       } else if (event.type === 'deliberation_fallback') {
-        this.insertBefore(new Text(C.dim(`  ⚠ Deliberation: ${event.reason}`), 0, 0));
+        samplingBlock?.addLine(`  ⚠ ${event.reason}`);
       } else if (event.type === 'deliberation_clarification') {
-        this.insertBefore(new Text(C.dim(`  ? ${event.question}`), 0, 0));
+        samplingBlock?.addLine(`  ? ${event.question}`);
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       }
@@ -625,6 +764,9 @@ export class TuiApp {
 
     this.editor.disableSubmit = true;
     this.editor.addToHistory(input);
+    this.allThinkingBlocks = [];
+    this.allSampleTurns = [];
+    this.allDebugBlocks = [];
     this.insertBefore(new UserMessage(input));
     this.tui.requestRender();
 
@@ -687,11 +829,24 @@ export class TuiApp {
                 : typeof parsed['summary'] === 'string'
                   ? parsed['summary']
                   : null;
-          if (text) display = text;
+          if (text) {
+            display = text;
+          } else if (Array.isArray(parsed['edited'])) {
+            const files = (parsed['edited'] as string[]).join(', ');
+            const lines = typeof parsed['linesChanged'] === 'number' ? `，${parsed['linesChanged']} 行` : '';
+            display = `已修改：${files}${lines}`;
+          } else if (Array.isArray(parsed['locations'])) {
+            const locs = parsed['locations'] as Array<{ file: string; startLine?: number }>;
+            display = locs.map((l) => `${l.file}${l.startLine ? `:${l.startLine}` : ''}`).join(', ');
+          } else {
+            display = '';
+          }
         } catch (_) {
           void _;
         }
-        this.insertBefore(new Text(display, 0, 0));
+        if (display) {
+          this.insertBefore(new Text(display, 0, 0));
+        }
       }
 
       const ts = Date.now();

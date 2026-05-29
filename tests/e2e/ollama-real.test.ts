@@ -1,19 +1,19 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { LLMConnector } from '../../src/provider/llm.js';
-import { LLMService } from '../../src/provider/llm-service.js';
+import { ReactAgent } from '../../src/core/agent/index.js';
 import { StateMachineAgent } from '../../src/core/session/index.js';
 import { MetricsCollector } from '../../src/tui/metrics.js';
 import { State, type Step } from '../../src/core/types.js';
 import { loadConfig } from '../../src/config/loader.js';
+import type { Config } from '../../src/config/types.js';
 
-const config = loadConfig();
-const MODEL = config.model.name;
+const config: Config = loadConfig();
 const BASE_URL = config.model.baseUrl;
-const PROVIDER = config.model.provider;
+const MODEL = config.model.name;
 
 async function isOllamaRunning(): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/api/tags`);
+    const url = BASE_URL.replace(/\/v1\/?$/, '');
+    const res = await fetch(`${url}/api/tags`);
     return res.ok;
   } catch {
     return false;
@@ -30,104 +30,104 @@ describe('Real Ollama Integration', () => {
     }
   });
 
-  it('LLMConnector: 直接调用 Ollama 返回非空内容', async () => {
-    const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
-    const result = await connector.generate('You are a helpful assistant.', '你好');
-    console.log('[LLMConnector] response:', result.content);
-    expect(result.content.length).toBeGreaterThan(0);
-  }, 30000);
+  it('ReactAgent.run(): 简单问答任务返回 success', async () => {
+    const agent = new ReactAgent();
+    const result = await agent.run('你好，简单回复一句话即可', config);
 
-  it('LLMService: 在 REASON 状态下生成分析响应', async () => {
-    const service = new LLMService(PROVIDER, MODEL, BASE_URL);
+    console.log('[ReactAgent ANSWER] output:', result.output?.slice(0, 200));
+    expect(result.success).toBe(true);
+    expect(result.output).toBeDefined();
+  }, 60000);
+
+  it('StateMachineAgent.generatePrompt() 包含状态指令', () => {
     const agent = new StateMachineAgent(MODEL);
-    const context = agent.createContext('帮我给 foo.ts 加一个 hello 函数');
-    const result = await service.generate(context, '帮我给 foo.ts 加一个 hello 函数');
+    agent.transitionTo(State.LOCATE);
+    const prompt = agent.generatePrompt('找到 src/auth.ts 里的 login 函数');
+    expect(prompt.toLowerCase()).toContain('coding assistant');
+    expect(prompt).toBeTruthy();
+  });
 
-    console.log('[LLMService REASON] response:', result.content.slice(0, 200));
-    expect(result.content.length).toBeGreaterThan(0);
-    expect(result.toolCalls).toBeDefined();
-  }, 30000);
-
-  it('动态步骤 + LLMService: 对第一个 Step 调用 LLM', async () => {
-    const steps: Step[] = [
-      { state: State.ANALYZE, focus: '分析登录 bug 的位置' },
-      { state: State.MODIFY, focus: '修复 bug' },
-      { state: State.VERIFY, focus: '写测试验证' },
-    ];
-
-    const service = new LLMService(PROVIDER, MODEL, BASE_URL);
+  it('StateMachineAgent.getAllowedTools() 按状态限制工具', () => {
     const agent = new StateMachineAgent(MODEL);
-    agent.transitionTo(steps[0]!.state);
 
-    const context = agent.createContext(steps[0]!.focus);
-    const result = await service.generate(context, steps[0]!.focus);
+    agent.transitionTo(State.VERIFY);
+    const verifyTools = agent.getAllowedTools().map((t) => t.name);
+    expect(verifyTools).toContain('bash');
+    expect(verifyTools).toContain('complete');
+    expect(verifyTools).not.toContain('edit');
 
-    console.log(`[Dynamic+LLM] focus="${steps[0]!.focus}"`);
-    console.log('[Dynamic+LLM] response:', result.content.slice(0, 200));
-    expect(result.content.length).toBeGreaterThan(0);
-  }, 30000);
+    agent.transitionTo(State.MODIFY);
+    const modifyTools = agent.getAllowedTools().map((t) => t.name);
+    expect(modifyTools).toContain('edit');
+    expect(modifyTools).toContain('write');
+    expect(modifyTools).not.toContain('bash');
+  });
 
-  it('MetricsCollector: 追踪真实 LLM 调用的 token 和耗时', async () => {
+  it('MetricsCollector: 追踪多步骤任务生命周期', () => {
     const metrics = new MetricsCollector();
-    const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
-
-    metrics.startTask('real-1');
-    metrics.recordStateEntry('real-1', State.ANALYZE);
-
-    const prompt = 'You are a coding assistant. Reply in one sentence.';
-    const userMsg = 'What is a function?';
-    const result = await connector.generate(prompt, userMsg);
-
-    metrics.recordLLMCall('real-1', prompt.length + userMsg.length, result.content.length);
-    metrics.recordStateExit('real-1', State.ANALYZE);
-    metrics.finishTask('real-1', true);
-
-    const m = metrics.getMetrics('real-1')!;
-    console.log(`[Metrics] tokens≈${m.estimatedTokens}, duration≈${m.endTime! - m.startTime}ms`);
-    console.log('[Metrics] ANALYZE timing:', m.stateTimings['ANALYZE']);
-
-    expect(m.llmCalls).toBe(1);
-    expect(m.estimatedTokens).toBeGreaterThan(0);
-    expect(m.stateTimings['ANALYZE']).toBeGreaterThan(0);
-    expect(m.success).toBe(true);
-  }, 30000);
-
-  it('完整流程: 动态步骤 → 状态机 → LLM → Metrics 汇总', async () => {
     const steps: Step[] = [
-      { state: State.ANALYZE, focus: '分析登录 bug 位置' },
+      { state: State.LOCATE, focus: '定位登录 bug' },
       { state: State.MODIFY, focus: '修复 bug' },
     ];
-
-    const metrics = new MetricsCollector();
-    const connector = new LLMConnector(PROVIDER, MODEL, BASE_URL);
-    const agent = new StateMachineAgent(MODEL);
-
-    console.log(`[E2E] executing ${steps.length} dynamic steps`);
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
       const taskId = `step-${i}`;
-      agent.transitionTo(step.state);
       metrics.startTask(taskId);
       metrics.recordStateEntry(taskId, step.state);
-
-      const systemPrompt = agent.generatePrompt(step.focus);
-      const result = await connector.generate(systemPrompt, step.focus);
-
-      metrics.recordLLMCall(taskId, systemPrompt.length, result.content.length);
+      metrics.recordLLMCall(taskId, 400, 150);
+      metrics.recordToolCall(taskId, 'read');
       metrics.recordStateExit(taskId, step.state);
-      metrics.finishTask(taskId, result.content.length > 0);
-
-      console.log(`[E2E] step="${step.focus}" → ${result.content.slice(0, 80)}...`);
+      metrics.finishTask(taskId, true);
     }
 
     const summary = metrics.getSummary();
     console.log(
-      `[E2E] summary: tasks=${summary.totalTasks} successRate=${summary.successRate} avgTokens≈${Math.round(summary.avgTokens)}`,
+      `[Metrics] tasks=${summary.totalTasks} successRate=${summary.successRate} avgTokens≈${Math.round(summary.avgTokens)}`,
     );
 
     expect(summary.totalTasks).toBe(steps.length);
     expect(summary.successRate).toBe(1.0);
     expect(summary.avgTokens).toBeGreaterThan(0);
+  });
+
+  it('ReactAgent.run(): DIAGNOSE 类型任务能正常执行', async () => {
+    const agent = new ReactAgent();
+    const result = await agent.run('请解释 TypeScript 里 interface 和 type 有什么区别，简短回答', config);
+
+    console.log('[ReactAgent RESEARCH] output:', result.output?.slice(0, 300));
+    expect(result.success).toBe(true);
   }, 60000);
+
+  it('完整流程: 动态步骤 → 状态机 → Metrics 汇总', () => {
+    const metrics = new MetricsCollector();
+    const agent = new StateMachineAgent(MODEL);
+
+    const steps: Step[] = [
+      { state: State.LOCATE, focus: '定位 auth.ts 里的 login 函数' },
+      { state: State.MODIFY, focus: '添加参数校验' },
+      { state: State.VERIFY, focus: '运行 npm test' },
+    ];
+
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i]!;
+      const taskId = `e2e-step-${i}`;
+
+      agent.transitionTo(step.state);
+      const prompt = agent.generatePrompt(step.focus);
+
+      metrics.startTask(taskId);
+      metrics.recordStateEntry(taskId, step.state);
+      metrics.recordLLMCall(taskId, prompt.length, 200);
+      metrics.recordStateExit(taskId, step.state);
+      metrics.finishTask(taskId, true);
+
+      console.log(`[E2E] step="${step.focus}" state=${step.state} promptLen=${prompt.length}`);
+    }
+
+    const summary = metrics.getSummary();
+    expect(summary.totalTasks).toBe(steps.length);
+    expect(summary.successRate).toBe(1.0);
+    expect(summary.avgTokens).toBeGreaterThan(0);
+  });
 });
