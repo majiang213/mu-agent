@@ -28,7 +28,9 @@ export type ExecutionEvent =
   | { type: 'deliberation_refinement'; round: number; verdict: 'BETTER' | 'WORSE' | 'SAME' | 'converged' }
   | { type: 'deliberation_complete'; synthesizedStepCount: number; summary: string }
   | { type: 'deliberation_fallback'; reason: string }
-  | { type: 'deliberation_clarification'; question: string };
+  | { type: 'deliberation_clarification'; question: string }
+  | { type: 'parallel_start'; stepCount: number }
+  | { type: 'parallel_complete'; stepCount: number };
 
 export interface Mission {
   id: string;

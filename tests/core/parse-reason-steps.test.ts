@@ -147,4 +147,87 @@ describe('parseReasonSteps', () => {
       expect(steps).toHaveLength(6);
     });
   });
+
+  describe('parallel directives', () => {
+    it('parses a parallel group as a single directive', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [
+          { state: 'LOCATE', focus: 'find files' },
+          {
+            parallel: [
+              { state: 'MODIFY', focus: 'fix calc.js' },
+              { state: 'MODIFY', focus: 'fix server.js' },
+            ],
+          },
+          { state: 'VERIFY', focus: 'run tests' },
+        ],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(3);
+      const second = steps[1]!;
+      expect('parallel' in second).toBe(true);
+      if ('parallel' in second) {
+        expect(second.parallel).toHaveLength(2);
+        expect(second.parallel[0]!.state).toBe(State.MODIFY);
+        expect(second.parallel[1]!.state).toBe(State.MODIFY);
+      }
+    });
+
+    it('filters out invalid steps inside a parallel group', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [
+          {
+            parallel: [
+              { state: 'INVALID_STATE', focus: 'bad step' },
+              { state: 'MODIFY', focus: 'valid step' },
+            ],
+          },
+        ],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(1);
+      const first = steps[0]!;
+      if ('parallel' in first) {
+        expect(first.parallel).toHaveLength(1);
+        expect(first.parallel[0]!.state).toBe(State.MODIFY);
+      }
+    });
+
+    it('skips parallel directive entirely if all inner steps are invalid', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [
+          {
+            parallel: [
+              { state: 'BAD', focus: 'x' },
+              { state: 'ALSO_BAD', focus: 'y' },
+            ],
+          },
+          { state: 'VERIFY', focus: 'run tests' },
+        ],
+      });
+      expect(steps).toHaveLength(1);
+      expect(error).toBeNull();
+      expect(steps[0]!).toMatchObject({ state: State.VERIFY });
+    });
+
+    it('mixes sequential and parallel directives in one plan', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [
+          { state: 'LOCATE', focus: 'find affected files' },
+          {
+            parallel: [
+              { state: 'MODIFY', focus: 'edit A' },
+              { state: 'MODIFY', focus: 'edit B' },
+            ],
+          },
+          { state: 'VERIFY', focus: 'run tests' },
+        ],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(3);
+      expect('state' in steps[0]!).toBe(true);
+      expect('parallel' in steps[1]!).toBe(true);
+      expect('state' in steps[2]!).toBe(true);
+    });
+  });
 });

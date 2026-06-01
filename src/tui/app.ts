@@ -752,6 +752,10 @@ export class TuiApp {
         samplingBlock?.addLine(`  ? ${event.question}`);
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
+      } else if (event.type === 'parallel_start') {
+        this.header.setState(`⇉ 并行 ${event.stepCount} 步`, undefined, undefined);
+      } else if (event.type === 'parallel_complete') {
+        void event;
       }
 
       this.tui.requestRender();

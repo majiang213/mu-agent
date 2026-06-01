@@ -5,13 +5,27 @@ import { State } from '../core/types.js';
 const COMPLETE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
   [State.REASON]: Type.Object({
     steps: Type.Array(
-      Type.Object({
-        state: Type.String({ description: 'State name, e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH' }),
-        focus: Type.String({ description: 'What to do in this step' }),
-        why: Type.Optional(
-          Type.String({ description: 'In max 15 words: why this step and why this approach. Skip for obvious steps.' }),
-        ),
-      }),
+      Type.Union([
+        Type.Object({
+          state: Type.String({ description: 'State name, e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH' }),
+          focus: Type.String({ description: 'What to do in this step' }),
+          why: Type.Optional(
+            Type.String({
+              description: 'In max 15 words: why this step and why this approach. Skip for obvious steps.',
+            }),
+          ),
+        }),
+        Type.Object({
+          parallel: Type.Array(
+            Type.Object({
+              state: Type.String({ description: 'State name for this parallel step' }),
+              focus: Type.String({ description: 'What to do in this parallel step' }),
+              why: Type.Optional(Type.String({ description: 'In max 15 words: why this step.' })),
+            }),
+            { description: 'Array of independent steps to execute concurrently', minItems: 2 },
+          ),
+        }),
+      ]),
     ),
     needsClarify: Type.Boolean(),
     questions: Type.Optional(Type.Array(Type.String())),

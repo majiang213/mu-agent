@@ -10,9 +10,9 @@ import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { StateMachineAgent } from '../session/index.js';
 import { State } from '../types.js';
-import type { StateResult, Step, ExecutedStep } from '../types.js';
+import type { StateResult, Step, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
-import { buildModel, compressConversationHistory, runReasonStep, runStep } from './step-runner.js';
+import { buildModel, compressConversationHistory, runReasonStep, executeSteps } from './step-runner.js';
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
 export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
@@ -21,8 +21,11 @@ import { LspClient } from '../../tool/lsp.js';
 
 const MAX_VERIFY_RETRIES = 2;
 
-function stepsSignature(steps: Step[]): string {
-  return steps.map((s) => `${s.state}:${s.focus}`).join('|');
+function stepsSignature(directives: StepDirective[]): string {
+  return directives
+    .flatMap((d) => ('parallel' in d ? d.parallel : [d]))
+    .map((s) => `${s.state}:${s.focus}`)
+    .join('|');
 }
 
 function buildVerifyFailureContext(
@@ -163,19 +166,13 @@ export class ReactAgent {
     }
 
     const allStepResults: ExecutedStep[] = [];
-    let currentSteps = steps;
+    let currentSteps: StepDirective[] = steps;
     let verifyRetries = 0;
     let prevStepsSignature = '';
 
     try {
       while (true) {
-        const thisRoundResults: ExecutedStep[] = [];
-
-        for (let i = 0; i < currentSteps.length; i++) {
-          const step = currentSteps[i]!;
-          const handoff = await runStep(step, i, currentSteps.length, mission, thisRoundResults, cfg, onEvent);
-          thisRoundResults.push(handoff);
-        }
+        const thisRoundResults = await executeSteps(currentSteps, mission, allStepResults, cfg, onEvent);
 
         allStepResults.push(...thisRoundResults);
 
@@ -221,8 +218,9 @@ export class ReactAgent {
         if (thisSig === prevStepsSignature) break;
         prevStepsSignature = thisSig;
 
-        const hasModify = retrySteps.some((s) => s.state === State.MODIFY);
-        const hasRollback = retrySteps.some((s) => s.state === State.ROLLBACK);
+        const flatRetry = retrySteps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
+        const hasModify = flatRetry.some((s: Step) => s.state === State.MODIFY);
+        const hasRollback = flatRetry.some((s: Step) => s.state === State.ROLLBACK);
         if (hasModify && !hasRollback) {
           retrySteps.unshift({ state: State.ROLLBACK, focus: 'Restore all modified files to checkpoint before retry' });
         }

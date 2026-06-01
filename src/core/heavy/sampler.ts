@@ -4,6 +4,7 @@ import { buildSystemPrompt } from '../prompts/index.js';
 import { buildStepAgent, subscribeStepEvents } from '../agent/builder.js';
 import { runStepAgent, parseReasonSteps } from '../agent/step-runner.js';
 import { State } from '../types.js';
+import type { Step } from '../types.js';
 import type { RunConfig, Mission, ExecutionEvent } from '../agent/types.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { PlanCandidate } from './types.js';
@@ -91,10 +92,11 @@ async function runBareReasonSample(
     throw new Error('bare sample: complete() not called');
   }
 
-  const { steps, error } = parseReasonSteps(capturedComplete);
-  if (steps.length === 0) {
+  const { steps: directives, error } = parseReasonSteps(capturedComplete);
+  if (directives.length === 0) {
     throw new Error(`bare sample: invalid plan — ${error ?? 'empty steps'}`);
   }
+  const steps: Step[] = directives.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
 
   return { steps };
 }

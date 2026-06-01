@@ -128,7 +128,8 @@ Examples:
 - Setup:        complete(steps=[{state:"SETUP", focus:"analyze project and generate AGENTS.md"}], needsClarify=false)
 - Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])
 - Retry after VERIFY failure: complete(steps=[{state:"ROLLBACK",focus:"restore files to checkpoint"},{state:"DIAGNOSE",focus:"why did the fix not work"},{state:"MODIFY",focus:"apply correct fix based on diagnosis"},{state:"VERIFY",focus:"run tests again"}], needsClarify=false)
-- Accept failure (cannot fix): complete(steps=[], needsClarify=false)`,
+- Accept failure (cannot fix): complete(steps=[], needsClarify=false)
+- Multiple independent files to modify: complete(steps=[{state:"LOCATE",focus:"find all files to change"},{parallel:[{state:"MODIFY",focus:"fix divide() in calc.js"},{state:"MODIFY",focus:"fix DELETE route in server.js"}]},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)`,
 
   [State.CLARIFY]: `The task is ambiguous. Ask the user for the information needed to proceed.
 
@@ -404,10 +405,46 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
 
+  if (state === State.VERIFY) {
+    const allEdited: string[] = [];
+    let lastModify: ExecutedStep | undefined;
+    for (const r of previousResults) {
+      if (r.state === State.MODIFY) {
+        lastModify = r;
+        try {
+          const parsed = JSON.parse(r.output) as { edited?: unknown };
+          if (Array.isArray(parsed.edited)) {
+            for (const f of parsed.edited) {
+              if (typeof f === 'string') allEdited.push(f);
+            }
+          }
+        } catch {
+          // non-JSON output: skip
+        }
+      }
+    }
+    const locateDiag = previousResults.filter((r) => r.state === State.LOCATE || r.state === State.DIAGNOSE);
+    const lines: string[] = [];
+    if (lastModify) {
+      let out = lastModify.output;
+      if (out.length > 600) out = out.slice(0, 600) + '…';
+      lines.push(`[MODIFY] ${lastModify.focus}\n${out}`);
+    }
+    const uniqueEdited = [...new Set(allEdited)];
+    if (uniqueEdited.length > 1) {
+      lines.push(`[MODIFY] all edited files: ${uniqueEdited.join(', ')}`);
+    }
+    for (const r of locateDiag) {
+      let output = r.output;
+      if (output.length > 600) output = output.slice(0, 600) + '…';
+      lines.push(`[${r.state}] ${r.focus}\n${output}`);
+    }
+    if (lines.length === 0) return '';
+    return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
+  }
+
   const relevant = previousResults.filter((r) => {
     if (state === State.MODIFY) return r.state === State.DIAGNOSE || r.state === State.LOCATE;
-    if (state === State.VERIFY)
-      return r.state === State.MODIFY || r.state === State.LOCATE || r.state === State.DIAGNOSE;
     return false;
   });
 

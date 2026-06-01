@@ -110,6 +110,13 @@ export interface ExecutedStep extends Step {
   output: string;
 }
 
+/**
+ * A directive in the REASON output plan.
+ * Either a single Step (sequential execution) or a parallel group
+ * (multiple independent steps executed concurrently with isolated state machines).
+ */
+export type StepDirective = Step | { parallel: Step[] };
+
 /** An item in the agent's agenda (step + its execution trajectory) */
 export interface AgendaItem {
   step: Step;

@@ -18,7 +18,7 @@ import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { samplePlans, deliberate, pickShortest } from '../heavy/index.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
-import type { Step, ExecutedStep } from '../types.js';
+import type { Step, ExecutedStep, StepDirective } from '../types.js';
 
 export async function buildModel(
   modelName: string,
@@ -63,41 +63,63 @@ export async function compressConversationHistory(
   return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
 }
 
-export function parseReasonSteps(json: Record<string, unknown> | null): { steps: Step[]; error: string | null } {
+function isValidStep(s: unknown, validStates: Set<string>, invalid: string[]): s is Step {
+  if (typeof s !== 'object' || s === null) {
+    invalid.push(String(s));
+    return false;
+  }
+  const r = s as Record<string, unknown>;
+  if (typeof r['state'] !== 'string' || !validStates.has(r['state'] as State)) {
+    invalid.push(`invalid state "${r['state']}"`);
+    return false;
+  }
+  if (typeof r['focus'] !== 'string' || (r['focus'] as string).length === 0) {
+    invalid.push(`missing focus for state "${r['state']}"`);
+    return false;
+  }
+  return true;
+}
+
+export function parseReasonSteps(json: Record<string, unknown> | null): {
+  steps: StepDirective[];
+  error: string | null;
+} {
   if (!json) return { steps: [], error: 'complete() was not called or returned no data.' };
   if (!Array.isArray(json['steps']))
     return { steps: [], error: 'steps must be an array. Got: ' + JSON.stringify(json['steps']) };
   const validStates = new Set(Object.values(State));
   const invalid: string[] = [];
-  const steps = (json['steps'] as unknown[]).filter((s): s is Step => {
-    if (typeof s !== 'object' || s === null) {
-      invalid.push(String(s));
-      return false;
+  const directives: StepDirective[] = [];
+
+  for (const item of json['steps'] as unknown[]) {
+    if (typeof item !== 'object' || item === null) {
+      invalid.push(String(item));
+      continue;
     }
-    const r = s as Record<string, unknown>;
-    if (typeof r['state'] !== 'string' || !validStates.has(r['state'] as State)) {
-      invalid.push(`invalid state "${r['state']}"`);
-      return false;
+    const r = item as Record<string, unknown>;
+
+    if (Array.isArray(r['parallel'])) {
+      const parallelSteps: Step[] = [];
+      for (const ps of r['parallel'] as unknown[]) {
+        if (isValidStep(ps, validStates, invalid)) {
+          parallelSteps.push(ps);
+        }
+      }
+      if (parallelSteps.length > 0) {
+        directives.push({ parallel: parallelSteps });
+      }
+    } else if (isValidStep(item, validStates, invalid)) {
+      directives.push(item);
     }
-    if (typeof r['focus'] !== 'string' || (r['focus'] as string).length === 0) {
-      invalid.push(`missing focus for state "${r['state']}"`);
-      return false;
-    }
-    return true;
-  });
-  if (steps.length === 0) {
+  }
+
+  if (directives.length === 0) {
     const reason = invalid.length > 0 ? `Invalid entries: ${invalid.join(', ')}` : 'steps array is empty.';
     return { steps: [], error: reason };
   }
-  return { steps: steps.slice(0, 6), error: null };
-}
-
-export function DEFAULT_FALLBACK_STEPS(description: string): Step[] {
-  return [
-    { state: State.LOCATE, focus: `Find the exact files and lines to change for: ${description}` },
-    { state: State.MODIFY, focus: `Apply the necessary code changes for: ${description}` },
-    { state: State.VERIFY, focus: `Verify the changes are correct for: ${description}` },
-  ];
+  // Cap at 6 directives (not flattened steps): a { parallel: [...] } counts as one directive.
+  // This intentionally allows a parallel group with many inner steps to exceed 6 total steps.
+  return { steps: directives.slice(0, 6), error: null };
 }
 
 export async function runStepAgent(
@@ -149,7 +171,7 @@ export async function runReasonStep(
   conversationHistory: AgentMessage[],
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
-): Promise<{ steps: Step[] }> {
+): Promise<{ steps: StepDirective[] }> {
   const htCfg = cfg.heavyThinking;
   const tier = cfg.stateMachine.getModelParams().tier;
   const heavyEnabled = tier === 'SMALL' || tier === 'MEDIUM';
@@ -226,7 +248,7 @@ async function runSingleReasonAttempt(
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
   fromState: State | 'IDLE' = 'IDLE',
-): Promise<{ steps: Step[] }> {
+): Promise<{ steps: StepDirective[] }> {
   cfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
     state: State.REASON,
@@ -428,4 +450,62 @@ export async function runStep(
 
   const output = capturedComplete !== null ? JSON.stringify(capturedComplete) : llmText;
   return { state: step.state, focus: step.focus, output };
+}
+
+export async function executeSteps(
+  directives: StepDirective[],
+  mission: Mission,
+  allStepResults: ExecutedStep[],
+  cfg: RunConfig,
+  onEvent?: (event: ExecutionEvent) => void,
+): Promise<ExecutedStep[]> {
+  const thisRoundResults: ExecutedStep[] = [];
+  const total = directives.length;
+
+  for (let i = 0; i < total; i++) {
+    const directive = directives[i]!;
+
+    if ('parallel' in directive) {
+      const parallelSteps = directive.parallel;
+
+      if (parallelSteps.length === 1) {
+        const snapshot = [...allStepResults, ...thisRoundResults];
+        const result = await runStep(parallelSteps[0]!, i, total, mission, snapshot, cfg, onEvent);
+        thisRoundResults.push(result);
+        continue;
+      }
+
+      onEvent?.({ type: 'parallel_start', stepCount: parallelSteps.length });
+
+      const branchOnEvent = onEvent
+        ? (e: ExecutionEvent) => {
+            if (e.type !== 'state_change' && e.type !== 'task_start') onEvent(e);
+          }
+        : undefined;
+
+      const settled = await Promise.allSettled(
+        parallelSteps.map((step) => {
+          const clonedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone() };
+          const snapshot = [...allStepResults, ...thisRoundResults];
+          return runStep(step, i, total, mission, snapshot, clonedCfg, branchOnEvent);
+        }),
+      );
+
+      const parallelResults: ExecutedStep[] = settled.map((r, idx) => {
+        if (r.status === 'fulfilled') return r.value;
+        const step = parallelSteps[idx]!;
+        const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
+        return { state: step.state, focus: step.focus, output: JSON.stringify({ error: reason }) };
+      });
+
+      thisRoundResults.push(...parallelResults);
+      onEvent?.({ type: 'parallel_complete', stepCount: parallelSteps.length });
+    } else {
+      const snapshot = [...allStepResults, ...thisRoundResults];
+      const result = await runStep(directive, i, total, mission, snapshot, cfg, onEvent);
+      thisRoundResults.push(result);
+    }
+  }
+
+  return thisRoundResults;
 }
