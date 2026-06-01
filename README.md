@@ -200,25 +200,30 @@ src/
 │   ├── agent/                # ReactAgent（index / builder / step-runner / context / types）
 │   ├── session/              # StateMachineAgent + SessionStore（JSONL 持久化）
 │   ├── heavy/                # Heavy Thinking：并行采样 + Synthesizer 审议 + Refinement B/C
+│   ├── memory/               # MemoryStore 三层记忆系统（episodes + semantic_facts + 锚点注入）
 │   ├── cognitive/            # StagnationDetector（停滞检测）
 │   ├── compaction/           # ContextCompactor（Token 预算压缩）
 │   ├── failure/              # FailureHandler（重试 + 升级）
 │   ├── graph/                # BM25 + Call Graph 代码定位（SQLite）
 │   ├── prompts/              # 各状态的 system prompt
 │   ├── states.ts             # 状态配置，tier 由参数量决定
-│   └── types.ts              # State 枚举、Step、ExecutedStep 等核心类型
+│   └── types.ts              # State 枚举、Step、ExecutedStep、StepDirective 等核心类型
 ├── provider/
 │   └── model-info.ts         # 动态获取上下文长度 + 模型参数量
 ├── tool/
 │   ├── complete.ts           # complete() 工具（各状态 TypeBox schema）
+│   ├── executor.ts           # Tool executor
 │   ├── locator.ts            # AST 定位工具
 │   ├── lsp.ts                # LSP 诊断客户端（edit/write 后自动注入诊断）
+│   ├── memory-search.ts      # memory_search 工具（Gap 42）
+│   ├── webfetch.ts
+│   ├── websearch.ts
 │   └── safety/               # Checkpoint、行数限制、语法检查
 └── tui/
-    ├── app.ts                # 主 TUI（ESC 中断、调试模式、会话持久化）
+    ├── app.ts                # 主 TUI（17 states、ESC 中断、调试模式、会话持久化）
     ├── metrics.ts            # MetricsCollector（token/耗时统计）
     ├── setup.ts              # 交互式初始化向导（4步）
-    └── theme.ts              # 颜色主题（15个状态各自颜色）
+    └── theme.ts              # 颜色主题（17个状态各自颜色）
 ```
 
 ## 开发
@@ -242,7 +247,7 @@ npx vitest run tests/e2e/ollama-real.test.ts
 | `@mariozechner/pi-ai` | LLM 调用层（openai-completions 兼容） |
 | `@mariozechner/pi-coding-agent` | 编码工具（read / bash / edit / write） |
 | `@mariozechner/pi-tui` | 终端 UI 组件库 |
-| `better-sqlite3` | 代码图持久化（BM25 + Call Graph） |
+| `better-sqlite3` | 代码图持久化（BM25 + Call Graph）+ MemoryStore（episodic memory） |
 | `commander` | CLI 框架 |
 | `vitest` | 测试框架 |
 
