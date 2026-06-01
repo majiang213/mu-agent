@@ -189,6 +189,12 @@ When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
 
   [State.VERIFY]: `Verify the changes work correctly.
 
+IMPORTANT: Your ONLY job is to run tests and report the result.
+- Tests PASS → complete(passed=true, issues=[], summary="<test output>")
+- Tests FAIL → complete(passed=false, issues=["<what failed>"], summary="<test output>") IMMEDIATELY
+  DO NOT modify any files. DO NOT attempt to fix the code. DO NOT run write commands (cat >, sed -i, etc.).
+  The system will automatically re-plan based on your report. Fixing is the job of MODIFY, not VERIFY.
+
 If <previous_step_results> is present, first do a path audit before running tests:
 1. Check if the files in MODIFY edited[] overlap with the files in LOCATE locations[]. File-level match is sufficient.
 2. If they clearly do NOT overlap (e.g. MODIFY touched unrelated files), call complete(passed=false, issues=["wrong location: LOCATE found <locate_file> but MODIFY edited <modify_file>"]) — skip tests.
@@ -203,6 +209,12 @@ focus: verify divide bug fix in calc.js
 assistant: [reads package.json to find test script] → runs "npm test"
 → all tests pass
 complete(passed=true, issues=[], summary="npm test: 7 passing")
+</example>
+
+<example>
+focus: verify divide bug fix in calc.js
+assistant: [reads package.json] → runs "npm test" → 1 test fails
+complete(passed=false, issues=["average([]) does not throw — average() missing empty-array guard"], summary="npm test: 6 passing, 1 failing")
 </example>
 
 When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
