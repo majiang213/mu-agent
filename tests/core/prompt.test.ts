@@ -400,10 +400,85 @@ describe('buildUserPrompt', () => {
     expect(p).toContain('LOCATE');
   });
 
-  it('LOCATE does not inject previousResults (not needed)', () => {
-    const prev = [{ state: State.DIAGNOSE, focus: 'why fail', output: 'some findings' }];
+  it('LOCATE injects RESEARCH result from previousResults', () => {
+    const prev = [
+      {
+        state: State.RESEARCH,
+        focus: 'read calc.js',
+        output: '{"report":"found 2 bugs: divide zero + average empty"}',
+      },
+    ];
+    const p = buildUserPrompt(State.LOCATE, 'fix calc.js', 'find divide fn', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('RESEARCH');
+    expect(p).toContain('found 2 bugs');
+  });
+
+  it('LOCATE injects DIAGNOSE result from previousResults', () => {
+    const prev = [
+      { state: State.DIAGNOSE, focus: 'why fail', output: '{"rootCause":"no zero guard","location":"calc.js:5"}' },
+    ];
+    const p = buildUserPrompt(State.LOCATE, 'fix calc.js', 'find divide fn', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('DIAGNOSE');
+  });
+
+  it('LOCATE skips irrelevant states (e.g. VERIFY)', () => {
+    const prev = [{ state: State.VERIFY, focus: 'run tests', output: '{"passed":false}' }];
     const p = buildUserPrompt(State.LOCATE, 'fix calc.js', 'find divide fn', prev);
     expect(p).not.toContain('previous_step_results');
+  });
+
+  it('MODIFY injects RESEARCH result from previousResults (Gap 46)', () => {
+    const prev = [
+      {
+        state: State.RESEARCH,
+        focus: 'read calc.js',
+        output: '{"report":"bug 1: divide zero. bug 2: average empty array"}',
+      },
+    ];
+    const p = buildUserPrompt(State.MODIFY, 'fix calc.js', 'fix bugs', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('RESEARCH');
+    expect(p).toContain('bug 1: divide zero');
+  });
+
+  it('ROLLBACK injects MODIFY result from previousResults', () => {
+    const prev = [
+      { state: State.MODIFY, focus: 'add zero-check', output: '{"edited":["calc.js","utils.js"],"linesChanged":3}' },
+    ];
+    const p = buildUserPrompt(State.ROLLBACK, 'fix calc.js', 'restore files', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('MODIFY');
+    expect(p).toContain('calc.js');
+  });
+
+  it('ROLLBACK injects LOCATE result from previousResults', () => {
+    const prev = [
+      { state: State.LOCATE, focus: 'find divide fn', output: '{"locations":[{"file":"calc.js","startLine":5}]}' },
+      { state: State.MODIFY, focus: 'add zero-check', output: '{"edited":["calc.js"],"linesChanged":2}' },
+    ];
+    const p = buildUserPrompt(State.ROLLBACK, 'fix calc.js', 'restore files', prev);
+    expect(p).toContain('MODIFY');
+    expect(p).toContain('LOCATE');
+  });
+
+  it('TEST_WRITE injects RESEARCH and LOCATE results', () => {
+    const prev = [
+      { state: State.RESEARCH, focus: 'read calc.js', output: '{"report":"divide has no zero guard"}' },
+      { state: State.LOCATE, focus: 'find divide fn', output: '{"locations":[{"file":"calc.js","startLine":5}]}' },
+    ];
+    const p = buildUserPrompt(State.TEST_WRITE, 'write tests for calc.js', 'cover edge cases', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('RESEARCH');
+    expect(p).toContain('LOCATE');
+  });
+
+  it('default state (non-switch) injects context when available', () => {
+    const prev = [{ state: State.RESEARCH, focus: 'read code', output: '{"report":"findings"}' }];
+    const p = buildUserPrompt(State.REFACTOR_PLAN, 'refactor auth', 'plan steps', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('RESEARCH');
   });
 
   it('truncates long outputs to 600 chars', () => {

@@ -166,6 +166,8 @@ When done, call complete(locations=[{file, startLine, endLine, snippet}]).`,
   [State.MODIFY]: `Apply the code changes identified in the LOCATE step.
 
 The \`edit\` tool does SEARCH/REPLACE: it finds \`oldText\` in the file and replaces it with \`newText\`.
+Tool signature: edit(file="<path>", oldText="<exact text>", newText="<replacement>")
+IMPORTANT: The parameter is named \`file\`, NOT \`path\`. Always use: edit(file="calc.js", ...) NOT edit(path="calc.js", ...)
 
 Rules:
 1. Read the file first to understand existing code style, conventions, and imports before making any change.
@@ -344,6 +346,7 @@ assistant: [websearch "Express rate limiting best practices"] → [webfetches to
 complete(report="Use express-rate-limit package. Set windowMs=15min, max=100. https://expressjs.com/...")
 </example>
 
+You do NOT have edit or write tools. Do NOT attempt to modify or create files — read and report only.
 Do NOT modify files.
 When done, call complete(report="<your findings, cite file paths or URLs>").`,
 
@@ -404,9 +407,24 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   return lines.filter(Boolean).join('\n\n').trim();
 }
 
+// Declares which prior states each consuming state needs to see.
+// Order matters: listed states are injected in declaration order.
+// REASON / ANSWER / CLARIFY / SETUP are not listed — they are entry points or standalone.
+export const STEP_CONTEXT_NEEDS: Partial<Record<State, State[]>> = {
+  [State.LOCATE]: [State.RESEARCH, State.DIAGNOSE],
+  [State.MODIFY]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
+  [State.VERIFY]: [State.MODIFY, State.LOCATE, State.DIAGNOSE], // special handling below
+  [State.ROLLBACK]: [State.MODIFY, State.LOCATE],
+  [State.TEST_WRITE]: [State.RESEARCH, State.LOCATE, State.DIAGNOSE],
+  [State.RUN]: [State.DIAGNOSE, State.RESEARCH],
+  [State.REFACTOR_PLAN]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
+  [State.REVIEW]: [State.RESEARCH, State.DIAGNOSE],
+};
+
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
 
+  // VERIFY: special handling for Gap 41 (path audit) + Gap 43 (multi-MODIFY merge)
   if (state === State.VERIFY) {
     const allEdited: string[] = [];
     let lastModify: ExecutedStep | undefined;
@@ -445,11 +463,11 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
   }
 
-  const relevant = previousResults.filter((r) => {
-    if (state === State.MODIFY) return r.state === State.DIAGNOSE || r.state === State.LOCATE;
-    return false;
-  });
+  // General: look up which prior states this state needs, filter and inject
+  const needs = STEP_CONTEXT_NEEDS[state];
+  if (!needs || needs.length === 0) return '';
 
+  const relevant = previousResults.filter((r) => needs.includes(r.state as State));
   if (relevant.length === 0) return '';
 
   const lines = relevant.map((r) => {
@@ -466,12 +484,12 @@ export function buildUserPrompt(state: State, task: string, focus?: string, prev
   const context = previousResults ? fmtPreStepCtx(state, previousResults) : '';
   switch (state) {
     case State.LOCATE:
-      return `Locate the code positions for: ${target}`;
+      return `Locate the code positions for: ${target}${context}`;
     case State.MODIFY:
       return `Apply the changes for: ${target}${context}`;
     case State.VERIFY:
       return `Verify the changes are correct for: ${target}${context}`;
     default:
-      return target;
+      return `${target}${context}`;
   }
 }
