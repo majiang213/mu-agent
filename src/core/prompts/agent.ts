@@ -90,7 +90,7 @@ Your ONLY job is to analyze the task description and call complete() with a plan
 
 Choose the MINIMUM steps needed based on the task description alone:
 
-- Greeting / chitchat / pure Q&A → [ANSWER]
+- Greeting / chitchat / pure Q&A → [] (empty steps — ANSWER runs automatically after)
 - Understand / explain / summarize / check code → [RESEARCH]
 - Web search or external info needed → [RESEARCH]
 - Code quality review → [REVIEW]
@@ -116,7 +116,7 @@ Call complete(steps=[...], needsClarify=false).
 If intent is genuinely unclear, call complete(steps=[], needsClarify=true, questions=["<question>"]).
 
 Examples:
-- Chitchat/Q&A: complete(steps=[{state:"ANSWER", focus:"respond to greeting"}], needsClarify=false)
+- Chitchat/Q&A: complete(steps=[], needsClarify=false)
 - Explain code: complete(steps=[{state:"RESEARCH", focus:"read and explain how auth.ts works"}], needsClarify=false)
 - Check for issues: complete(steps=[{state:"RESEARCH", focus:"read calc.js and identify any bugs or problems"}], needsClarify=false)
 - Web search:   complete(steps=[{state:"RESEARCH", focus:"search for best practices for JWT expiry"}], needsClarify=false)
@@ -220,15 +220,29 @@ complete(passed=false, issues=["average([]) does not throw — average() missing
 
 When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
 
-  [State.ANSWER]: `Answer the question directly using your knowledge and the context provided.
-Do NOT use any tools. Write your answer as text only.
+  [State.ANSWER]: `Present the result to the user.
+
+Do NOT use any tools. Your entire output is the complete() call.
+
+If there are <previous_step_results>:
+- Steps found and fixed bugs → summarize what was wrong and what was fixed.
+- Steps only researched → summarize the findings.
+- Steps ran tests → report pass/fail and what was verified.
+
+If there are no <previous_step_results>:
+- Answer the user's question directly from the task description and context.
 
 <example>
-task: what does the divide function do?
-assistant: complete(answer="divide(a, b) returns a divided by b. It throws an error if b is 0.")
+previous: [RESEARCH] found 2 bugs in calc.js; [MODIFY] fixed divide and average; [VERIFY] npm test: 7 passing
+assistant: complete(answer="Fixed 2 bugs in calc.js: (1) divide() now throws on b===0; (2) average() now throws on empty array. All 7 tests pass.")
 </example>
 
-When done, call complete(answer="<your answer>").`,
+<example>
+previous: [RESEARCH] calc.js has no issues
+assistant: complete(answer="calc.js looks good — no bugs found.")
+</example>
+
+When done, call complete(answer="<your summary>").`,
 
   [State.DIAGNOSE]: `Investigate the root cause of the bug or issue.
 
@@ -431,7 +445,8 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 
 // Declares which prior states each consuming state needs to see.
 // Order matters: listed states are injected in declaration order.
-// REASON / ANSWER / CLARIFY / SETUP are not listed — they are entry points or standalone.
+// REASON / CLARIFY / SETUP are not listed — they are entry points or do not need prior context.
+// ANSWER is the fixed terminal step (Gap 51) and receives results from all meaningful prior states.
 export const STEP_CONTEXT_NEEDS: Partial<Record<State, State[]>> = {
   [State.LOCATE]: [State.RESEARCH, State.DIAGNOSE],
   [State.MODIFY]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
@@ -441,6 +456,7 @@ export const STEP_CONTEXT_NEEDS: Partial<Record<State, State[]>> = {
   [State.RUN]: [State.DIAGNOSE, State.RESEARCH],
   [State.REFACTOR_PLAN]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
   [State.REVIEW]: [State.RESEARCH, State.DIAGNOSE],
+  [State.ANSWER]: [State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.VERIFY, State.MODIFY],
 };
 
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {

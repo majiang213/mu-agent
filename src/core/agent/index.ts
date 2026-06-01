@@ -12,7 +12,7 @@ import { StateMachineAgent } from '../session/index.js';
 import { State } from '../types.js';
 import type { StateResult, Step, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission } from './types.js';
-import { buildModel, compressConversationHistory, runReasonStep, executeSteps } from './step-runner.js';
+import { buildModel, compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
 export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
@@ -184,14 +184,6 @@ export class ReactAgent {
       memorySearchTool,
     );
 
-    if (steps.length === 0) {
-      mission.state = 'completed';
-      lspClient.dispose();
-      await pendingSummariesPromise;
-      closeMemDb();
-      return { state: State.DONE, success: true, output: '', toolCalls: [], nextState: State.DONE, messages: [] };
-    }
-
     const allStepResults: ExecutedStep[] = [];
     let currentSteps: StepDirective[] = steps;
     let verifyRetries = 0;
@@ -316,6 +308,40 @@ export class ReactAgent {
       await pendingSummariesPromise;
       closeMemDb();
       throw err;
+    }
+
+    // Fixed ANSWER step — always runs after all planned steps, independent of REASON's plan (Gap 51).
+    // ANSWER synthesizes all step results for the user. It has only the complete() tool,
+    // so there is no "print text" escape hatch — the model must call complete(answer="...").
+    // Skip if REASON already planned an ANSWER step (e.g. chitchat) to avoid double-summary.
+    const lastExecuted = allStepResults[allStepResults.length - 1];
+    if (lastExecuted?.state !== State.ANSWER) {
+      const answerFocus =
+        allStepResults.length === 0
+          ? 'Answer the user directly based on the task description.'
+          : 'Summarize all previous steps and present the result to the user.';
+      let answerStep: ExecutedStep;
+      try {
+        answerStep = await runStep(
+          { state: State.ANSWER, focus: answerFocus },
+          allStepResults.length,
+          allStepResults.length + 1,
+          mission,
+          allStepResults,
+          cfg,
+          onEvent,
+          memoryIndex,
+          memorySearchTool,
+        );
+      } catch {
+        // ANSWER is best-effort — degrade gracefully to last step output
+        answerStep = {
+          state: State.ANSWER,
+          focus: answerFocus,
+          output: lastExecuted?.output ?? JSON.stringify({ answer: '[Unable to generate response]' }),
+        };
+      }
+      allStepResults.push(answerStep);
     }
 
     const finalResult: StateResult = {

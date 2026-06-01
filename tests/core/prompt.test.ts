@@ -127,7 +127,7 @@ describe('buildSystemPrompt', () => {
 
     it('contains concrete examples with complete()', () => {
       const p = prompt(State.REASON);
-      expect(p).toContain('complete(steps=[{state:"ANSWER"');
+      expect(p).toContain('complete(steps=[]');
     });
   });
 
@@ -491,6 +491,37 @@ describe('buildUserPrompt', () => {
 
   it('no previousResults arg — no injection', () => {
     const p = buildUserPrompt(State.MODIFY, 'fix calc.js', 'add zero-check');
+    expect(p).not.toContain('previous_step_results');
+  });
+
+  it('ANSWER injects RESEARCH result (Gap 51 — fixed terminal step)', () => {
+    const prev = [
+      {
+        state: State.RESEARCH,
+        focus: 'read calc.js',
+        output: '{"report":"found 2 bugs: divide zero + average empty"}',
+      },
+    ];
+    const p = buildUserPrompt(State.ANSWER, 'check calc.js', 'summarize findings', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('RESEARCH');
+    expect(p).toContain('found 2 bugs');
+  });
+
+  it('ANSWER injects MODIFY and VERIFY results (Gap 51)', () => {
+    const prev = [
+      { state: State.MODIFY, focus: 'fix bugs', output: '{"edited":["calc.js"],"linesChanged":6}' },
+      { state: State.VERIFY, focus: 'run tests', output: '{"passed":true,"issues":[],"summary":"7 passing"}' },
+    ];
+    const p = buildUserPrompt(State.ANSWER, 'fix calc.js', 'summarize', prev);
+    expect(p).toContain('previous_step_results');
+    expect(p).toContain('MODIFY');
+    expect(p).toContain('VERIFY');
+  });
+
+  it('ANSWER skips irrelevant states like ROLLBACK', () => {
+    const prev = [{ state: State.ROLLBACK, focus: 'restore', output: '{"restored":["calc.js"]}' }];
+    const p = buildUserPrompt(State.ANSWER, 'fix calc.js', 'summarize', prev);
     expect(p).not.toContain('previous_step_results');
   });
 });
