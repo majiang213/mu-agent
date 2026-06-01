@@ -73,7 +73,7 @@ export function buildStepAgent(
       }
       if ((toolName === 'edit' || toolName === 'write') && (cfg.safetyConfig.enableCheckpoint ?? true)) {
         const args = toolCtx.args as Record<string, unknown>;
-        const filePath = typeof args['filePath'] === 'string' ? args['filePath'] : null;
+        const filePath = typeof args['path'] === 'string' ? args['path'] : null;
         if (filePath) {
           try {
             await cfg.safeModifier.createCheckpoint(filePath);
@@ -165,7 +165,7 @@ export function subscribeStepEvents(
       });
       if (event.toolName === 'edit' || event.toolName === 'write') {
         const args = event.args as Record<string, unknown>;
-        const fp = typeof args['filePath'] === 'string' ? args['filePath'] : null;
+        const fp = typeof args['path'] === 'string' ? args['path'] : null;
         if (fp) pendingModifyPaths.set(event.toolCallId, fp);
       }
     }

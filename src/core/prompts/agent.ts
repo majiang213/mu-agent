@@ -166,8 +166,8 @@ When done, call complete(locations=[{file, startLine, endLine, snippet}]).`,
   [State.MODIFY]: `Apply the code changes identified in the LOCATE step.
 
 The \`edit\` tool does SEARCH/REPLACE: it finds \`oldText\` in the file and replaces it with \`newText\`.
-Tool signature: edit(file="<path>", oldText="<exact text>", newText="<replacement>")
-IMPORTANT: The parameter is named \`file\`, NOT \`path\`. Always use: edit(file="calc.js", ...) NOT edit(path="calc.js", ...)
+Tool signature: edit(path="<path>", oldText="<exact text>", newText="<replacement>")
+IMPORTANT: The parameter is named \`path\`. Always use: edit(path="calc.js", ...) NOT edit(file="calc.js", ...)
 
 Rules:
 1. Read the file first to understand existing code style, conventions, and imports before making any change.
@@ -181,7 +181,7 @@ Rules:
 <example>
 focus: add divide-by-zero guard to divide function in calc.js
 assistant: [reads calc.js to see current code and style]
-edit(file="calc.js", oldText="function divide(a, b) {\\n  return a / b;", newText="function divide(a, b) {\\n  if (b === 0) throw new Error('Division by zero');\\n  return a / b;")
+edit(path="calc.js", oldText="function divide(a, b) {\\n  return a / b;", newText="function divide(a, b) {\\n  if (b === 0) throw new Error('Division by zero');\\n  return a / b;")
 complete(edited=["calc.js"], linesChanged=1)
 </example>
 
@@ -299,17 +299,20 @@ complete(refactorSteps=["extract loadConfig() pure function","update 5 callers t
 
 When done, call complete(refactorSteps=["<step1>", ...], estimatedFiles=<n>).`,
 
-  [State.ROLLBACK]: `Restore the modified files to their previous state.
+  [State.ROLLBACK]: `The system has already automatically restored the modified files to their original state.
+
+Your job is to confirm which files were restored and call complete().
 
 Available tools: read, write, complete.
 
 Steps:
-1. Read the checkpoint/backup content of each file that needs restoring
-2. Use write to overwrite the file with its previous content
+1. Read each file that was mentioned in the MODIFY step to confirm it has been restored
+2. If a file looks wrong (still has the failed changes), use write to overwrite it with the correct original content
+3. Call complete(restored=[...]) listing all confirmed files
 
 <example>
 focus: rollback changes to calc.js
-assistant: [reads checkpoint for calc.js] → writes original content back
+assistant: [reads calc.js to confirm it is back to original state]
 complete(restored=["calc.js"])
 </example>
 

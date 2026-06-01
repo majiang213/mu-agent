@@ -111,7 +111,7 @@ Check:
     },
     [State.ROLLBACK]: {
       name: State.ROLLBACK,
-      allowedTools: ['write', 'complete'],
+      allowedTools: ['read', 'write', 'complete'],
       prompt: 'Restore files to their previous state.',
     },
     [State.RUN]: {

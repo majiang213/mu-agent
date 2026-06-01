@@ -269,7 +269,31 @@ export class ReactAgent {
         const hasModify = flatRetry.some((s: Step) => s.state === State.MODIFY);
         const hasRollback = flatRetry.some((s: Step) => s.state === State.ROLLBACK);
         if (hasModify && !hasRollback) {
-          retrySteps.unshift({ state: State.ROLLBACK, focus: 'Restore all modified files to checkpoint before retry' });
+          // Harness restores all edited files directly via SafeModifier — no need to
+          // rely on the model to locate and rewrite checkpoint content (Gap 48).
+          const editedFiles = allStepResults
+            .filter((r) => r.state === State.MODIFY)
+            .flatMap((r) => {
+              try {
+                const parsed = JSON.parse(r.output) as { edited?: unknown };
+                return Array.isArray(parsed.edited)
+                  ? parsed.edited.filter((f): f is string => typeof f === 'string')
+                  : [];
+              } catch {
+                return [];
+              }
+            });
+          const uniqueEdited = [...new Set(editedFiles)];
+          for (const filePath of uniqueEdited) {
+            await cfg.safeModifier.restore(filePath);
+          }
+          if (uniqueEdited.length > 0) {
+            onEvent?.({
+              type: 'tool_execution_start',
+              tool: 'rollback',
+              args: { restored: uniqueEdited },
+            });
+          }
         }
 
         currentSteps = retrySteps;
