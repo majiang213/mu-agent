@@ -1,4 +1,4 @@
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
 import { FailureHandler } from '../failure/handler.js';
@@ -19,6 +19,8 @@ import { samplePlans, deliberate, pickShortest } from '../heavy/index.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
+
+const MEMORY_STATES = new Set([State.REASON, State.ANSWER, State.RESEARCH, State.DIAGNOSE]);
 
 export async function buildModel(
   modelName: string,
@@ -171,13 +173,24 @@ export async function runReasonStep(
   conversationHistory: AgentMessage[],
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
+  memoryIndex?: string,
+  memorySearchTool?: AgentTool<any, any>,
 ): Promise<{ steps: StepDirective[] }> {
   const htCfg = cfg.heavyThinking;
   const tier = cfg.stateMachine.getModelParams().tier;
   const heavyEnabled = tier === 'SMALL' || tier === 'MEDIUM';
 
   if (!heavyEnabled) {
-    return runSingleReasonAttempt(mission, cfg, conversationHistory, onEvent, onNeedsClarify, 'IDLE');
+    return runSingleReasonAttempt(
+      mission,
+      cfg,
+      conversationHistory,
+      onEvent,
+      onNeedsClarify,
+      'IDLE',
+      memoryIndex,
+      memorySearchTool,
+    );
   }
 
   const planCount = htCfg?.planCount ?? (tier === 'SMALL' ? 3 : 2);
@@ -195,7 +208,16 @@ export async function runReasonStep(
 
   if (candidates.length === 0) {
     onEvent?.({ type: 'deliberation_fallback', reason: '所有采样失败，回退到单次规划' });
-    return runSingleReasonAttempt(mission, cfg, conversationHistory, onEvent, onNeedsClarify, 'IDLE');
+    return runSingleReasonAttempt(
+      mission,
+      cfg,
+      conversationHistory,
+      onEvent,
+      onNeedsClarify,
+      'IDLE',
+      memoryIndex,
+      memorySearchTool,
+    );
   }
 
   let outcome = await deliberate(candidates, currentMission, cfg, onEvent);
@@ -221,7 +243,16 @@ export async function runReasonStep(
         type: 'deliberation_fallback',
         reason: 'all samples failed after clarification, falling back to single attempt',
       });
-      return runSingleReasonAttempt(currentMission, cfg, conversationHistory, onEvent, undefined, State.REASON);
+      return runSingleReasonAttempt(
+        currentMission,
+        cfg,
+        conversationHistory,
+        onEvent,
+        undefined,
+        State.REASON,
+        memoryIndex,
+        memorySearchTool,
+      );
     }
 
     outcome = await deliberate(candidates, currentMission, cfg, onEvent, false);
@@ -248,6 +279,8 @@ async function runSingleReasonAttempt(
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
   fromState: State | 'IDLE' = 'IDLE',
+  memoryIndex?: string,
+  memorySearchTool?: AgentTool<any, any>,
 ): Promise<{ steps: StepDirective[] }> {
   cfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
@@ -255,6 +288,7 @@ async function runSingleReasonAttempt(
     task: mission.description,
     modelParams: cfg.stateMachine.getModelParams(),
     env: cfg.env,
+    memoryIndex,
   });
 
   const stagnationDetector = new StagnationDetector();
@@ -263,7 +297,8 @@ async function runSingleReasonAttempt(
     capturedComplete = args;
   });
 
-  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool]);
+  const extraTools: AgentTool<any, any>[] = memorySearchTool ? [memorySearchTool] : [];
+  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool, ...extraTools]);
   subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
 
   cfg.registerAgent?.(agent);
@@ -343,6 +378,8 @@ export async function runStep(
   stepResults: ExecutedStep[],
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
+  memoryIndex?: string,
+  memorySearchTool?: AgentTool<any, any>,
 ): Promise<ExecutedStep> {
   const trajectory = [step.state, State.DONE];
   cfg.stateMachine.resetForNextTask(step.state);
@@ -371,12 +408,14 @@ export async function runStep(
     }
   }
 
+  const injectMemory = MEMORY_STATES.has(step.state) ? memoryIndex : undefined;
   const systemPrompt = buildSystemPrompt({
     state: step.state,
     task: mission.description,
     focus: step.focus,
     modelParams: cfg.stateMachine.getModelParams(),
     env: stepEnv,
+    memoryIndex: injectMemory,
   });
 
   const allowedTools = cfg.stateMachine.getAllowedTools().filter((t) => t.name !== 'complete');
@@ -391,7 +430,16 @@ export async function runStep(
     capturedComplete = args;
   });
   const readFiles = new Set<string>();
-  const agent = buildStepAgent(systemPrompt, [], cfg, onEvent, [...allowedTools, completeTool], readFiles);
+  const memoryTools: AgentTool<any, any>[] =
+    memorySearchTool && (step.state === State.REASON || step.state === State.ANSWER) ? [memorySearchTool] : [];
+  const agent = buildStepAgent(
+    systemPrompt,
+    [],
+    cfg,
+    onEvent,
+    [...allowedTools, completeTool, ...memoryTools],
+    readFiles,
+  );
 
   subscribeStepEvents(
     agent,
@@ -458,6 +506,8 @@ export async function executeSteps(
   allStepResults: ExecutedStep[],
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
+  memoryIndex?: string,
+  memorySearchTool?: AgentTool<any, any>,
 ): Promise<ExecutedStep[]> {
   const thisRoundResults: ExecutedStep[] = [];
   const total = directives.length;
@@ -470,7 +520,17 @@ export async function executeSteps(
 
       if (parallelSteps.length === 1) {
         const snapshot = [...allStepResults, ...thisRoundResults];
-        const result = await runStep(parallelSteps[0]!, i, total, mission, snapshot, cfg, onEvent);
+        const result = await runStep(
+          parallelSteps[0]!,
+          i,
+          total,
+          mission,
+          snapshot,
+          cfg,
+          onEvent,
+          memoryIndex,
+          memorySearchTool,
+        );
         thisRoundResults.push(result);
         continue;
       }
@@ -487,7 +547,7 @@ export async function executeSteps(
         parallelSteps.map((step) => {
           const clonedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone() };
           const snapshot = [...allStepResults, ...thisRoundResults];
-          return runStep(step, i, total, mission, snapshot, clonedCfg, branchOnEvent);
+          return runStep(step, i, total, mission, snapshot, clonedCfg, branchOnEvent, memoryIndex, memorySearchTool);
         }),
       );
 
@@ -502,7 +562,7 @@ export async function executeSteps(
       onEvent?.({ type: 'parallel_complete', stepCount: parallelSteps.length });
     } else {
       const snapshot = [...allStepResults, ...thisRoundResults];
-      const result = await runStep(directive, i, total, mission, snapshot, cfg, onEvent);
+      const result = await runStep(directive, i, total, mission, snapshot, cfg, onEvent, memoryIndex, memorySearchTool);
       thisRoundResults.push(result);
     }
   }

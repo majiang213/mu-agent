@@ -20,6 +20,7 @@ export interface SystemPromptOptions {
   context?: StateContext;
   focus?: string;
   env?: EnvContext;
+  memoryIndex?: string;
 }
 
 const STATES_NEEDING_TREE = new Set([State.LOCATE, State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.REFACTOR_PLAN]);
@@ -377,13 +378,14 @@ const SMALL_MODEL_CONSTRAINTS = `Keep responses under 400 tokens. Do not specula
 const SMALL_MODEL_CONSTRAINTS_WITH_TOOLS = `Keep responses under 400 tokens. Use only the listed tools. Do not speculate.`;
 
 export function buildSystemPrompt(options: SystemPromptOptions): string {
-  const { state, task, modelParams, context, focus, env } = options;
+  const { state, task, modelParams, context, focus, env, memoryIndex } = options;
 
   if (state === State.DONE) {
     return 'Task complete.';
   }
 
   const base = buildBasePrompt(env, state);
+  const memoryBlock = memoryIndex ?? '';
 
   const toolList = context?.availableTools?.length
     ? `Available tools:\n${context.availableTools.map((t) => `- ${t.name}`).join('\n')}`
@@ -392,7 +394,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   const stateInstruction = STATE_INSTRUCTIONS[state] ?? '';
   const focusLine = focus ? `Current focus: ${focus}` : '';
 
-  const lines = [base, toolList, stateInstruction, `Current task: ${task}`, focusLine];
+  const lines = [base, memoryBlock, toolList, stateInstruction, `Current task: ${task}`, focusLine];
 
   if (modelParams.tier === 'SMALL') {
     const constraints = state === State.REASON ? SMALL_MODEL_CONSTRAINTS : SMALL_MODEL_CONSTRAINTS_WITH_TOOLS;

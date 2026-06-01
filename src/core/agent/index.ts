@@ -18,6 +18,8 @@ export { compressConversationHistorySync } from './step-runner.js';
 import type { EnvContext } from '../prompts/agent.js';
 import { loadContext } from './context.js';
 import { LspClient } from '../../tool/lsp.js';
+import { MemoryStore, findGitRoot, initMemoryDb, formatMemoryIndex } from '../memory/index.js';
+import { createMemorySearchTool } from '../../tool/memory-search.js';
 
 const MAX_VERIFY_RETRIES = 2;
 
@@ -55,6 +57,7 @@ export type { ExecutionEvent };
 export class ReactAgent {
   private _pendingClarification: ((answer: string) => void) | null = null;
   private _activeAgents: Set<Agent> = new Set();
+  private _memoryStore: MemoryStore | null = null;
 
   abort(): void {
     for (const agent of this._activeAgents) {
@@ -127,6 +130,20 @@ export class ReactAgent {
     const lspClient = new LspClient();
     await lspClient.init(cwd);
 
+    const gitRoot = findGitRoot(cwd);
+    const memDb = initMemoryDb(gitRoot);
+    this._memoryStore = new MemoryStore(memDb, cwd, model);
+    const pendingSummariesPromise = this._memoryStore.processPendingSummaries().catch(() => {});
+    const memoryIndex = formatMemoryIndex(memDb, cwd);
+    const memorySearchTool = createMemorySearchTool(memDb, cwd) as unknown as AgentTool<any, any>;
+    const closeMemDb = () => {
+      try {
+        memDb.close();
+      } catch {
+        /* db already closed */
+      }
+    };
+
     const cfg = {
       model,
       stateMachine,
@@ -157,11 +174,21 @@ export class ReactAgent {
       });
     };
 
-    const { steps } = await runReasonStep(mission, cfg, conversationHistory, onEvent, clarifyCallback);
+    const { steps } = await runReasonStep(
+      mission,
+      cfg,
+      conversationHistory,
+      onEvent,
+      clarifyCallback,
+      memoryIndex,
+      memorySearchTool,
+    );
 
     if (steps.length === 0) {
       mission.state = 'completed';
       lspClient.dispose();
+      await pendingSummariesPromise;
+      closeMemDb();
       return { state: State.DONE, success: true, output: '', toolCalls: [], nextState: State.DONE, messages: [] };
     }
 
@@ -172,7 +199,15 @@ export class ReactAgent {
 
     try {
       while (true) {
-        const thisRoundResults = await executeSteps(currentSteps, mission, allStepResults, cfg, onEvent);
+        const thisRoundResults = await executeSteps(
+          currentSteps,
+          mission,
+          allStepResults,
+          cfg,
+          onEvent,
+          memoryIndex,
+          memorySearchTool,
+        );
 
         allStepResults.push(...thisRoundResults);
 
@@ -189,9 +224,7 @@ export class ReactAgent {
         if (verifyResult.passed === true) break;
 
         if (verifyRetries >= MAX_VERIFY_RETRIES) {
-          mission.state = 'failed';
-          lspClient.dispose();
-          return {
+          const failedResult: StateResult = {
             state: State.DONE,
             success: false,
             output: `Task failed after ${MAX_VERIFY_RETRIES + 1} attempts. Last error: ${verifyResult.summary}`,
@@ -199,6 +232,12 @@ export class ReactAgent {
             nextState: State.DONE,
             messages: [],
           };
+          this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+          mission.state = 'failed';
+          lspClient.dispose();
+          await pendingSummariesPromise;
+          closeMemDb();
+          return failedResult;
         }
 
         verifyRetries++;
@@ -210,7 +249,15 @@ export class ReactAgent {
         };
         const retryHistory = [...conversationHistory, failureSummaryMsg];
 
-        const { steps: retrySteps } = await runReasonStep(mission, cfg, retryHistory, onEvent, clarifyCallback);
+        const { steps: retrySteps } = await runReasonStep(
+          mission,
+          cfg,
+          retryHistory,
+          onEvent,
+          clarifyCallback,
+          memoryIndex,
+          memorySearchTool,
+        );
 
         if (retrySteps.length === 0) break;
 
@@ -228,14 +275,26 @@ export class ReactAgent {
         currentSteps = retrySteps;
       }
     } catch (err) {
+      const isAbort = err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'));
+      if (!isAbort) {
+        const errResult: StateResult = {
+          state: State.DONE,
+          success: false,
+          output: err instanceof Error ? err.message : String(err),
+          toolCalls: [],
+          nextState: State.DONE,
+          messages: [],
+        };
+        this._memoryStore?.writeEpisodeSync(mission, allStepResults, errResult);
+      }
       mission.state = 'failed';
       lspClient.dispose();
+      await pendingSummariesPromise;
+      closeMemDb();
       throw err;
     }
 
-    mission.state = 'completed';
-    lspClient.dispose();
-    return {
+    const finalResult: StateResult = {
       state: State.DONE,
       success: true,
       output: allStepResults[allStepResults.length - 1]?.output ?? 'Task completed',
@@ -243,5 +302,11 @@ export class ReactAgent {
       nextState: State.DONE,
       messages: [],
     };
+    this._memoryStore?.writeEpisodeSync(mission, allStepResults, finalResult);
+    mission.state = 'completed';
+    lspClient.dispose();
+    await pendingSummariesPromise;
+    closeMemDb();
+    return finalResult;
   }
 }
