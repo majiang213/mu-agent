@@ -161,7 +161,8 @@ assistant: [reads calc.js] — finds divide() at line 15
 complete(locations=[{file:"calc.js", startLine:15, endLine:19, snippet:"function divide(a, b) { return a / b; }"}])
 </example>
 
-When done, call complete(locations=[{file, startLine, endLine, snippet}]).`,
+As soon as you have identified all relevant code positions, call complete(locations=[...]) IMMEDIATELY.
+Do NOT explain your findings before calling complete(). The complete() call IS your output.`,
 
   [State.MODIFY]: `Apply the code changes identified in the LOCATE step.
 
@@ -230,6 +231,11 @@ assistant: complete(answer="divide(a, b) returns a divided by b. It throws an er
 When done, call complete(answer="<your answer>").`,
 
   [State.DIAGNOSE]: `Investigate the root cause of the bug or issue.
+
+IMPORTANT: Your ONLY job is to investigate and report findings.
+- DO NOT modify any files. DO NOT run write commands (cat >, sed -i, etc.).
+- As soon as you identify the root cause, call complete(rootCause=..., location=..., fix=...) IMMEDIATELY.
+  The system will automatically plan a MODIFY step. Fixing is the job of MODIFY, not DIAGNOSE.
 
 Available tools: read, grep, find, ls, bash, complete.
 You may call multiple tools in parallel when they are independent.
@@ -363,7 +369,8 @@ complete(report="Use express-rate-limit package. Set windowMs=15min, max=100. ht
 
 You do NOT have edit or write tools. Do NOT attempt to modify or create files — read and report only.
 Do NOT modify files.
-When done, call complete(report="<your findings, cite file paths or URLs>").`,
+As soon as you have gathered enough information, call complete(report="...") IMMEDIATELY.
+Do NOT output a summary to the user before calling complete(). The complete() call IS your output.`,
 
   [State.SETUP]: `Analyze this project and generate AGENTS.md.
 
