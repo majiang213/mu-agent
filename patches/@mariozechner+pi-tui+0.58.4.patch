@@ -1,0 +1,22 @@
+diff --git a/node_modules/@mariozechner/pi-tui/dist/tui.js b/node_modules/@mariozechner/pi-tui/dist/tui.js
+index 8a0d2a6..2dd5999 100644
+--- a/node_modules/@mariozechner/pi-tui/dist/tui.js
++++ b/node_modules/@mariozechner/pi-tui/dist/tui.js
+@@ -583,7 +583,16 @@ export class TUI extends Container {
+         for (let i = 0; i < lines.length; i++) {
+             const line = lines[i];
+             if (!isImageLine(line)) {
+-                lines[i] = line + reset;
++                // If line contains a background color, re-apply it at end so it fills
++                // to terminal edge (before the full reset). This prevents pi-tui's
++                // \x1b[0m from leaving the right side of the terminal with no bg color.
++                const bgMatch = line.match(/\x1b\[48;2;(\d+);(\d+);(\d+)m/g);
++                if (bgMatch && bgMatch.length > 0) {
++                    const lastBg = bgMatch[bgMatch.length - 1];
++                    lines[i] = line + lastBg + reset;
++                } else {
++                    lines[i] = line + reset;
++                }
+             }
+         }
+         return lines;
