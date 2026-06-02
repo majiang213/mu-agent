@@ -719,7 +719,7 @@ export class TuiApp {
 
     const lspStatus = getLspStatus(process.cwd());
     if (lspStatus.status === 'not_installed') {
-      this.insertBefore(new Text(C.err(`  ✗ LSP: ${lspStatus.server} 未安装（运行 local-agent setup 安装）`), 0, 0));
+      this.insertBefore(new Text(C.err(`  ✗ LSP: ${lspStatus.server} 未安装（运行 mu-agent setup 安装）`), 0, 0));
     }
 
     this.insertBefore(new Text('\x1b[37m  准备就绪，输入任务后按 Enter 执行\x1b[0m', 0, 0));

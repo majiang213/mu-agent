@@ -71,11 +71,7 @@ export class SetupWizard {
     if (this.headerComp) {
       this.tui.removeChild(this.headerComp);
     }
-    this.headerComp = new Text(
-      C.dim(`  local-agent setup`) + '  ' + C.dim(`步骤 ${this.step}/${this.totalSteps}`),
-      0,
-      0,
-    );
+    this.headerComp = new Text(C.dim(`  mu-agent setup`) + '  ' + C.dim(`步骤 ${this.step}/${this.totalSteps}`), 0, 0);
     this.tui.addChild(this.headerComp);
     this.tui.requestRender();
   }
@@ -84,8 +80,8 @@ export class SetupWizard {
 
   private loadExistingModel(): Partial<Config['model']> {
     const paths = [
-      join(process.cwd(), '.local-agent', 'config.json'),
-      join(homedir(), '.config', 'local-agent', 'config.json'),
+      join(process.cwd(), '.mu-agent', 'config.json'),
+      join(homedir(), '.config', 'mu-agent', 'config.json'),
     ];
     for (const p of paths) {
       if (existsSync(p)) {
@@ -258,7 +254,7 @@ export class SetupWizard {
 
     this.addStepText('\n  ' + C.ok('代码图'));
 
-    const dbPath = join(process.cwd(), '.local-agent', 'graph.db');
+    const dbPath = join(process.cwd(), '.mu-agent', 'graph.db');
     const dbExists = existsSync(dbPath);
     const statusMsg = dbExists ? `\n  ${C.ok('✓')} 代码图已存在 (graph.db)` : `\n  ${C.dim('代码图尚未构建')}`;
     this.addStepText(statusMsg + '\n\n  是否现在构建？');
@@ -308,7 +304,7 @@ export class SetupWizard {
     this.renderHeader();
 
     const lspStatus = getLspStatus(process.cwd());
-    const dbPath = join(process.cwd(), '.local-agent', 'graph.db');
+    const dbPath = join(process.cwd(), '.mu-agent', 'graph.db');
 
     const lspLine =
       lspStatus.status === 'active'

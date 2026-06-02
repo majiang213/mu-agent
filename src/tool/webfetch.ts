@@ -6,7 +6,7 @@ const MAX_CONTENT_LENGTH = 32000;
 
 async function fetchUrl(url: string, format: 'markdown' | 'text' | 'html'): Promise<string> {
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'local-agent/1.0 (coding assistant)' },
+    headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
     signal: AbortSignal.timeout(15000),
   });
 

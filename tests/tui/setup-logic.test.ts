@@ -63,9 +63,9 @@ describe('SetupWizard.loadExistingModel', () => {
 
   it('returns model config when project config exists', async () => {
     const dir = join(tmpdir(), `setup-test-${Date.now()}`);
-    mkdirSync(join(dir, '.local-agent'), { recursive: true });
+    mkdirSync(join(dir, '.mu-agent'), { recursive: true });
     writeFileSync(
-      join(dir, '.local-agent', 'config.json'),
+      join(dir, '.mu-agent', 'config.json'),
       JSON.stringify({ model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434' } }),
     );
     try {
@@ -83,8 +83,8 @@ describe('SetupWizard.loadExistingModel', () => {
 
   it('returns empty object when config file is malformed JSON', async () => {
     const dir = join(tmpdir(), `setup-test-${Date.now()}`);
-    mkdirSync(join(dir, '.local-agent'), { recursive: true });
-    writeFileSync(join(dir, '.local-agent', 'config.json'), 'not json {{{{');
+    mkdirSync(join(dir, '.mu-agent'), { recursive: true });
+    writeFileSync(join(dir, '.mu-agent', 'config.json'), 'not json {{{{');
     try {
       const origCwd = process.cwd;
       process.cwd = () => dir;
@@ -118,8 +118,8 @@ describe('stepDone graphOk logic', () => {
 
   it('shows graph failure when graphBuilt is false (even if graph.db exists)', async () => {
     const dir = join(tmpdir(), `setup-test-${Date.now()}`);
-    mkdirSync(join(dir, '.local-agent'), { recursive: true });
-    writeFileSync(join(dir, '.local-agent', 'graph.db'), '');
+    mkdirSync(join(dir, '.mu-agent'), { recursive: true });
+    writeFileSync(join(dir, '.mu-agent', 'graph.db'), '');
 
     const { getLspStatus } = await import('../../src/config/lsp-status.js');
     vi.mocked(getLspStatus).mockReturnValue({
@@ -191,8 +191,8 @@ describe('stepDone graphOk logic', () => {
 
   it('falls back to file check when graphBuilt is null (user skipped)', async () => {
     const dir = join(tmpdir(), `setup-test-${Date.now()}`);
-    mkdirSync(join(dir, '.local-agent'), { recursive: true });
-    writeFileSync(join(dir, '.local-agent', 'graph.db'), '');
+    mkdirSync(join(dir, '.mu-agent'), { recursive: true });
+    writeFileSync(join(dir, '.mu-agent', 'graph.db'), '');
 
     const { getLspStatus } = await import('../../src/config/lsp-status.js');
     vi.mocked(getLspStatus).mockReturnValue({

@@ -27,7 +27,7 @@ describe('loadContext', () => {
     });
   });
 
-  describe('priority order: AGENTS.md > CLAUDE.md > .local-agent/context.md', () => {
+  describe('priority order: AGENTS.md > CLAUDE.md > .mu-agent/context.md', () => {
     it('returns AGENTS.md when only AGENTS.md exists', () => {
       writeFileSync(join(dir, 'AGENTS.md'), '# agents content');
       const ctx = loadContext(dir);
@@ -42,11 +42,11 @@ describe('loadContext', () => {
       expect(ctx?.content).toBe('# claude content');
     });
 
-    it('returns .local-agent/context.md when only that exists', () => {
-      mkdirSync(join(dir, '.local-agent'), { recursive: true });
-      writeFileSync(join(dir, '.local-agent', 'context.md'), '# context content');
+    it('returns .mu-agent/context.md when only that exists', () => {
+      mkdirSync(join(dir, '.mu-agent'), { recursive: true });
+      writeFileSync(join(dir, '.mu-agent', 'context.md'), '# context content');
       const ctx = loadContext(dir);
-      expect(ctx?.source).toBe('.local-agent/context.md');
+      expect(ctx?.source).toBe('.mu-agent/context.md');
       expect(ctx?.content).toBe('# context content');
     });
 
@@ -58,10 +58,10 @@ describe('loadContext', () => {
       expect(ctx?.content).toBe('# agents');
     });
 
-    it('prefers CLAUDE.md over .local-agent/context.md when AGENTS.md absent', () => {
+    it('prefers CLAUDE.md over .mu-agent/context.md when AGENTS.md absent', () => {
       writeFileSync(join(dir, 'CLAUDE.md'), '# claude');
-      mkdirSync(join(dir, '.local-agent'), { recursive: true });
-      writeFileSync(join(dir, '.local-agent', 'context.md'), '# context');
+      mkdirSync(join(dir, '.mu-agent'), { recursive: true });
+      writeFileSync(join(dir, '.mu-agent', 'context.md'), '# context');
       const ctx = loadContext(dir);
       expect(ctx?.source).toBe('CLAUDE.md');
     });
@@ -69,8 +69,8 @@ describe('loadContext', () => {
     it('prefers AGENTS.md over all others when all three exist', () => {
       writeFileSync(join(dir, 'AGENTS.md'), '# agents');
       writeFileSync(join(dir, 'CLAUDE.md'), '# claude');
-      mkdirSync(join(dir, '.local-agent'), { recursive: true });
-      writeFileSync(join(dir, '.local-agent', 'context.md'), '# context');
+      mkdirSync(join(dir, '.mu-agent'), { recursive: true });
+      writeFileSync(join(dir, '.mu-agent', 'context.md'), '# context');
       const ctx = loadContext(dir);
       expect(ctx?.source).toBe('AGENTS.md');
     });

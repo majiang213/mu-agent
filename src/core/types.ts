@@ -1,5 +1,5 @@
 /**
- * State machine types for local-agent
+ * State machine types for mu-agent
  * Based on architecture design: deterministic pipeline + constrained LLM
  */
 

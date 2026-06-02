@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { join, dirname, parse } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
 
-const DB_DIRNAME = '.local-agent';
+const DB_DIRNAME = '.mu-agent';
 const DB_FILENAME = 'memory.db';
 const CURRENT_SCHEMA_VERSION = 1;
 

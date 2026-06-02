@@ -1,11 +1,11 @@
 {
-  "name": "local-agent",
+  "name": "mu-agent",
   "version": "1.0.0",
-  "description": "Local ReAct Agent with deterministic pipelines",
+  "description": "µagent — small-model coding agent with deterministic pipelines",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "local-agent": "./src/cli.ts"
+    "mu-agent": "./src/cli.ts"
   },
   "scripts": {
     "build": "tsc",

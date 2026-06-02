@@ -22,7 +22,7 @@ describe('ToolExecutor', () => {
     const executor = createToolExecutor();
     const result = await executor.execute('read', { path: 'package.json' });
     expect(result.success).toBe(true);
-    expect(result.output).toContain('local-agent');
+    expect(result.output).toContain('mu-agent');
   });
 
   it('should accept custom tool list', () => {

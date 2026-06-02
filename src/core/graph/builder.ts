@@ -5,7 +5,7 @@ import { execSync } from 'node:child_process';
 import { glob } from 'glob';
 import ts from 'typescript';
 
-const DB_DIRNAME = '.local-agent';
+const DB_DIRNAME = '.mu-agent';
 const DB_FILENAME = 'graph.db';
 
 function getDbPath(projectRoot: string): string {

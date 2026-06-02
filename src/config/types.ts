@@ -1,5 +1,5 @@
 /**
- * Configuration types for local-agent
+ * Configuration types for mu-agent
  */
 
 export interface ModelConfig {

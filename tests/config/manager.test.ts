@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import { loadConfig, ConfigNotFoundError } from '../../src/config/loader.js';
 
 function makeTmpDir(): string {
-  const dir = join(tmpdir(), `local-agent-test-${Date.now()}`);
+  const dir = join(tmpdir(), `mu-agent-test-${Date.now()}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
 
 function writeConfig(dir: string, cfg: object): void {
-  const configDir = join(dir, '.local-agent');
+  const configDir = join(dir, '.mu-agent');
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, 'config.json'), JSON.stringify(cfg), 'utf-8');
 }

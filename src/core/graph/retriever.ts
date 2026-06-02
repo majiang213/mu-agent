@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { join, resolve } from 'node:path';
 
-const DB_DIRNAME = '.local-agent';
+const DB_DIRNAME = '.mu-agent';
 const DB_FILENAME = 'graph.db';
 
 function getDbPath(projectRoot: string): string {

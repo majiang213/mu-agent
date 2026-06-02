@@ -24,7 +24,7 @@ describe('SessionStore', () => {
   describe('create', () => {
     it('creates sessions directory automatically', () => {
       SessionStore.create(dir);
-      expect(existsSync(join(dir, '.local-agent', 'sessions'))).toBe(true);
+      expect(existsSync(join(dir, '.mu-agent', 'sessions'))).toBe(true);
     });
 
     it('returns a store with isEmpty=true before first append', () => {
@@ -37,9 +37,9 @@ describe('SessionStore', () => {
       expect(store.filePath).toMatch(/\.json$/);
     });
 
-    it('filePath is inside .local-agent/sessions/', () => {
+    it('filePath is inside .mu-agent/sessions/', () => {
       const store = SessionStore.create(dir);
-      expect(store.filePath).toContain(join('.local-agent', 'sessions'));
+      expect(store.filePath).toContain(join('.mu-agent', 'sessions'));
     });
   });
 
@@ -114,12 +114,12 @@ describe('SessionStore', () => {
     });
 
     it('returns null when sessions dir is empty', () => {
-      mkdirSync(join(dir, '.local-agent', 'sessions'), { recursive: true });
+      mkdirSync(join(dir, '.mu-agent', 'sessions'), { recursive: true });
       expect(SessionStore.openLatest(dir)).toBeNull();
     });
 
     it('opens the most recent session by mtime', async () => {
-      const sessionsDir = join(dir, '.local-agent', 'sessions');
+      const sessionsDir = join(dir, '.mu-agent', 'sessions');
       mkdirSync(sessionsDir, { recursive: true });
 
       const { writeFileSync } = await import('node:fs');
@@ -169,7 +169,7 @@ describe('SessionStore', () => {
     });
 
     it('returns session infos sorted newest first', async () => {
-      const sessionsDir = join(dir, '.local-agent', 'sessions');
+      const sessionsDir = join(dir, '.mu-agent', 'sessions');
       mkdirSync(sessionsDir, { recursive: true });
 
       const { writeFileSync } = await import('node:fs');

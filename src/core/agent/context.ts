@@ -6,7 +6,7 @@ export interface AgentContext {
   source: string;
 }
 
-const CANDIDATE_FILES = ['AGENTS.md', 'CLAUDE.md', '.local-agent/context.md'];
+const CANDIDATE_FILES = ['AGENTS.md', 'CLAUDE.md', '.mu-agent/context.md'];
 
 export function loadContext(projectRoot: string): AgentContext | null {
   for (const filename of CANDIDATE_FILES) {

@@ -18,7 +18,7 @@ export class SafeModifier {
   private checkpoints: Map<string, Checkpoint> = new Map();
   private checkpointDir: string;
 
-  constructor(checkpointDir = '.local-agent/checkpoints') {
+  constructor(checkpointDir = '.mu-agent/checkpoints') {
     this.checkpointDir = checkpointDir;
   }
 
@@ -27,7 +27,7 @@ export class SafeModifier {
    */
   async createCheckpoint(filePath: string): Promise<void> {
     const content = await readFile(filePath, 'utf-8');
-    
+
     const checkpoint: Checkpoint = {
       filePath,
       originalContent: content,
@@ -45,12 +45,12 @@ export class SafeModifier {
    */
   async restore(filePath: string): Promise<boolean> {
     const checkpoint = this.checkpoints.get(filePath);
-    
+
     if (!checkpoint) {
       // Try to load from disk
       const diskCheckpoint = await this.loadFromDisk(filePath);
       if (!diskCheckpoint) return false;
-      
+
       await writeFile(filePath, diskCheckpoint.originalContent, 'utf-8');
       return true;
     }
@@ -93,7 +93,7 @@ export class SafeModifier {
   private async saveToDisk(checkpoint: Checkpoint): Promise<void> {
     const checkpointPath = join(
       this.checkpointDir,
-      `${checkpoint.timestamp}_${checkpoint.filePath.replace(/[/\\]/g, '_')}.bak`
+      `${checkpoint.timestamp}_${checkpoint.filePath.replace(/[/\\]/g, '_')}.bak`,
     );
 
     await mkdir(dirname(checkpointPath), { recursive: true });

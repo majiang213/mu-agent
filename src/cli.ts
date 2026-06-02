@@ -8,7 +8,7 @@ import { SessionStore } from './core/session/store.js';
 
 const program = new Command();
 
-program.name('local-agent').description('Local ReAct Agent with deterministic pipelines').version('1.0.0');
+program.name('mu-agent').description('µagent — small-model coding agent with deterministic pipelines').version('1.0.0');
 
 function applyCliOverrides(options: { model?: string; provider?: string; baseUrl?: string }): void {
   const modelUpdates: Partial<Config['model']> = {};
@@ -24,9 +24,9 @@ program
   .command('run')
   .description('Run a coding task')
   .argument('<task>', 'Task description')
-  .option('-m, --model <model>', 'Set model name (saved to .local-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider (saved to .local-agent/config.json)')
-  .option('-u, --base-url <url>', 'Set base URL (saved to .local-agent/config.json)')
+  .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
+  .option('-p, --provider <provider>', 'Set provider (saved to .mu-agent/config.json)')
+  .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
   .action(async (task, options) => {
     try {
       applyCliOverrides(options);
@@ -60,9 +60,9 @@ program
 program
   .command('config')
   .description('Show or update current configuration')
-  .option('-m, --model <model>', 'Set model name (saved to .local-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider (saved to .local-agent/config.json)')
-  .option('-u, --base-url <url>', 'Set base URL (saved to .local-agent/config.json)')
+  .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
+  .option('-p, --provider <provider>', 'Set provider (saved to .mu-agent/config.json)')
+  .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
   .action((options) => {
     try {
       applyCliOverrides(options);
@@ -78,7 +78,7 @@ program
 async function pickSession(): Promise<SessionStore | null> {
   const sessions = SessionStore.list(process.cwd());
   if (sessions.length === 0) {
-    console.error('No sessions found in .local-agent/sessions/');
+    console.error('No sessions found in .mu-agent/sessions/');
     return null;
   }
 
@@ -126,9 +126,9 @@ async function pickSession(): Promise<SessionStore | null> {
 program
   .command('tui')
   .description('Start interactive TUI mode')
-  .option('-m, --model <model>', 'Set model name (saved to .local-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider (saved to .local-agent/config.json)')
-  .option('-u, --base-url <url>', 'Set base URL (saved to .local-agent/config.json)')
+  .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
+  .option('-p, --provider <provider>', 'Set provider (saved to .mu-agent/config.json)')
+  .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
   .option('-c, --continue', 'Continue the most recent session')
   .option('--resume', 'Interactively select a session to resume')
   .action(async (options) => {

@@ -24,7 +24,7 @@ export interface SessionInfo {
 }
 
 function getSessionsDir(projectRoot: string): string {
-  const dir = join(projectRoot, '.local-agent', 'sessions');
+  const dir = join(projectRoot, '.mu-agent', 'sessions');
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

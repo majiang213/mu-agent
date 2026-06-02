@@ -13,7 +13,7 @@ async function searchDuckDuckGo(query: string, numResults: number): Promise<Sear
   const url = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`;
 
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'local-agent/1.0 (coding assistant)' },
+    headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
     signal: AbortSignal.timeout(10000),
   });
 
