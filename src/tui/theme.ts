@@ -7,7 +7,7 @@ export function fg(r: number, g: number, b: number) {
   return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${R}`;
 }
 export function bg(r: number, g: number, b: number) {
-  return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}${R}`;
+  return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}\x1b[49m`;
 }
 export function fgK(r: number, g: number, b: number) {
   return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${RF}`;
@@ -31,10 +31,10 @@ export const C = {
   dimItalic: (s: string) => italic(fg(110, 118, 129)(s)),
   divider: fg(48, 54, 61),
   toolName: fg(110, 118, 129),
-  toolArg: fg(88, 166, 255),
-  ok: fg(63, 185, 80),
-  err: fg(248, 81, 73),
-  pending: fg(110, 118, 129),
+  toolArg: fgK(88, 166, 255),
+  ok: fgK(63, 185, 80),
+  err: fgK(248, 81, 73),
+  pending: fgK(110, 118, 129),
 
   stateLocate: (s: string) => bold(fg(57, 211, 83)(s)),
   stateModify: (s: string) => bold(fg(210, 153, 34)(s)),
@@ -67,8 +67,8 @@ export const C = {
   toolPendingBg: bg(40, 40, 50),
   toolSuccessBg: bg(40, 50, 40),
   toolErrorBg: bg(60, 40, 40),
-  toolOutput: fg(128, 128, 128),
-  toolTitle: fg(230, 237, 243),
+  toolOutput: fgK(128, 128, 128),
+  toolTitle: fgK(230, 237, 243),
   successText: fg(63, 185, 80),
   hintKey: fg(139, 148, 158),
 };
