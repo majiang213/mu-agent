@@ -32,6 +32,8 @@ const REMINDER_FIELDS: Partial<Record<State, string>> = {
   [State.REVIEW]: 'issues (array), suggestions (array), verdict ("pass"|"fail")',
   [State.ROLLBACK]: 'restored (array of file paths)',
   [State.RUN]: 'exitCode (number), summary (string)',
+  [State.TEST_WRITE]: 'testFile (string), cases (number)',
+  [State.REFACTOR_PLAN]: 'refactorSteps (array of strings), estimatedFiles (number)',
 };
 
 export async function buildModel(
