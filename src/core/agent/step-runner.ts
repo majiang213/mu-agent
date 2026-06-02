@@ -209,13 +209,20 @@ export async function runReasonStep(
 
   onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
 
+  const phase0OnEvent = onEvent
+    ? (event: ExecutionEvent) => {
+        if (event.type === 'state_change') return;
+        onEvent(event);
+      }
+    : undefined;
+
   let phase0Candidate: import('../heavy/types.js').PlanCandidate | null = null;
   try {
     const phase0Result = await runSingleReasonAttempt(
       mission,
       cfg,
       conversationHistory,
-      undefined,
+      phase0OnEvent,
       undefined,
       'IDLE',
       memoryIndex,
