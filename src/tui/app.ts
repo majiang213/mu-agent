@@ -577,7 +577,7 @@ class SampleTurn implements Component {
     } else if (this.streaming) {
       status = C.dim('⠿');
     } else if (this.steps !== null) {
-      const chain = this.steps.map((s) => s.state).join(' → ');
+      const chain = this.steps.length > 0 ? this.steps.map((s) => s.state).join(' → ') : '直接回答';
       status = C.ok('✓') + C.dim('  ' + chain);
     } else {
       status = C.dim('?');
