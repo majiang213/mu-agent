@@ -182,7 +182,7 @@ class UserMessage implements Component {
     }
     if (current) lines.push(current);
     if (lines.length === 0) lines.push('');
-    const pad = truncateToWidth(C.userMsgBg(' '.repeat(width + 10)), width);
+    const pad = truncateToWidth(C.userMsgBg(' '.repeat(width)), width);
     const contentLines = lines.map((l) => {
       const truncated = truncateToWidth(l, innerWidth);
       const padded = truncated + ' '.repeat(Math.max(0, innerWidth - visibleWidth(truncated)));
@@ -297,7 +297,7 @@ class LlmOutput implements Component {
     const childLines = this.inner.render(innerWidth);
     const result: string[] = [];
     for (const line of childLines) {
-      result.push(fillLine('  ' + line, width, visibleWidth));
+      result.push(fillLine('  ' + truncateToWidth(line, innerWidth), width, visibleWidth));
     }
     if (result.length > 0) {
       result.push('');
@@ -360,10 +360,11 @@ class ToolExecutionBlock implements Component {
         ? C.dim(` (${resultLines.length} lines)`)
         : '';
     const titleContent = ' ' + nameStr + argStr + hint;
-    const titleContentW = visibleWidth(titleContent);
-    const gap = Math.max(1, width - titleContentW - 2);
-    const rawTitleLine = bg(truncateToWidth(titleContent, width - 2) + ' '.repeat(gap) + mark + ' ');
-    const titleLine = truncateToWidth(rawTitleLine, width);
+    const maxTitleW = Math.max(1, width - 3);
+    const truncatedTitle = truncateToWidth(titleContent, maxTitleW);
+    const truncatedTitleW = visibleWidth(truncatedTitle);
+    const gap = Math.max(1, width - truncatedTitleW - 2);
+    const titleLine = truncateToWidth(bg(truncatedTitle + ' '.repeat(gap) + mark + ' '), width);
 
     if (!this.expanded || resultLines.length === 0) return [titleLine];
 

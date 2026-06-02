@@ -11,8 +11,11 @@ import type { PlanCandidate } from './types.js';
 import { DEFAULT_SAMPLING_TEMPERATURE } from '../../config/defaults.js';
 
 export const SAMPLING_BATCH_SIZE = 2;
-const MAX_COUNT = 5;
 const MAX_ROUNDS = 3;
+
+function getMaxCount(tier: string): number {
+  return tier === 'MEDIUM' ? 3 : 5;
+}
 
 export interface SamplerConfig {
   planCount?: number;
@@ -30,6 +33,7 @@ function roundConverged(roundCandidates: PlanCandidate[]): boolean {
 }
 
 function allSeenBefore(newCandidates: PlanCandidate[], existing: PlanCandidate[]): boolean {
+  if (newCandidates.length === 0) return false;
   const existingSeqs = new Set(existing.map(stateSeq));
   return newCandidates.every((c) => existingSeqs.has(stateSeq(c)));
 }
@@ -55,7 +59,7 @@ async function runBatch(
   let completed = 0;
   const tasks = Array.from({ length: batchSize }, (_, i) => {
     const idx = startIndex + i;
-    onEvent?.({ type: 'sample_start', index: idx, total: -1 });
+    onEvent?.({ type: 'sample_start', index: idx, total: startIndex + batchSize });
     return runBareReasonSample(mission, { ...cfg, temperature: samplingTemp }, conversationHistory, idx, onEvent).then(
       (r) => {
         completed++;
@@ -84,6 +88,7 @@ export async function samplePlans(
   seedCandidates: PlanCandidate[] = [],
 ): Promise<PlanCandidate[]> {
   const samplingTemp = samplerCfg.samplingTemperature ?? DEFAULT_SAMPLING_TEMPERATURE;
+  const maxCount = getMaxCount(cfg.stateMachine.getModelParams().tier);
 
   let candidates = dedup(seedCandidates);
   let sampleIndex = candidates.length;
@@ -101,18 +106,22 @@ export async function samplePlans(
 
   if (firstBatch.length === 0) return candidates;
 
-  const dedupedFirst = dedup([...candidates, ...firstBatch]);
   const newInFirst = firstBatch.filter((c) => !candidates.some((e) => stateSeq(e) === stateSeq(c)));
 
-  candidates = dedupedFirst;
+  if (newInFirst.length === 0) {
+    onEvent?.({ type: 'sampling_stopped', reason: 'no_new_info' });
+    return candidates;
+  }
 
-  if (roundConverged(newInFirst.length > 0 ? newInFirst : firstBatch)) {
+  candidates = dedup([...candidates, ...firstBatch]);
+
+  if (roundConverged(newInFirst)) {
     onEvent?.({ type: 'sampling_stopped', reason: 'converged' });
     return candidates;
   }
 
   for (let round = 1; round <= MAX_ROUNDS; round++) {
-    if (candidates.length >= MAX_COUNT) {
+    if (candidates.length >= maxCount) {
       onEvent?.({ type: 'sampling_stopped', reason: 'max_count' });
       break;
     }

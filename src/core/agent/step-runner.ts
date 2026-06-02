@@ -200,7 +200,7 @@ export async function runReasonStep(
       cfg,
       conversationHistory,
       undefined,
-      onNeedsClarify,
+      undefined,
       'IDLE',
       memoryIndex,
       memorySearchTool,
