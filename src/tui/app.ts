@@ -1004,13 +1004,17 @@ export class TuiApp {
       this.currentAgent = null;
     }
 
-    if (!aborted) {
-      const summary = this.metrics.getSummary();
-      const tokens = Math.round(summary.avgTokens);
-      const rate = Math.round(summary.successRate * 100);
-      this.insertBefore(
-        new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 ${rate}%  tokens≈${tokens}`), 0, 0),
-      );
+    const m = this.metrics.getMetrics(taskId);
+    if (m) {
+      const tokens = fmtTokens(m.estimatedTokens);
+      const llmCalls = m.llmCalls;
+      if (m.success) {
+        this.insertBefore(
+          new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 100%  llm×${llmCalls}  tokens≈${tokens}`), 0, 0),
+        );
+      } else if (!aborted) {
+        this.insertBefore(new Text('\n' + C.err('  ✗  失败') + C.dim(`  llm×${llmCalls}  tokens≈${tokens}`), 0, 0));
+      }
     }
     this.header.setState('IDLE');
     this.editor.disableSubmit = false;
