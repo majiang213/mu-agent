@@ -86,12 +86,13 @@ export async function samplePlans(
   samplerCfg: SamplerConfig = {},
   onEvent?: (event: ExecutionEvent) => void,
   seedCandidates: PlanCandidate[] = [],
+  indexOffset = 0,
 ): Promise<PlanCandidate[]> {
   const samplingTemp = samplerCfg.samplingTemperature ?? DEFAULT_SAMPLING_TEMPERATURE;
   const maxCount = getMaxCount(cfg.stateMachine.getModelParams().tier);
 
   let candidates = dedup(seedCandidates);
-  let sampleIndex = candidates.length;
+  let sampleIndex = Math.max(candidates.length, indexOffset);
 
   const firstBatch = await runBatch(
     mission,

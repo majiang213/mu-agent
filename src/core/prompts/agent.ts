@@ -223,7 +223,7 @@ When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
 
   [State.ANSWER]: `Present the result to the user.
 
-You have ONE tool: complete(). Call it directly as a tool.
+You have ONE tool: complete(). Call it directly as a tool. Do not call any other tools.
 
 If there are <previous_step_results>:
 - Steps found and fixed bugs → summarize what was wrong and what was fixed.

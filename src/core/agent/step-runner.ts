@@ -22,6 +22,18 @@ import type { Step, ExecutedStep, StepDirective } from '../types.js';
 
 const MEMORY_STATES = new Set([State.REASON, State.ANSWER, State.RESEARCH, State.DIAGNOSE]);
 
+const REMINDER_FIELDS: Partial<Record<State, string>> = {
+  [State.ANSWER]: 'answer (string)',
+  [State.RESEARCH]: 'report (string)',
+  [State.VERIFY]: 'passed (boolean), issues (array), summary (string)',
+  [State.LOCATE]: 'locations (array of {file, startLine, endLine, snippet})',
+  [State.MODIFY]: 'edited (array of file paths), linesChanged (number)',
+  [State.DIAGNOSE]: 'rootCause (string), location (string), fix (string)',
+  [State.REVIEW]: 'issues (array), suggestions (array), verdict ("pass"|"fail")',
+  [State.ROLLBACK]: 'restored (array of file paths)',
+  [State.RUN]: 'exitCode (number), summary (string)',
+};
+
 export async function buildModel(
   modelName: string,
   provider: string,
@@ -231,6 +243,7 @@ export async function runReasonStep(
     { samplingTemperature: htCfg?.samplingTemperature },
     onEvent,
     phase0Candidate ? [phase0Candidate] : [],
+    1,
   );
 
   if (candidates.length === 0) {
@@ -498,7 +511,7 @@ export async function runStep(
     if (capturedComplete === null) {
       agent.steer({
         role: 'steer',
-        content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields for ${step.state}: see system prompt.`,
+        content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${REMINDER_FIELDS[step.state] ?? 'see system prompt'}.`,
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
