@@ -193,6 +193,10 @@ export async function runReasonStep(
     );
   }
 
+  onEvent?.({ type: 'state_change', from: 'IDLE', to: 'SAMPLING' });
+  onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE + 1 });
+  onEvent?.({ type: 'sample_start', index: 0, total: SAMPLING_BATCH_SIZE + 1 });
+
   let phase0Candidate: import('../heavy/types.js').PlanCandidate | null = null;
   try {
     const phase0Result = await runSingleReasonAttempt(
@@ -207,16 +211,17 @@ export async function runReasonStep(
     );
     const flatSteps = phase0Result.steps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
     if (flatSteps.length <= 1) {
-      onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
+      onEvent?.({ type: 'sample_complete', index: 0, steps: flatSteps });
+      onEvent?.({ type: 'sampling_stopped', reason: 'converged' });
+      onEvent?.({ type: 'state_change', from: 'SAMPLING', to: State.REASON });
       return phase0Result;
     }
+    onEvent?.({ type: 'sample_complete', index: 0, steps: flatSteps });
     phase0Candidate = { id: 'plan-phase0', steps: flatSteps, sampledAt: Date.now() };
   } catch (_) {
     void _;
+    onEvent?.({ type: 'sample_failed', index: 0 });
   }
-
-  onEvent?.({ type: 'state_change', from: 'IDLE', to: 'SAMPLING' });
-  onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE + (phase0Candidate ? 1 : 0) });
 
   let currentMission = mission;
   let candidates = await samplePlans(

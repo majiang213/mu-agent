@@ -85,12 +85,13 @@ export class ReactAgent {
       state: 'running',
     };
 
-    const paramCount =
+    const contextRatio = config.model.contextRatio ?? DEFAULT_CONTEXT_RATIO;
+    const [paramCount, model] = await Promise.all([
       config.model.provider === 'ollama'
-        ? await fetchOllamaParamCount(config.model.baseUrl, config.model.name)
-        : config.model.modelSize != null
-          ? config.model.modelSize * 1e9
-          : null;
+        ? fetchOllamaParamCount(config.model.baseUrl, config.model.name)
+        : Promise.resolve(config.model.modelSize != null ? config.model.modelSize * 1e9 : null),
+      buildModel(config.model.name, config.model.provider, config.model.baseUrl, contextRatio, config.model.apiKey),
+    ]);
 
     const stateMachine = new StateMachineAgent(
       config.model.name,
@@ -98,14 +99,6 @@ export class ReactAgent {
       // which @sinclair/typebox TObject lacks — pre-existing upstream type gap
       [astLocatorTool, webfetchTool as AgentTool<any, any>, websearchTool as AgentTool<any, any>],
       paramCount,
-    );
-    const contextRatio = config.model.contextRatio ?? DEFAULT_CONTEXT_RATIO;
-    const model = await buildModel(
-      config.model.name,
-      config.model.provider,
-      config.model.baseUrl,
-      contextRatio,
-      config.model.apiKey,
     );
 
     const cwd = process.cwd();

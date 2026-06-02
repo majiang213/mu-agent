@@ -577,9 +577,9 @@ describe('base prompt — new rules from opencode+pi comparison (round 2)', () =
 });
 
 describe('ANSWER state — no tools', () => {
-  it('says do NOT use any tools', () => {
+  it('says only complete() tool is available', () => {
     const p = prompt(State.ANSWER);
-    expect(p.toUpperCase()).toContain('DO NOT USE ANY TOOLS');
+    expect(p).toContain('You have ONE tool: complete()');
   });
 
   it('contains example with complete(answer=...)', () => {
