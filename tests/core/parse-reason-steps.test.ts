@@ -24,10 +24,10 @@ describe('parseReasonSteps', () => {
   });
 
   describe('empty steps array', () => {
-    it('returns empty steps and error for empty array', () => {
+    it('returns empty steps with no error for empty array (valid for direct Q&A)', () => {
       const { steps, error } = parseReasonSteps({ steps: [] });
       expect(steps).toHaveLength(0);
-      expect(error).toContain('empty');
+      expect(error).toBeNull();
     });
   });
 

@@ -129,9 +129,8 @@ export function parseReasonSteps(json: Record<string, unknown> | null): {
     }
   }
 
-  if (directives.length === 0) {
-    const reason = invalid.length > 0 ? `Invalid entries: ${invalid.join(', ')}` : 'steps array is empty.';
-    return { steps: [], error: reason };
+  if (directives.length === 0 && invalid.length > 0) {
+    return { steps: [], error: `Invalid entries: ${invalid.join(', ')}` };
   }
   // Cap at 6 directives (not flattened steps): a { parallel: [...] } counts as one directive.
   // This intentionally allows a parallel group with many inner steps to exceed 6 total steps.
@@ -209,20 +208,13 @@ export async function runReasonStep(
 
   onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
 
-  const phase0OnEvent = onEvent
-    ? (event: ExecutionEvent) => {
-        if (event.type === 'state_change') return;
-        onEvent(event);
-      }
-    : undefined;
-
   let phase0Candidate: import('../heavy/types.js').PlanCandidate | null = null;
   try {
     const phase0Result = await runSingleReasonAttempt(
       mission,
       cfg,
       conversationHistory,
-      phase0OnEvent,
+      undefined,
       undefined,
       'IDLE',
       memoryIndex,
@@ -369,7 +361,7 @@ async function runSingleReasonAttempt(
       capturedComplete = null;
       agent.steer({
         role: 'steer',
-        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps must be a non-empty array.`,
+        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
@@ -384,7 +376,7 @@ async function runSingleReasonAttempt(
       return { steps: [] };
     }
     const { steps, error } = parseReasonSteps(c);
-    if (steps.length > 0) {
+    if (!error) {
       return { steps };
     }
     capturedComplete = null;
@@ -395,8 +387,8 @@ async function runSingleReasonAttempt(
     });
     await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
     if (capturedComplete !== null) {
-      const { steps: retrySteps } = parseReasonSteps(capturedComplete);
-      if (retrySteps.length > 0) {
+      const { steps: retrySteps, error: retryError } = parseReasonSteps(capturedComplete);
+      if (!retryError) {
         return { steps: retrySteps };
       }
     }
@@ -408,8 +400,8 @@ async function runSingleReasonAttempt(
     });
     await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
     if (capturedComplete !== null) {
-      const { steps } = parseReasonSteps(capturedComplete);
-      if (steps.length > 0) {
+      const { steps, error } = parseReasonSteps(capturedComplete);
+      if (!error) {
         return { steps };
       }
     }

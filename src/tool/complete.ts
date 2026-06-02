@@ -105,8 +105,8 @@ const COMPLETE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> =
 function validateCompleteArgs(state: State, args: Record<string, unknown>): string | null {
   switch (state) {
     case State.REASON:
-      if (args['needsClarify'] !== true && (!Array.isArray(args['steps']) || (args['steps'] as unknown[]).length === 0))
-        return 'steps must be a non-empty array, or set needsClarify to true with questions.';
+      if (!Array.isArray(args['steps']))
+        return 'steps must be an array (can be empty for direct Q&A). Set needsClarify=true with questions if intent is unclear.';
       break;
     case State.LOCATE:
       if (!Array.isArray(args['locations']) || (args['locations'] as unknown[]).length === 0)
