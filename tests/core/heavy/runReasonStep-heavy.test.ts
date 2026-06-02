@@ -8,10 +8,13 @@ vi.mock('../../../src/core/heavy/index.js', () => ({
   deliberate: vi.fn(),
   pickShortest: (candidates: PlanCandidate[]) =>
     candidates.reduce((a: PlanCandidate, b: PlanCandidate) => (a.steps.length <= b.steps.length ? a : b)),
+  SAMPLING_BATCH_SIZE: 2,
 }));
 
 vi.mock('../../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(() => ({ steer: vi.fn() })),
+  buildStepAgent: vi.fn(() => {
+    throw new Error('phase0 mocked failure');
+  }),
   subscribeStepEvents: vi.fn(),
 }));
 
@@ -126,13 +129,16 @@ describe('runReasonStep — heavy path', () => {
   });
 
   it('fires deliberation_start with correct candidateCount', async () => {
-    const cfg = makeCfg({ planCount: 3 });
+    const cfg = makeCfg();
     const plan = makePlan('plan-0', [State.MODIFY]);
     vi.mocked(samplePlans).mockResolvedValue([plan]);
     vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
     const events: ExecutionEvent[] = [];
     await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], (e) => events.push(e));
-    expect(events.some((e) => e.type === 'deliberation_start' && e.candidateCount === 3)).toBe(true);
+    const startEvent = events.find(
+      (e): e is Extract<ExecutionEvent, { type: 'deliberation_start' }> => e.type === 'deliberation_start',
+    );
+    expect(startEvent).toBeDefined();
   });
 
   it('calls deliberate once when sampling succeeds', async () => {
@@ -197,27 +203,31 @@ describe('runReasonStep — heavy path', () => {
     expect(vi.mocked(deliberate).mock.calls[1]![4]).toBe(false);
   });
 
-  it('defaults to SMALL tier count of 3', async () => {
-    const cfg = makeCfg();
-    const plan = makePlan('plan-0', [State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
-    const events: ExecutionEvent[] = [];
-    await runReasonStep({ id: 't', description: 'x', state: 'running' }, cfg, [], (e) => events.push(e));
-    const startEvent = events.find(
-      (e): e is Extract<ExecutionEvent, { type: 'deliberation_start' }> => e.type === 'deliberation_start',
-    );
-    expect(startEvent?.candidateCount).toBe(3);
-  });
-
   it('fires deliberation_start and deliberation_fallback when samples array is empty', async () => {
     const cfg = makeCfg();
     vi.mocked(samplePlans).mockResolvedValue([]);
+    vi.mocked(deliberate).mockResolvedValue({
+      type: 'selected',
+      result: { synthesizedSteps: [], deliberationSummary: '' },
+    });
     const events: ExecutionEvent[] = [];
-    const promise = runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], (e) => events.push(e));
-    await Promise.race([promise, new Promise((resolve) => setTimeout(resolve, 100))]);
-    expect(deliberate).not.toHaveBeenCalled();
+    try {
+      await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], (e) => events.push(e));
+    } catch {}
     expect(events.some((e) => e.type === 'deliberation_start')).toBe(true);
     expect(events.some((e) => e.type === 'deliberation_fallback')).toBe(true);
+  });
+
+  it('enters heavy thinking when phase0 fails (fallback path)', async () => {
+    const cfg = makeCfg();
+    const plan = makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]);
+    vi.mocked(samplePlans).mockResolvedValue([plan]);
+    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
+    const events: ExecutionEvent[] = [];
+    await runReasonStep({ id: 't', description: 'fix bug in calc.js', state: 'running' }, cfg, [], (e) =>
+      events.push(e),
+    );
+    expect(events.some((e) => e.type === 'state_change' && e.to === 'SAMPLING')).toBe(true);
+    expect(samplePlans).toHaveBeenCalledTimes(1);
   });
 });

@@ -867,6 +867,16 @@ export class TuiApp {
         this.header.setState(`⇉ 并行 ${event.stepCount} 步`, undefined, undefined);
       } else if (event.type === 'parallel_complete') {
         void event;
+      } else if (event.type === 'sampling_expand') {
+        samplingBlock?.addLine(`  ↻ 第${event.round}轮分歧，扩展采样`);
+      } else if (event.type === 'sampling_stopped') {
+        const labels: Record<typeof event.reason, string> = {
+          converged: '收敛',
+          max_count: '达到上限',
+          max_rounds: '达到最大轮数',
+          no_new_info: '无新信息',
+        };
+        samplingBlock?.addLine(`  ✓ 采样完成（${labels[event.reason]}）`);
       }
 
       this.tui.requestRender();

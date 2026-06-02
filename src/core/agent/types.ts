@@ -31,7 +31,9 @@ export type ExecutionEvent =
   | { type: 'deliberation_fallback'; reason: string }
   | { type: 'deliberation_clarification'; question: string }
   | { type: 'parallel_start'; stepCount: number }
-  | { type: 'parallel_complete'; stepCount: number };
+  | { type: 'parallel_complete'; stepCount: number }
+  | { type: 'sampling_expand'; round: number; reason: 'divergent' }
+  | { type: 'sampling_stopped'; reason: 'converged' | 'max_count' | 'max_rounds' | 'no_new_info' };
 
 export interface Mission {
   id: string;

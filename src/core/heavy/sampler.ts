@@ -10,9 +10,69 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { PlanCandidate } from './types.js';
 import { DEFAULT_SAMPLING_TEMPERATURE } from '../../config/defaults.js';
 
+export const SAMPLING_BATCH_SIZE = 2;
+const MAX_COUNT = 5;
+const MAX_ROUNDS = 3;
+
 export interface SamplerConfig {
   planCount?: number;
   samplingTemperature?: number;
+}
+
+function stateSeq(candidate: PlanCandidate): string {
+  return candidate.steps.map((s) => s.state).join(',');
+}
+
+function roundConverged(roundCandidates: PlanCandidate[]): boolean {
+  if (roundCandidates.length <= 1) return true;
+  const seqs = new Set(roundCandidates.map(stateSeq));
+  return seqs.size === 1;
+}
+
+function allSeenBefore(newCandidates: PlanCandidate[], existing: PlanCandidate[]): boolean {
+  const existingSeqs = new Set(existing.map(stateSeq));
+  return newCandidates.every((c) => existingSeqs.has(stateSeq(c)));
+}
+
+function dedup(candidates: PlanCandidate[]): PlanCandidate[] {
+  const seen = new Map<string, PlanCandidate>();
+  for (const c of candidates) {
+    const seq = stateSeq(c);
+    if (!seen.has(seq)) seen.set(seq, c);
+  }
+  return [...seen.values()];
+}
+
+async function runBatch(
+  mission: Mission,
+  cfg: RunConfig,
+  conversationHistory: AgentMessage[],
+  batchSize: number,
+  startIndex: number,
+  samplingTemp: number,
+  onEvent?: (event: ExecutionEvent) => void,
+): Promise<PlanCandidate[]> {
+  let completed = 0;
+  const tasks = Array.from({ length: batchSize }, (_, i) => {
+    const idx = startIndex + i;
+    onEvent?.({ type: 'sample_start', index: idx, total: -1 });
+    return runBareReasonSample(mission, { ...cfg, temperature: samplingTemp }, conversationHistory, idx, onEvent).then(
+      (r) => {
+        completed++;
+        onEvent?.({ type: 'sample_complete', index: idx, steps: r.steps });
+        onEvent?.({ type: 'sampling_progress', completed, total: batchSize });
+        return { id: `plan-${idx}`, steps: r.steps, sampledAt: Date.now() } as PlanCandidate;
+      },
+      () => {
+        completed++;
+        onEvent?.({ type: 'sample_failed', index: idx });
+        onEvent?.({ type: 'sampling_progress', completed, total: batchSize });
+        return null;
+      },
+    );
+  });
+  const results = await Promise.all(tasks);
+  return results.flatMap((r) => (r !== null ? [r] : []));
 }
 
 export async function samplePlans(
@@ -21,33 +81,73 @@ export async function samplePlans(
   conversationHistory: AgentMessage[],
   samplerCfg: SamplerConfig = {},
   onEvent?: (event: ExecutionEvent) => void,
+  seedCandidates: PlanCandidate[] = [],
 ): Promise<PlanCandidate[]> {
-  const tier = cfg.stateMachine.getModelParams().tier;
-  const count = samplerCfg.planCount ?? (tier === 'SMALL' ? 3 : tier === 'MEDIUM' ? 2 : 1);
   const samplingTemp = samplerCfg.samplingTemperature ?? DEFAULT_SAMPLING_TEMPERATURE;
 
-  let completed = 0;
-  const tasks = Array.from({ length: count }, (_, i) => {
-    onEvent?.({ type: 'sample_start', index: i, total: count });
-    return runBareReasonSample(mission, { ...cfg, temperature: samplingTemp }, conversationHistory, i, onEvent).then(
-      (r) => {
-        completed++;
-        onEvent?.({ type: 'sample_complete', index: i, steps: r.steps });
-        onEvent?.({ type: 'sampling_progress', completed, total: count });
-        return r;
-      },
-      () => {
-        completed++;
-        onEvent?.({ type: 'sample_failed', index: i });
-        onEvent?.({ type: 'sampling_progress', completed, total: count });
-        return null;
-      },
+  let candidates = dedup(seedCandidates);
+  let sampleIndex = candidates.length;
+
+  const firstBatch = await runBatch(
+    mission,
+    cfg,
+    conversationHistory,
+    SAMPLING_BATCH_SIZE,
+    sampleIndex,
+    samplingTemp,
+    onEvent,
+  );
+  sampleIndex += SAMPLING_BATCH_SIZE;
+
+  if (firstBatch.length === 0) return candidates;
+
+  const dedupedFirst = dedup([...candidates, ...firstBatch]);
+  const newInFirst = firstBatch.filter((c) => !candidates.some((e) => stateSeq(e) === stateSeq(c)));
+
+  candidates = dedupedFirst;
+
+  if (roundConverged(newInFirst.length > 0 ? newInFirst : firstBatch)) {
+    onEvent?.({ type: 'sampling_stopped', reason: 'converged' });
+    return candidates;
+  }
+
+  for (let round = 1; round <= MAX_ROUNDS; round++) {
+    if (candidates.length >= MAX_COUNT) {
+      onEvent?.({ type: 'sampling_stopped', reason: 'max_count' });
+      break;
+    }
+
+    onEvent?.({ type: 'sampling_expand', round, reason: 'divergent' });
+
+    const expandBatch = await runBatch(
+      mission,
+      cfg,
+      conversationHistory,
+      SAMPLING_BATCH_SIZE,
+      sampleIndex,
+      samplingTemp,
+      onEvent,
     );
-  });
+    sampleIndex += SAMPLING_BATCH_SIZE;
 
-  const results = await Promise.all(tasks);
+    if (expandBatch.length === 0) {
+      onEvent?.({ type: 'sampling_stopped', reason: 'no_new_info' });
+      break;
+    }
 
-  return results.flatMap((r, i) => (r !== null ? [{ id: `plan-${i}`, steps: r.steps, sampledAt: Date.now() }] : []));
+    if (allSeenBefore(expandBatch, candidates)) {
+      onEvent?.({ type: 'sampling_stopped', reason: 'no_new_info' });
+      break;
+    }
+
+    candidates = dedup([...candidates, ...expandBatch]);
+
+    if (round === MAX_ROUNDS) {
+      onEvent?.({ type: 'sampling_stopped', reason: 'max_rounds' });
+    }
+  }
+
+  return candidates;
 }
 
 async function runBareReasonSample(
@@ -92,9 +192,9 @@ async function runBareReasonSample(
     throw new Error('bare sample: complete() not called');
   }
 
-  const { steps: directives, error } = parseReasonSteps(capturedComplete);
   const stepsField = capturedComplete['steps'];
   const modelReturnedEmptySteps = Array.isArray(stepsField) && (stepsField as unknown[]).length === 0;
+  const { steps: directives, error } = parseReasonSteps(capturedComplete);
   if (directives.length === 0 && !modelReturnedEmptySteps) {
     throw new Error(`bare sample: invalid plan — ${error ?? 'empty steps'}`);
   }

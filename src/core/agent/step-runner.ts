@@ -15,7 +15,7 @@ import { ContextCompactor, compressConversationHistoryWithLLM } from '../compact
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
 import { advanceState } from '../states.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
-import { samplePlans, deliberate, pickShortest } from '../heavy/index.js';
+import { samplePlans, deliberate, pickShortest, SAMPLING_BATCH_SIZE } from '../heavy/index.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
@@ -193,17 +193,39 @@ export async function runReasonStep(
     );
   }
 
-  const planCount = htCfg?.planCount ?? (tier === 'SMALL' ? 3 : 2);
+  let phase0Candidate: import('../heavy/types.js').PlanCandidate | null = null;
+  try {
+    const phase0Result = await runSingleReasonAttempt(
+      mission,
+      cfg,
+      conversationHistory,
+      undefined,
+      onNeedsClarify,
+      'IDLE',
+      memoryIndex,
+      memorySearchTool,
+    );
+    const flatSteps = phase0Result.steps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
+    if (flatSteps.length <= 1) {
+      onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
+      return phase0Result;
+    }
+    phase0Candidate = { id: 'plan-phase0', steps: flatSteps, sampledAt: Date.now() };
+  } catch (_) {
+    void _;
+  }
+
   onEvent?.({ type: 'state_change', from: 'IDLE', to: 'SAMPLING' });
-  onEvent?.({ type: 'deliberation_start', candidateCount: planCount });
+  onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE + (phase0Candidate ? 1 : 0) });
 
   let currentMission = mission;
   let candidates = await samplePlans(
     currentMission,
     cfg,
     conversationHistory,
-    { planCount, samplingTemperature: htCfg?.samplingTemperature },
+    { samplingTemperature: htCfg?.samplingTemperature },
     onEvent,
+    phase0Candidate ? [phase0Candidate] : [],
   );
 
   if (candidates.length === 0) {
@@ -235,7 +257,6 @@ export async function runReasonStep(
       description: `${mission.description}\n\nAdditional context: ${answer}`,
     };
     candidates = await samplePlans(currentMission, cfg, conversationHistory, {
-      planCount,
       samplingTemperature: htCfg?.samplingTemperature,
     });
     if (candidates.length === 0) {
