@@ -160,6 +160,13 @@ export class ReactAgent {
       heavyThinking: config.heavyThinking,
     };
 
+    onEvent?.({
+      type: 'session_info',
+      provider: config.model.provider,
+      tier: stateMachine.getModelParams().tier,
+      contextWindow: model.contextWindow,
+    });
+
     const conversationHistory = await compressConversationHistory(
       initialMessages ?? [],
       model,

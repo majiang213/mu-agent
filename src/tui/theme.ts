@@ -6,6 +6,9 @@ const RF = '\x1b[39m\x1b[22m\x1b[23m\x1b[29m';
 export function fg(r: number, g: number, b: number) {
   return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${R}`;
 }
+export function bg(r: number, g: number, b: number) {
+  return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}${R}`;
+}
 export function fgK(r: number, g: number, b: number) {
   return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${RF}`;
 }
@@ -54,6 +57,18 @@ export const C = {
   headerBranch: fg(63, 185, 80),
   headerModel: fg(88, 166, 255),
   headerSep: fg(48, 54, 61),
+  headerTokenUp: fg(88, 166, 255),
+  headerTokenDown: fg(63, 185, 80),
+  headerCtxWarn: fg(210, 153, 34),
+  headerCtxCrit: fg(248, 81, 73),
+  headerTier: fg(139, 148, 158),
+  headerProvider: fg(110, 118, 129),
+  userMsgBg: bg(52, 53, 65),
+  toolPendingBg: bg(40, 40, 50),
+  toolSuccessBg: bg(40, 50, 40),
+  toolErrorBg: bg(60, 40, 40),
+  toolOutput: fg(128, 128, 128),
+  toolTitle: fg(230, 237, 243),
   successText: fg(63, 185, 80),
   hintKey: fg(139, 148, 158),
 };

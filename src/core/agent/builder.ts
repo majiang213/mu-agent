@@ -171,7 +171,22 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'tool_execution_end') {
-      onEvent?.({ type: 'tool_execution_end', tool: event.toolName, isError: event.isError });
+      const rawOutput =
+        event.result &&
+        typeof event.result === 'object' &&
+        Array.isArray((event.result as { content?: unknown }).content)
+          ? (event.result as { content: Array<{ type: string; text?: string }> }).content
+              .filter((c) => c.type === 'text' && typeof c.text === 'string')
+              .map((c) => c.text as string)
+              .join('\n')
+              .slice(0, 3000)
+          : undefined;
+      onEvent?.({
+        type: 'tool_execution_end',
+        tool: event.toolName,
+        isError: event.isError,
+        output: rawOutput || undefined,
+      });
       const filePath = pendingModifyPaths.get(event.toolCallId);
       pendingModifyPaths.delete(event.toolCallId);
       if (event.isError && event.toolName !== 'bash') stagnationDetector.recordError(`tool_error:${event.toolName}`);

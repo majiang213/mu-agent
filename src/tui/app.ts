@@ -17,7 +17,7 @@ import { ReactAgent } from '../core/agent/index.js';
 import type { ExecutionEvent } from '../core/agent/index.js';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
-import { C, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
+import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import type { Config } from '../config/types.js';
 import { getLspStatus } from '../config/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
@@ -34,23 +34,30 @@ class HintLine implements Component {
     this.debugMode = v;
   }
   invalidate(): void {}
-  render(_width: number): string[] {
+  render(width: number): string[] {
     const debugLabel = this.debugMode ? C.ok(' [调试开]') : C.dim(' 调试');
-    return [
+    const line =
       '  ' +
-        C.hintKey('Ctrl+C') +
-        C.dim(' 退出') +
-        '   ' +
-        C.hintKey('Esc') +
-        C.dim(' 中断') +
-        '   ' +
-        C.hintKey('Tab') +
-        C.dim(' 展开/折叠思考') +
-        '   ' +
-        C.hintKey('d') +
-        debugLabel,
-    ];
+      C.hintKey('Ctrl+C') +
+      C.dim(' 退出') +
+      '   ' +
+      C.hintKey('Esc') +
+      C.dim(' 中断') +
+      '   ' +
+      C.hintKey('Tab') +
+      C.dim(' 展开/折叠思考') +
+      '   ' +
+      C.hintKey('d') +
+      debugLabel;
+    return [truncateToWidth(line, width)];
   }
+}
+
+function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10000) return (n / 1000).toFixed(1) + 'k';
+  if (n < 1_000_000) return Math.round(n / 1000) + 'k';
+  return (n / 1_000_000).toFixed(1) + 'M';
 }
 
 class HeaderLine implements Component {
@@ -59,7 +66,12 @@ class HeaderLine implements Component {
   private model: string;
   private state = 'IDLE';
   private taskLabel = '';
-  private contextTokensK = 0;
+  private totalPromptTokens = 0;
+  private totalResponseTokens = 0;
+  private latestContextTokens = 0;
+  private contextWindow = 0;
+  private provider = '';
+  private tier = '';
 
   constructor(model: string) {
     this.model = model;
@@ -81,8 +93,22 @@ class HeaderLine implements Component {
     this.taskLabel = taskTotal > 0 ? ` [${taskIndex}/${taskTotal}]` : '';
   }
 
-  setContextTokens(tokens: number): void {
-    this.contextTokensK = Math.round((tokens / 1000) * 10) / 10;
+  setProviderInfo(provider: string, tier: string, contextWindow: number): void {
+    this.provider = provider;
+    this.tier = tier.toLowerCase();
+    this.contextWindow = contextWindow;
+  }
+
+  updateTokenStats(promptTokens: number, responseTokens: number, contextTokens: number): void {
+    this.totalPromptTokens += promptTokens;
+    this.totalResponseTokens += responseTokens;
+    this.latestContextTokens = contextTokens;
+  }
+
+  resetTaskStats(): void {
+    this.totalPromptTokens = 0;
+    this.totalResponseTokens = 0;
+    this.latestContextTokens = 0;
   }
 
   getState(): string {
@@ -92,18 +118,43 @@ class HeaderLine implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
-    const leftParts = [
-      C.headerCwd(this.cwd),
-      ...(this.branch ? [C.headerBranch(this.branch)] : []),
-      C.headerModel(this.model),
-    ];
+    const leftParts = [C.headerCwd(this.cwd), ...(this.branch ? [C.headerBranch(this.branch)] : [])];
     const left = leftParts.join(C.headerSep('  │  '));
-    const colorFn = stateColor(this.state);
-    const right = colorFn(this.state + this.taskLabel) + '  ' + C.dim('ctx ' + this.contextTokensK + 'k');
+
+    const rightParts: string[] = [];
+
+    if (this.totalPromptTokens > 0 || this.totalResponseTokens > 0) {
+      rightParts.push(
+        C.headerTokenUp('↑' + fmtTokens(this.totalPromptTokens)) +
+          ' ' +
+          C.headerTokenDown('↓' + fmtTokens(this.totalResponseTokens)),
+      );
+    }
+
+    if (this.contextWindow > 0) {
+      const pct = (this.latestContextTokens / this.contextWindow) * 100;
+      const pctStr = pct.toFixed(1) + '%/' + fmtTokens(this.contextWindow);
+      const ctxColor = pct >= 90 ? C.headerCtxCrit : pct >= 70 ? C.headerCtxWarn : C.dim;
+      rightParts.push(ctxColor(pctStr));
+    } else if (this.latestContextTokens > 0) {
+      rightParts.push(C.dim('ctx ' + fmtTokens(this.latestContextTokens)));
+    }
+
+    if (this.provider) rightParts.push(C.headerProvider('(' + this.provider + ')'));
+
+    const modelTierPart = this.tier
+      ? C.headerModel(this.model) + ' ' + C.headerTier('• ' + this.tier)
+      : C.headerModel(this.model);
+    rightParts.push(modelTierPart);
+
+    rightParts.push(stateColor(this.state)(this.state + this.taskLabel));
+
+    const right = rightParts.join(C.headerSep('  '));
     const leftW = visibleWidth(left);
     const rightW = visibleWidth(right);
     const gap = Math.max(1, width - leftW - rightW - 2);
-    return [' ' + left + ' '.repeat(gap) + right + ' '];
+    const line = ' ' + left + ' '.repeat(gap) + right + ' ';
+    return [truncateToWidth(line, width)];
   }
 }
 
@@ -116,9 +167,28 @@ class UserMessage implements Component {
   }
   invalidate(): void {}
   render(width: number): string[] {
-    const bar = C.userBar('▌');
-    const content = bar + ' ' + C.userText(this.text);
-    return ['', fillLine('  ' + content, width, visibleWidth), ''];
+    const innerWidth = Math.max(1, width - 4);
+    const words = this.text.split(' ');
+    const lines: string[] = [];
+    let current = '';
+    for (const word of words) {
+      const candidate = current ? current + ' ' + word : word;
+      if (visibleWidth(candidate) > innerWidth && current) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current) lines.push(current);
+    if (lines.length === 0) lines.push('');
+    const pad = truncateToWidth(C.userMsgBg(' '.repeat(width + 10)), width);
+    const contentLines = lines.map((l) => {
+      const truncated = truncateToWidth(l, innerWidth);
+      const padded = truncated + ' '.repeat(Math.max(0, innerWidth - visibleWidth(truncated)));
+      return truncateToWidth(C.userMsgBg('  ' + C.userText(padded) + '  '), width);
+    });
+    return ['', pad, ...contentLines, pad, ''];
   }
 }
 
@@ -152,15 +222,14 @@ class ThinkingBlock implements Component {
   }
   invalidate(): void {}
   render(width: number): string[] {
-    const arrow = this.expanded ? '▾' : '▸';
-    const header = '  ' + C.dimItalic(arrow + ' 思考过程');
-    const lines: string[] = [header];
-    if (this.expanded) {
-      for (const line of this.content.split('\n')) {
-        lines.push('    ' + C.dimItalic(truncateToWidth(line, width - 6)));
-      }
-      lines.push('');
+    if (!this.expanded) {
+      return ['  ' + C.dimItalic('Thinking...')];
     }
+    const lines: string[] = [];
+    for (const line of this.content.split('\n')) {
+      lines.push('  ' + C.dimItalic(truncateToWidth(line, width - 4)));
+    }
+    if (lines.length > 0) lines.push('');
     return lines;
   }
 }
@@ -237,44 +306,72 @@ class LlmOutput implements Component {
   }
 }
 
-// ─── ToolLine ─────────────────────────────────────────────────────────────────
+// ─── ToolExecutionBlock ───────────────────────────────────────────────────────
 
-class ToolLine implements Component {
+function fmtToolArgs(tool: string, args?: Record<string, unknown>): string {
+  if (!args || tool === 'complete') return '';
+  for (const key of ['filePath', 'path', 'file', 'command', 'cmd', 'query']) {
+    const v = args[key];
+    if (typeof v === 'string') return v.slice(0, 60);
+  }
+  const first = Object.values(args).find((v) => typeof v === 'string');
+  return typeof first === 'string' ? first.slice(0, 60) : '';
+}
+
+class ToolExecutionBlock implements Component {
   private tool: string;
   private argStr: string;
+  private resultText = '';
   status: 'pending' | 'ok' | 'error' = 'pending';
+  expanded = false;
 
   constructor(tool: string, args?: Record<string, unknown>) {
     this.tool = tool;
-    this.argStr = ToolLine.fmtArgs(tool, args);
+    this.argStr = fmtToolArgs(tool, args);
   }
 
-  private static fmtArgs(tool: string, args?: Record<string, unknown>): string {
-    if (!args || tool === 'complete') return '';
-    for (const key of ['filePath', 'path', 'file', 'command', 'cmd', 'query']) {
-      const v = args[key];
-      if (typeof v === 'string') return v.slice(0, 50);
-    }
-    const first = Object.values(args).find((v) => typeof v === 'string');
-    return typeof first === 'string' ? first.slice(0, 50) : '';
-  }
-
-  setResult(isError: boolean): void {
+  setResult(isError: boolean, output?: string): void {
     this.status = isError ? 'error' : 'ok';
+    this.resultText = output ?? '';
   }
+
+  setExpanded(v: boolean): void {
+    this.expanded = v;
+  }
+
   invalidate(): void {}
 
+  private bgFn(): (s: string) => string {
+    if (this.status === 'error') return C.toolErrorBg;
+    if (this.status === 'ok') return C.toolSuccessBg;
+    return C.toolPendingBg;
+  }
+
   render(width: number): string[] {
-    const bullet = C.dim('  › ');
-    const name = C.toolName((this.tool + '    ').slice(0, 16));
+    const bg = this.bgFn();
     const mark = this.status === 'ok' ? C.ok('✓') : this.status === 'error' ? C.err('✗') : C.pending('…');
-    const markW = 1;
-    const maxArgW = Math.max(0, width - visibleWidth(bullet + name) - markW - 4);
-    const argRaw = this.argStr ? truncateToWidth(this.argStr, maxArgW) : '';
-    const arg = argRaw ? C.toolArg(argRaw) : '';
-    const left = bullet + name + arg;
-    const gap = Math.max(2, width - visibleWidth(left) - markW);
-    return [left + ' '.repeat(gap) + mark];
+    const namePad = (this.tool + '                ').slice(0, 12);
+    const nameStr = bold(C.toolTitle(namePad));
+    const maxArgW = Math.max(0, width - 14 - 6);
+    const argStr = this.argStr ? C.toolArg(truncateToWidth(this.argStr, maxArgW)) : '';
+    const resultLines = this.resultText ? this.resultText.split('\n') : [];
+    const hint =
+      !this.expanded && resultLines.length > 0 && this.status !== 'pending'
+        ? C.dim(` (${resultLines.length} lines)`)
+        : '';
+    const titleContent = ' ' + nameStr + argStr + hint;
+    const titleContentW = visibleWidth(titleContent);
+    const gap = Math.max(1, width - titleContentW - 2);
+    const rawTitleLine = bg(truncateToWidth(titleContent, width - 2) + ' '.repeat(gap) + mark + ' ');
+    const titleLine = truncateToWidth(rawTitleLine, width);
+
+    if (!this.expanded || resultLines.length === 0) return [titleLine];
+
+    const contentLines = resultLines.slice(0, 100).map((l) => {
+      const inner = truncateToWidth(l, width - 2);
+      return truncateToWidth(bg(' ' + C.toolOutput(inner) + ' '), width);
+    });
+    return [titleLine, ...contentLines];
   }
 }
 
@@ -284,8 +381,8 @@ class LlmTurn {
   debugBlock: DebugBlock | null = null;
   thinkingBlock: ThinkingBlock | null = null;
   outputComp: LlmOutput | null = null;
-  toolLines: ToolLine[] = [];
-  toolMap = new Map<string, ToolLine>();
+  toolLines: ToolExecutionBlock[] = [];
+  toolMap = new Map<string, ToolExecutionBlock>();
 
   setDebug(systemPrompt: string, userPrompt: string): void {
     this.debugBlock = new DebugBlock(systemPrompt, userPrompt);
@@ -324,14 +421,15 @@ class LlmTurn {
     }
   }
 
-  addTool(id: string, tool: string, args?: Record<string, unknown>): void {
-    const line = new ToolLine(tool, args);
-    this.toolLines.push(line);
-    this.toolMap.set(id, line);
+  addTool(id: string, tool: string, args?: Record<string, unknown>): ToolExecutionBlock {
+    const block = new ToolExecutionBlock(tool, args);
+    this.toolLines.push(block);
+    this.toolMap.set(id, block);
+    return block;
   }
 
-  resolveTool(id: string, isError: boolean): void {
-    this.toolMap.get(id)?.setResult(isError);
+  resolveTool(id: string, isError: boolean, output?: string): void {
+    this.toolMap.get(id)?.setResult(isError, output);
   }
 
   invalidate(): void {
@@ -398,14 +496,14 @@ class AssistantTurn implements Component {
     this.ensureLlmTurn().finalizeOutput(content);
   }
 
-  addTool(id: string, tool: string, args?: Record<string, unknown>): void {
-    this.ensureLlmTurn().addTool(id, tool, args);
+  addTool(id: string, tool: string, args?: Record<string, unknown>): ToolExecutionBlock {
+    return this.ensureLlmTurn().addTool(id, tool, args);
   }
 
-  resolveTool(id: string, isError: boolean): void {
+  resolveTool(id: string, isError: boolean, output?: string): void {
     for (const t of this.llmTurns) {
       if (t.toolMap.has(id)) {
-        t.resolveTool(id, isError);
+        t.resolveTool(id, isError, output);
         return;
       }
     }
@@ -417,7 +515,8 @@ class AssistantTurn implements Component {
 
   render(width: number): string[] {
     const colorFn = stateColor(this.state);
-    const lines: string[] = ['', '  ' + colorFn(this.state)];
+    const stateLabel = truncateToWidth('  ' + colorFn(this.state), width);
+    const lines: string[] = ['', stateLabel];
     for (const t of this.llmTurns) lines.push(...t.render(width));
     return lines;
   }
@@ -485,7 +584,7 @@ class SampleTurn implements Component {
 
     const arrow = this.expanded ? '▾' : '▸';
     const toggle = C.dim(` ${arrow}`);
-    const header = label + toggle + '  ' + status;
+    const header = truncateToWidth(label + toggle + '  ' + status, width);
     const lines: string[] = [header];
 
     if (this.expanded && this.thinking) {
@@ -526,7 +625,7 @@ class SamplingBlock implements Component {
     if (this.sampleTurns.length === 0 && this.extraLines.length === 0) return [];
     const lines: string[] = ['', C.dim('  ⚡ Heavy Thinking')];
     for (const turn of this.sampleTurns) lines.push(...turn.render(width));
-    for (const l of this.extraLines) lines.push(C.dim(l));
+    for (const l of this.extraLines) lines.push(truncateToWidth(C.dim(l), width));
     lines.push('');
     return lines;
   }
@@ -545,6 +644,7 @@ export class TuiApp {
   private allThinkingBlocks: ThinkingBlock[] = [];
   private allDebugBlocks: DebugBlock[] = [];
   private allSampleTurns: SampleTurn[] = [];
+  private allToolBlocks: ToolExecutionBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
   private sessionStore: SessionStore;
   private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
@@ -555,6 +655,13 @@ export class TuiApp {
     this.tui = new TUI(terminal);
     this.header = new HeaderLine(options.config.model.name);
     this.hintLine = new HintLine();
+
+    {
+      const provider = options.config.model.provider;
+      const modelSize = options.config.model.modelSize;
+      const tier = modelSize != null ? (modelSize <= 9 ? 'small' : modelSize <= 30 ? 'medium' : 'large') : '';
+      this.header.setProviderInfo(provider, tier, 0);
+    }
 
     if (options.sessionStore) {
       this.sessionStore = options.sessionStore;
@@ -579,7 +686,7 @@ export class TuiApp {
         return { consume: true };
       }
       if (data === '\t') {
-        const expandables = [...this.allThinkingBlocks, ...this.allSampleTurns];
+        const expandables = [...this.allThinkingBlocks, ...this.allSampleTurns, ...this.allToolBlocks];
         if (expandables.length > 0) {
           const anyExpanded = expandables.some((b) => b.expanded);
           for (const b of expandables) b.setExpanded(!anyExpanded);
@@ -655,12 +762,13 @@ export class TuiApp {
 
     return (event: ExecutionEvent): void => {
       if (event.type === 'state_change') {
+        const prevState = currentState;
         currentState = event.to;
         this.header.setState(event.to);
         loader.setMessage(`[${event.to}]`);
         this.metrics.recordStateExit(taskId, event.from);
         this.metrics.recordStateEntry(taskId, event.to);
-        if (event.to !== 'DONE' && event.to !== 'SAMPLING') {
+        if (event.to !== 'DONE' && event.to !== 'SAMPLING' && event.to !== prevState) {
           const turn = new AssistantTurn(event.to);
           const idx = this.tui.children.indexOf(loader);
           this.tui.children.splice(idx, 0, turn);
@@ -694,19 +802,22 @@ export class TuiApp {
         const turn = ensureCurrentTurn();
         const toolId = `${Date.now()}-${event.tool}`;
         pendingTools.set(toolId, event.tool);
-        turn.addTool(toolId, event.tool, event.args);
+        const block = turn.addTool(toolId, event.tool, event.args);
+        this.allToolBlocks.push(block);
         loader.setMessage(`[${event.tool}]`);
         this.metrics.recordToolCall(taskId, event.tool);
       } else if (event.type === 'tool_execution_end') {
         const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
         const turn = getCurrentTurn();
         if (entry && turn) {
-          turn.resolveTool(entry[0], event.isError);
+          turn.resolveTool(entry[0], event.isError, event.output);
           pendingTools.delete(entry[0]);
         }
+      } else if (event.type === 'session_info') {
+        this.header.setProviderInfo(event.provider, event.tier, event.contextWindow);
       } else if (event.type === 'turn_end') {
         this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
-        this.header.setContextTokens(event.contextTokens);
+        this.header.updateTokenStats(event.promptLen, event.responseLen, event.contextTokens);
       } else if (event.type === 'task_start') {
         this.header.setState(event.description.slice(0, 20), event.taskIndex + 1, event.taskTotal);
       } else if (event.type === 'task_end') {
@@ -771,6 +882,8 @@ export class TuiApp {
     this.allThinkingBlocks = [];
     this.allSampleTurns = [];
     this.allDebugBlocks = [];
+    this.allToolBlocks = [];
+    this.header.resetTaskStats();
     this.insertBefore(new UserMessage(input));
     this.tui.requestRender();
 

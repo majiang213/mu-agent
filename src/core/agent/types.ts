@@ -9,7 +9,8 @@ import type { LspClient } from '../../tool/lsp.js';
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
   | { type: 'tool_execution_start'; tool: string; args?: Record<string, unknown> }
-  | { type: 'tool_execution_end'; tool: string; isError: boolean }
+  | { type: 'tool_execution_end'; tool: string; isError: boolean; output?: string }
+  | { type: 'session_info'; provider: string; tier: 'SMALL' | 'MEDIUM' | 'LARGE'; contextWindow: number }
   | { type: 'message_end'; content: string }
   | { type: 'message_thinking_end'; content: string }
   | { type: 'message_update'; content: string }

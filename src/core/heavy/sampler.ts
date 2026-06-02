@@ -93,7 +93,9 @@ async function runBareReasonSample(
   }
 
   const { steps: directives, error } = parseReasonSteps(capturedComplete);
-  if (directives.length === 0) {
+  const stepsField = capturedComplete['steps'];
+  const modelReturnedEmptySteps = Array.isArray(stepsField) && (stepsField as unknown[]).length === 0;
+  if (directives.length === 0 && !modelReturnedEmptySteps) {
     throw new Error(`bare sample: invalid plan — ${error ?? 'empty steps'}`);
   }
   const steps: Step[] = directives.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
