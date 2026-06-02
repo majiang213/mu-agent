@@ -937,6 +937,7 @@ export class TuiApp {
     const agent = new ReactAgent();
     this.currentAgent = agent;
     let aborted = false;
+    let threw = false;
     try {
       const result = await agent.run(input, this.options.config, onEvent, this.conversationHistory);
       loader.stop();
@@ -997,6 +998,7 @@ export class TuiApp {
         this.metrics.finishTask(taskId, false);
         this.insertBefore(new Text(C.dim('  ⊘  已中断'), 0, 0));
       } else {
+        threw = true;
         this.metrics.finishTask(taskId, false);
         this.insertBefore(new Text(C.err(`  ✗  错误: ${String(err)}`), 0, 0));
       }
@@ -1012,7 +1014,7 @@ export class TuiApp {
         this.insertBefore(
           new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 100%  llm×${llmCalls}  tokens≈${tokens}`), 0, 0),
         );
-      } else if (!aborted) {
+      } else if (!aborted && !threw) {
         this.insertBefore(new Text('\n' + C.err('  ✗  失败') + C.dim(`  llm×${llmCalls}  tokens≈${tokens}`), 0, 0));
       }
     }
