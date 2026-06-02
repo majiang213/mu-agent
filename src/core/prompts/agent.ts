@@ -61,6 +61,7 @@ function buildBasePrompt(env?: EnvContext, state?: State): string {
 - Be concise and direct. Answer in as few words as possible.
 - Do NOT add preamble ("Sure, I'll...") or postamble ("I hope this helps!").
 - Output text to communicate with the user. Only use tools to complete tasks.
+- IMPORTANT: Any text you write in your response is shown to the user as commentary only — it does NOT trigger tool execution. To call a tool, you MUST invoke it as a tool call, not write it in text. This applies especially to complete() — writing "complete(...)" in your response text does nothing; you must call it as a tool.
 - Do NOT use emojis unless the user asks.
 - Responses are displayed in a terminal with markdown rendering.
 - After completing a task, stop. Do NOT add explanations of what you did unless asked.
@@ -222,7 +223,7 @@ When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
 
   [State.ANSWER]: `Present the result to the user.
 
-Do NOT use any tools. Your entire output is the complete() call.
+You have ONE tool: complete(). Call it directly as a tool.
 
 If there are <previous_step_results>:
 - Steps found and fixed bugs → summarize what was wrong and what was fixed.

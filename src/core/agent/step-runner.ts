@@ -493,7 +493,7 @@ export async function runStep(
     if (capturedComplete === null) {
       agent.steer({
         role: 'steer',
-        content: `[REMINDER] You finished your work but did not call complete(). Call complete() now with the required fields for the ${step.state} state.`,
+        content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields for ${step.state}: see system prompt.`,
         timestamp: Date.now(),
       });
       await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
