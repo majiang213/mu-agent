@@ -345,7 +345,8 @@ async function runSingleReasonAttempt(
   });
 
   const extraTools: AgentTool<any, any>[] = memorySearchTool ? [memorySearchTool] : [];
-  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool, ...extraTools]);
+  const reasonCfg: typeof cfg = cfg;
+  const agent = buildStepAgent(systemPrompt, conversationHistory, reasonCfg, onEvent, [completeTool, ...extraTools]);
   subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
 
   cfg.registerAgent?.(agent);
@@ -479,10 +480,11 @@ export async function runStep(
   const readFiles = new Set<string>();
   const memoryTools: AgentTool<any, any>[] =
     memorySearchTool && (step.state === State.REASON || step.state === State.ANSWER) ? [memorySearchTool] : [];
+  const stepCfg: typeof cfg = cfg;
   const agent = buildStepAgent(
     systemPrompt,
     [],
-    cfg,
+    stepCfg,
     onEvent,
     [...allowedTools, completeTool, ...memoryTools],
     readFiles,

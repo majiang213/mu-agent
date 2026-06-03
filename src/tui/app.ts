@@ -44,8 +44,11 @@ class HintLine implements Component {
       C.hintKey('Esc') +
       C.dim(' 中断') +
       '   ' +
-      C.hintKey('Tab') +
-      C.dim(' 展开/折叠思考') +
+      C.hintKey('Ctrl+T') +
+      C.dim(' 思考') +
+      '   ' +
+      C.hintKey('Ctrl+O') +
+      C.dim(' 工具') +
       '   ' +
       C.hintKey('d') +
       debugLabel;
@@ -240,6 +243,7 @@ class DebugBlock implements Component {
   private systemPrompt: string;
   private userPrompt: string;
   expanded = false;
+  visible = false;
 
   constructor(systemPrompt: string, userPrompt: string) {
     this.systemPrompt = systemPrompt;
@@ -254,9 +258,15 @@ class DebugBlock implements Component {
     this.expanded = v;
   }
 
+  setVisible(v: boolean): void {
+    this.visible = v;
+    if (!v) this.expanded = false;
+  }
+
   invalidate(): void {}
 
   render(width: number): string[] {
+    if (!this.visible) return [];
     const arrow = this.expanded ? '▾' : '▸';
     const header = '  ' + C.dimItalic(arrow + ' 调试: 原始输入');
     if (!this.expanded) return [header];
@@ -356,8 +366,8 @@ class ToolExecutionBlock implements Component {
     const argStr = this.argStr ? C.toolArg(truncateToWidth(this.argStr, maxArgW)) : '';
     const resultLines = this.resultText ? this.resultText.split('\n') : [];
     const hint =
-      !this.expanded && resultLines.length > 0 && this.status !== 'pending'
-        ? C.dim(` (${resultLines.length} lines)`)
+      !this.expanded && resultLines.length > 0 && this.status !== 'pending' && this.tool !== 'complete'
+        ? C.dimK(` (${resultLines.length} lines)`)
         : '';
     const titleContent = ' ' + nameStr + argStr + hint;
     const maxTitleW = Math.max(1, width - 3);
@@ -471,6 +481,7 @@ class AssistantTurn implements Component {
     this.llmTurns.push(this.currentLlmTurn);
     this.currentLlmTurn.setDebug(systemPrompt, userPrompt);
     if (this.currentLlmTurn.debugBlock) {
+      this.currentLlmTurn.debugBlock.setVisible(debugMode);
       this.currentLlmTurn.debugBlock.setExpanded(debugMode);
       return this.currentLlmTurn.debugBlock;
     }
@@ -686,11 +697,20 @@ export class TuiApp {
         }
         return { consume: true };
       }
-      if (data === '\t') {
-        const expandables = [...this.allThinkingBlocks, ...this.allSampleTurns, ...this.allToolBlocks];
-        if (expandables.length > 0) {
-          const anyExpanded = expandables.some((b) => b.expanded);
-          for (const b of expandables) b.setExpanded(!anyExpanded);
+      if (matchesKey(data, 'ctrl+t')) {
+        const thinkingExpandables = [...this.allThinkingBlocks, ...this.allSampleTurns];
+        if (thinkingExpandables.length > 0) {
+          const anyExpanded = thinkingExpandables.some((b) => b.expanded);
+          for (const b of thinkingExpandables) b.setExpanded(!anyExpanded);
+          this.tui.requestRender(true);
+        }
+        return { consume: true };
+      }
+      if (matchesKey(data, 'ctrl+o')) {
+        const toolExpandables = [...this.allToolBlocks];
+        if (toolExpandables.length > 0) {
+          const anyExpanded = toolExpandables.some((b) => b.expanded);
+          for (const b of toolExpandables) b.setExpanded(!anyExpanded);
           this.tui.requestRender(true);
         }
         return { consume: true };
@@ -698,7 +718,10 @@ export class TuiApp {
       if (data === 'd' || data === 'D') {
         this.debugMode = !this.debugMode;
         this.hintLine.setDebugMode(this.debugMode);
-        for (const b of this.allDebugBlocks) b.setExpanded(this.debugMode);
+        for (const b of this.allDebugBlocks) {
+          b.setVisible(this.debugMode);
+          b.setExpanded(this.debugMode);
+        }
         this.tui.requestRender(true);
         return { consume: true };
       }

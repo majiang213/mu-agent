@@ -7,7 +7,7 @@ export function fg(r: number, g: number, b: number) {
   return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${R}`;
 }
 export function bg(r: number, g: number, b: number) {
-  return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}\x1b[49m`;
+  return (s: string) => `\x1b[48;2;${r};${g};${b}m${s}${R}`;
 }
 export function fgK(r: number, g: number, b: number) {
   return (s: string) => `\x1b[38;2;${r};${g};${b}m${s}${RF}`;
@@ -28,6 +28,7 @@ export const C = {
   userBar: fgK(56, 139, 253),
   userText: fgK(230, 237, 243),
   dim: fg(110, 118, 129),
+  dimK: fgK(110, 118, 129),
   dimItalic: (s: string) => italic(fg(110, 118, 129)(s)),
   divider: fg(48, 54, 61),
   toolName: fg(110, 118, 129),
