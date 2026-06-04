@@ -54,7 +54,7 @@ export class StateMachineAgent {
   }
 
   clone(): StateMachineAgent {
-    return new StateMachineAgent(this.modelName, this.extraTools, this.paramCount);
+    return new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount);
   }
 
   getCurrentStateConfig(): StateMachineConfig['states'][State] {
@@ -63,7 +63,8 @@ export class StateMachineAgent {
 
   getAllowedTools(): AgentTool[] {
     const stateConfig = this.getCurrentStateConfig();
-    return this.allTools.filter((tool) => stateConfig.allowedTools.includes(tool.name));
+    const allowedSet = new Set(stateConfig.allowedTools);
+    return this.allTools.filter((tool) => allowedSet.has(tool.name));
   }
 
   generatePrompt(task: string): string {

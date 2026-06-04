@@ -29,13 +29,12 @@ export function buildStepAgent(
       ...(initialMessages.length > 0 ? { messages: initialMessages } : {}),
     },
     streamFn: async (m, agentCtx, opts) => {
-      const lastUserMsg = [...agentCtx.messages].reverse().find((msg) => msg.role === 'user');
+      const lastUserMsg = agentCtx.messages.findLast((msg) => msg.role === 'user');
       const userPromptText =
         lastUserMsg && 'content' in lastUserMsg
           ? Array.isArray(lastUserMsg.content)
             ? (lastUserMsg.content as Array<{ type: string; text?: string }>)
-                .filter((c) => c.type === 'text' && c.text)
-                .map((c) => c.text as string)
+                .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
                 .join('\n')
             : typeof lastUserMsg.content === 'string'
               ? lastUserMsg.content
@@ -101,8 +100,7 @@ export function buildStepAgent(
             const existing = toolCtx.result.content ?? [{ type: 'text' as const, text: 'ok' }];
             const lspText = errors.join('\n');
             const existingText = existing
-              .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-              .map((c) => c.text)
+              .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
               .join('');
             return {
               content: [{ type: 'text' as const, text: `${existingText}\n${lspText}` }],
@@ -113,15 +111,9 @@ export function buildStepAgent(
       return undefined;
     },
     transformContext: async (messages) => {
-      const steerIndices: number[] = [];
-      messages.forEach((m, i) => {
-        if (m.role === 'steer') steerIndices.push(i);
-      });
-      let result = messages;
-      if (steerIndices.length > 1) {
-        const latestSteer = steerIndices[steerIndices.length - 1]!;
-        result = messages.filter((m, i) => m.role !== 'steer' || i === latestSteer);
-      }
+      const latestSteerIdx = messages.findLastIndex((m) => m.role === 'steer');
+      const result =
+        latestSteerIdx < 0 ? messages : messages.filter((m, i) => m.role !== 'steer' || i === latestSteerIdx);
       const inLoopBudget = Math.floor(cfg.model.contextWindow * cfg.contextRatio);
       const compactor = new ContextCompactor({ maxTokens: inLoopBudget });
       return compactor.compact(result).messages;
@@ -176,8 +168,7 @@ export function subscribeStepEvents(
         typeof event.result === 'object' &&
         Array.isArray((event.result as { content?: unknown }).content)
           ? (event.result as { content: Array<{ type: string; text?: string }> }).content
-              .filter((c) => c.type === 'text' && typeof c.text === 'string')
-              .map((c) => c.text as string)
+              .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
               .join('\n')
               .slice(0, 3000)
           : undefined;
@@ -230,17 +221,16 @@ export function subscribeStepEvents(
         const parts = msg.content;
         if (ae.type === 'thinking_delta' || ae.type === 'thinking_start') {
           const thinking = parts
-            .filter((c) => c.type === 'thinking' && c.thinking)
-            .map((c) => c.thinking as string)
+            .flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking as string] : []))
             .join('');
           if (thinking) onEvent?.({ type: 'message_thinking_update', content: thinking });
         }
         if (ae.type === 'text_delta' || ae.type === 'text_start') {
           const text = parts
-            .filter((c) => c.type === 'text' && c.text)
-            .map((c) => c.text as string)
+            .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
             .join('')
-            .replace(/<\/think>/g, '');
+            .replace(/<think>[\s\S]*?<\/think>/g, '')
+            .replace(/<think>[\s\S]*$/, '');
           if (text) onEvent?.({ type: 'message_update', content: text });
         }
       }
@@ -250,13 +240,13 @@ export function subscribeStepEvents(
       const msg = event.message;
       if (msg && 'content' in msg && Array.isArray(msg.content)) {
         const parts = msg.content as Array<{ type: string; text?: string; thinking?: string }>;
-        const thinking = parts.filter((c) => c.type === 'thinking' && c.thinking).map((c) => c.thinking as string);
-        const text = parts.filter((c) => c.type === 'text' && c.text).map((c) => c.text as string);
+        const thinking = parts.flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking as string] : []));
+        const text = parts.flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []));
         if (thinking.length > 0) onEvent?.({ type: 'message_thinking_end', content: thinking.join('\n') });
         if (text.length > 0) {
           const joined = text
             .join('\n')
-            .replace(/<\/think>/g, '')
+            .replace(/<think>[\s\S]*?<\/think>/g, '')
             .trim();
           if (joined) {
             onEvent?.({ type: 'message_end', content: joined });

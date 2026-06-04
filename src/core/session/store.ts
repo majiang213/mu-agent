@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
@@ -32,10 +33,7 @@ function getSessionsDir(projectRoot: string): string {
 }
 
 function formatTimestamp(ts: number): string {
-  return new Date(ts)
-    .toISOString()
-    .replace(/:/g, '-')
-    .replace(/\.\d+Z$/, 'Z');
+  return new Date(ts).toISOString().slice(0, 19).replace(/:/g, '-').replace(' ', 'T') + 'Z';
 }
 
 function parseEntries(filePath: string): SessionEntry[] {
@@ -90,7 +88,7 @@ export class SessionStore {
     return listSessions(dir);
   }
 
-  append(msg: SessionMessage): void {
+  async append(msg: SessionMessage): Promise<void> {
     if (this._isEmpty) {
       const header: SessionHeader = {
         type: 'header',
@@ -100,7 +98,7 @@ export class SessionStore {
       writeFileSync(this.filePath, `${JSON.stringify(header)}\n`);
       this._isEmpty = false;
     }
-    appendFileSync(this.filePath, `${JSON.stringify(msg)}\n`);
+    await appendFile(this.filePath, `${JSON.stringify(msg)}\n`);
   }
 
   load(): AgentMessage[] {

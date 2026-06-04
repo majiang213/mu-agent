@@ -7,6 +7,7 @@ import {
   TUI,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
 } from '@mariozechner/pi-tui';
 import type { Component } from '@mariozechner/pi-tui';
 import { Markdown } from '@mariozechner/pi-tui';
@@ -171,25 +172,12 @@ class UserMessage implements Component {
   invalidate(): void {}
   render(width: number): string[] {
     const innerWidth = Math.max(1, width - 4);
-    const words = this.text.split(' ');
-    const lines: string[] = [];
-    let current = '';
-    for (const word of words) {
-      const candidate = current ? current + ' ' + word : word;
-      if (visibleWidth(candidate) > innerWidth && current) {
-        lines.push(current);
-        current = word;
-      } else {
-        current = candidate;
-      }
-    }
-    if (current) lines.push(current);
+    const lines = wrapTextWithAnsi(this.text, innerWidth);
     if (lines.length === 0) lines.push('');
     const pad = truncateToWidth(C.userMsgBg(' '.repeat(width)), width);
     const contentLines = lines.map((l) => {
-      const truncated = truncateToWidth(l, innerWidth);
-      const padded = truncated + ' '.repeat(Math.max(0, innerWidth - visibleWidth(truncated)));
-      return truncateToWidth(C.userMsgBg('  ' + C.userText(padded) + '  '), width);
+      const truncated = truncateToWidth(l, innerWidth, '...', true);
+      return truncateToWidth(C.userMsgBg('  ' + C.userText(truncated) + '  '), width);
     });
     return ['', pad, ...contentLines, pad, ''];
   }
@@ -745,7 +733,7 @@ export class TuiApp {
       this.insertBefore(new Text(C.err(`  ✗ LSP: ${lspStatus.server} 未安装（运行 mu-agent setup 安装）`), 0, 0));
     }
 
-    this.insertBefore(new Text('\x1b[37m  准备就绪，输入任务后按 Enter 执行\x1b[0m', 0, 0));
+    this.insertBefore(new Text(C.dim('  准备就绪，输入任务后按 Enter 执行'), 0, 0));
     this.tui.requestRender();
   }
 
@@ -1004,11 +992,11 @@ export class TuiApp {
       const ts = Date.now();
       const userMsg = { role: 'user' as const, content: input, timestamp: ts };
       this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
-      this.sessionStore.append({ type: 'message', ...userMsg });
+      await this.sessionStore.append({ type: 'message', ...userMsg });
       if (display) {
         const assistantMsg = { role: 'user' as const, content: `[Assistant]: ${display}`, timestamp: ts + 1 };
         this.conversationHistory.push(assistantMsg as import('@mariozechner/pi-agent-core').AgentMessage);
-        this.sessionStore.append({ type: 'message', ...assistantMsg });
+        await this.sessionStore.append({ type: 'message', ...assistantMsg });
       }
     } catch (err) {
       loader.stop();

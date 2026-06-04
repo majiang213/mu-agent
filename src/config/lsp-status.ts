@@ -1,6 +1,4 @@
-import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { detectLanguage, isCommandAvailable } from '../tool/lsp-utils.js';
 
 export interface LspStatus {
   detectedLanguage: string | null;
@@ -26,22 +24,11 @@ const INSTALL_COMMANDS: Record<string, string> = {
 };
 
 export function detectProjectLanguage(projectRoot: string): string | null {
-  if (existsSync(join(projectRoot, 'tsconfig.json'))) return 'typescript';
-  if (existsSync(join(projectRoot, 'package.json'))) return 'javascript';
-  if (existsSync(join(projectRoot, 'pyproject.toml'))) return 'python';
-  if (existsSync(join(projectRoot, 'requirements.txt'))) return 'python';
-  if (existsSync(join(projectRoot, 'Cargo.toml'))) return 'rust';
-  if (existsSync(join(projectRoot, 'go.mod'))) return 'go';
-  return null;
+  return detectLanguage(projectRoot);
 }
 
 export function isLspCommandAvailable(cmd: string): boolean {
-  try {
-    execSync(`which ${cmd}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
+  return isCommandAvailable(cmd);
 }
 
 export function getLspStatus(projectRoot: string): LspStatus {

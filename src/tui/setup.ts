@@ -1,9 +1,11 @@
 import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@mariozechner/pi-tui';
 import type { SelectItem } from '@mariozechner/pi-tui';
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers/promises';
 
 import { saveConfig } from '../config/index.js';
 import { getLspStatus } from '../config/lsp-status.js';
@@ -58,7 +60,7 @@ export class SetupWizard {
     await this.stepGraph();
     this.stepDone();
 
-    await new Promise<void>((resolve) => process.nextTick(resolve));
+    await setImmediate();
     this.tui.stop();
     process.exit(0);
   }
@@ -78,7 +80,7 @@ export class SetupWizard {
 
   // ─── Step 1: 模型配置 ──────────────────────────────────────────────────────
 
-  private loadExistingModel(): Partial<Config['model']> {
+  private async loadExistingModel(): Promise<Partial<Config['model']>> {
     const paths = [
       join(process.cwd(), '.mu-agent', 'config.json'),
       join(homedir(), '.config', 'mu-agent', 'config.json'),
@@ -86,7 +88,7 @@ export class SetupWizard {
     for (const p of paths) {
       if (existsSync(p)) {
         try {
-          const parsed = JSON.parse(readFileSync(p, 'utf-8')) as Partial<Config>;
+          const parsed = JSON.parse(await readFile(p, 'utf-8')) as Partial<Config>;
           if (parsed.model) return parsed.model;
         } catch {
           // ignore malformed file
@@ -100,7 +102,7 @@ export class SetupWizard {
     this.step = 1;
     this.renderHeader();
 
-    const existing = this.loadExistingModel();
+    const existing = await this.loadExistingModel();
 
     this.addStepText('\n  ' + C.ok('模型配置'));
     this.addStepText('\n  Provider');
@@ -126,8 +128,9 @@ export class SetupWizard {
         `\n  模型大小（单位：B，如 7 表示 7B，影响 Heavy Thinking 和约束强度）\n  留空跳过（默认视为大模型）:\n  模型大小:`,
       );
       const raw = await this.waitForInput(existing.modelSize != null ? String(existing.modelSize) : '');
-      const parsed = parseFloat(raw.trim());
-      if (!isNaN(parsed) && parsed > 0) modelSize = parsed;
+      const trimmed = raw.trim();
+      const parsed = trimmed === '' ? NaN : Number(trimmed);
+      if (Number.isFinite(parsed) && parsed > 0) modelSize = parsed;
     }
 
     saveConfig({
@@ -166,7 +169,7 @@ export class SetupWizard {
     const items: SelectItem[] = models.map((m) => ({
       value: m.name,
       label: m.name,
-      description: `context: ${m.contextLength.toLocaleString()}`,
+      description: `context: ${Intl.NumberFormat('en-US').format(m.contextLength)}`,
     }));
     this.addStepText('\n  选择模型:');
     this.tui.requestRender();

@@ -1,4 +1,5 @@
 import type { EditorTheme, MarkdownTheme } from '@mariozechner/pi-tui';
+import { applyBackgroundToLine } from '@mariozechner/pi-tui/dist/utils.js';
 
 export const R = '\x1b[0m';
 const RF = '\x1b[39m\x1b[22m\x1b[23m\x1b[29m';
@@ -98,10 +99,8 @@ export function stateColor(s: string): (t: string) => string {
   return STATE_FN[s] ?? C.dim;
 }
 
-export function fillLine(content: string, width: number, visibleWidthFn: (s: string) => number): string {
-  const vw = visibleWidthFn(content);
-  const pad = Math.max(0, width - vw);
-  return BG_DARK + content + BG_DARK + ' '.repeat(pad) + R;
+export function fillLine(content: string, width: number, _visibleWidthFn: (s: string) => number): string {
+  return applyBackgroundToLine(content, width, (s) => BG_DARK + s);
 }
 
 export const markdownTheme: MarkdownTheme = {

@@ -19,7 +19,7 @@ export interface RetrieveResult {
 }
 
 export class GraphRetriever {
-  private bm25Index: Map<number, { tokens: string[]; node: RetrieveResult }> | null = null;
+  private bm25Index: Map<number, { tokens: Set<string>; node: RetrieveResult }> | null = null;
   private bm25BuiltAt = 0;
   private projectRoot: string;
 
@@ -49,7 +49,7 @@ export class GraphRetriever {
 
     const scores = new Map<number, number>();
     const N = this.bm25Index.size;
-    const avgLen = [...this.bm25Index.values()].reduce((s, v) => s + v.tokens.length, 0) / N;
+    const avgLen = [...this.bm25Index.values()].reduce((s, v) => s + v.tokens.size, 0) / N;
     const k1 = 1.5;
     const b = 0.75;
 
@@ -57,16 +57,16 @@ export class GraphRetriever {
     for (const token of queryTokens) {
       let df = 0;
       for (const { tokens } of this.bm25Index.values()) {
-        if (tokens.includes(token)) df++;
+        if (tokens.has(token)) df++;
       }
       idf.set(token, Math.log((N - df + 0.5) / (df + 0.5) + 1));
     }
 
     for (const [id, { tokens }] of this.bm25Index) {
-      const docLen = tokens.length;
+      const docLen = tokens.size;
       let score = 0;
       for (const token of queryTokens) {
-        const tf = tokens.filter((t) => t === token).length;
+        const tf = tokens.has(token) ? 1 : 0;
         const idfVal = idf.get(token) ?? 0;
         score += (idfVal * (tf * (k1 + 1))) / (tf + k1 * (1 - b + (b * docLen) / avgLen));
       }
@@ -187,7 +187,7 @@ export class GraphRetriever {
       this.bm25Index = new Map();
       for (const row of rows) {
         const text = (row.search_text ?? row.name).toLowerCase();
-        const tokens = text.split(/[\s_\-./]+/).filter(Boolean);
+        const tokens = new Set(text.split(/[\s_\-./]+/).filter(Boolean));
         this.bm25Index.set(row.id, {
           tokens,
           node: {

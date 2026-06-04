@@ -1,8 +1,9 @@
-import { spawn, execSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/lib/node/main.js';
 import type { MessageConnection } from 'vscode-jsonrpc/lib/common/api.js';
+import { detectLanguage, isCommandAvailable } from './lsp-utils.js';
 
 interface Diagnostic {
   range: { start: { line: number; character: number } };
@@ -18,25 +19,6 @@ const LANGUAGE_SERVERS: Record<string, { cmd: string; args: string[] }> = {
   rust: { cmd: 'rust-analyzer', args: [] },
   go: { cmd: 'gopls', args: [] },
 };
-
-function detectLanguage(projectRoot: string): string | null {
-  if (existsSync(join(projectRoot, 'tsconfig.json'))) return 'typescript';
-  if (existsSync(join(projectRoot, 'package.json'))) return 'javascript';
-  if (existsSync(join(projectRoot, 'pyproject.toml'))) return 'python';
-  if (existsSync(join(projectRoot, 'requirements.txt'))) return 'python';
-  if (existsSync(join(projectRoot, 'Cargo.toml'))) return 'rust';
-  if (existsSync(join(projectRoot, 'go.mod'))) return 'go';
-  return null;
-}
-
-function isCommandAvailable(cmd: string): boolean {
-  try {
-    execSync(`which ${cmd}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export class LspClient {
   private connection: MessageConnection | null = null;

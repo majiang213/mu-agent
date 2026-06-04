@@ -1,3 +1,4 @@
+import { setTimeout } from 'node:timers/promises';
 import { type FailureContext, type RecoveryResult, type RecoveryStrategy } from './types.js';
 
 /**
@@ -9,7 +10,7 @@ export const level1RetryStrategy: RecoveryStrategy = {
   canHandle: (ctx) => ctx.attempt < ctx.maxAttempts && ctx.type !== 'validation',
   execute: async (ctx): Promise<RecoveryResult> => {
     const backoffMs = Math.pow(2, ctx.attempt) * 1000;
-    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    await setTimeout(backoffMs);
 
     return {
       success: true,
@@ -91,10 +92,5 @@ export function getDefaultStrategies(): RecoveryStrategy[] {
  * Find appropriate strategy for failure
  */
 export function findStrategy(context: FailureContext, strategies: RecoveryStrategy[]): RecoveryStrategy | null {
-  for (const strategy of strategies) {
-    if (strategy.canHandle(context)) {
-      return strategy;
-    }
-  }
-  return null;
+  return strategies.find((s) => s.canHandle(context)) ?? null;
 }

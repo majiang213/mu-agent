@@ -33,7 +33,7 @@ export class MetricsCollector {
   }
 
   recordStateEntry(taskId: string, state: string): void {
-    this.stateEntryTimes.set(`${taskId}:${state}`, Date.now());
+    this.stateEntryTimes.set(`${taskId}:${state}`, performance.now());
   }
 
   recordStateExit(taskId: string, state: string): void {
@@ -42,7 +42,7 @@ export class MetricsCollector {
     if (entry === undefined) return;
     const m = this.metrics.get(taskId);
     if (!m) return;
-    m.stateTimings[state] = (m.stateTimings[state] ?? 0) + (Date.now() - entry);
+    m.stateTimings[state] = (m.stateTimings[state] ?? 0) + (performance.now() - entry);
     this.stateEntryTimes.delete(key);
   }
 
@@ -75,12 +75,18 @@ export class MetricsCollector {
     if (all.length === 0) {
       return { totalTasks: 0, successRate: 0, avgTokens: 0, avgDurationMs: 0 };
     }
-    const succeeded = all.filter((m) => m.success).length;
-    const totalTokens = all.reduce((s, m) => s + m.estimatedTokens, 0);
-    const totalDuration = all
-      .filter((m) => m.endTime !== undefined)
-      .reduce((s, m) => s + (m.endTime! - m.startTime), 0);
-    const finishedCount = all.filter((m) => m.endTime !== undefined).length;
+    const { succeeded, totalTokens, totalDuration, finishedCount } = all.reduce(
+      (acc, m) => {
+        acc.succeeded += m.success ? 1 : 0;
+        acc.totalTokens += m.estimatedTokens;
+        if (m.endTime !== undefined) {
+          acc.totalDuration += m.endTime - m.startTime;
+          acc.finishedCount += 1;
+        }
+        return acc;
+      },
+      { succeeded: 0, totalTokens: 0, totalDuration: 0, finishedCount: 0 },
+    );
     return {
       totalTasks: all.length,
       successRate: succeeded / all.length,

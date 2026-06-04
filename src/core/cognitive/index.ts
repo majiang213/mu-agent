@@ -1,5 +1,21 @@
 import type { ToolCall } from '../types.js';
 
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) {
+    const ba = b as unknown[];
+    if (a.length !== ba.length) return false;
+    return (a as unknown[]).every((v, i) => deepEqual(v, ba[i]));
+  }
+  const ka = Object.keys(a as object).sort();
+  const kb = Object.keys(b as object).sort();
+  if (ka.length !== kb.length) return false;
+  return ka.every((k) => deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+}
+
 /**
  * Stagnation detection configuration
  */
@@ -97,9 +113,7 @@ export class StagnationDetector {
     const first = recent[0];
     if (!first) return { detected: false } as IneffectiveLoopDetection;
 
-    const allSame = recent.every(
-      (call) => call.tool === first.tool && JSON.stringify(call.input) === JSON.stringify(first.input),
-    );
+    const allSame = recent.every((call) => call.tool === first.tool && deepEqual(call.input, first.input));
 
     if (allSame) {
       return {
@@ -126,9 +140,7 @@ export class StagnationDetector {
     for (let size = 2; size <= w; size++) {
       const a = history.slice(len - size * 2, len - size);
       const b = history.slice(len - size, len);
-      const isCycle = a.every(
-        (call, i) => call.tool === b[i]!.tool && JSON.stringify(call.input) === JSON.stringify(b[i]!.input),
-      );
+      const isCycle = a.every((call, i) => call.tool === b[i]!.tool && deepEqual(call.input, b[i]!.input));
       if (isCycle) {
         const toolNames = a.map((c) => c.tool).join(' → ');
         return {

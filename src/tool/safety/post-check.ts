@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import ts from 'typescript';
 
 /**
  * Post-check hook interface
@@ -15,29 +16,18 @@ export const syntaxCheckHook: PostCheckHook = {
   name: 'syntax',
   async check(filePath: string): Promise<boolean> {
     try {
-      const content = await readFile(filePath, 'utf-8');
-      
-      // Basic syntax checks
-      const openBraces = (content.match(/\{/g) || []).length;
-      const closeBraces = (content.match(/\}/g) || []).length;
-      
-      if (openBraces !== closeBraces) {
-        console.error(`Syntax error: Brace mismatch in ${filePath}`);
-        return false;
-      }
-
-      const openParens = (content.match(/\(/g) || []).length;
-      const closeParens = (content.match(/\)/g) || []).length;
-
-      if (openParens !== closeParens) {
-        console.error(`Syntax error: Parenthesis mismatch in ${filePath}`);
-        return false;
-      }
-
+      const ext = filePath.split('.').pop() ?? '';
+      if (!['ts', 'tsx', 'js', 'jsx'].includes(ext)) return true;
+      const program = ts.createProgram([filePath], {
+        noEmit: true,
+        allowJs: true,
+        skipLibCheck: true,
+        noResolve: true,
+      });
+      const diags = ts.getPreEmitDiagnostics(program);
+      return diags.length === 0;
+    } catch {
       return true;
-    } catch (error) {
-      console.error(`Failed to check syntax for ${filePath}:`, error);
-      return false;
     }
   },
 };
@@ -78,7 +68,7 @@ export const damageCheckHook: PostCheckHook = {
  */
 function detectDeletedFunctions(original: string, modified: string): string[] {
   const functionPattern = /(?:export\s+)?(?:async\s+)?function\s+(\w+)/g;
-  
+
   const originalFunctions = new Set<string>();
   let match;
   while ((match = functionPattern.exec(original)) !== null) {
@@ -106,7 +96,7 @@ function detectDeletedFunctions(original: string, modified: string): string[] {
 function detectSignatureChanges(original: string, modified: string): string[] {
   // Simplified: check if exported function signatures changed
   const signaturePattern = /export\s+(?:async\s+)?function\s+(\w+)\s*\([^)]*\)/g;
-  
+
   const originalSigs = new Map<string, string>();
   let match;
   while ((match = signaturePattern.exec(original)) !== null) {

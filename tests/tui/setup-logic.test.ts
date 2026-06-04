@@ -53,7 +53,7 @@ describe('SetupWizard.loadExistingModel', () => {
       process.cwd = () => dir;
       const { SetupWizard } = await import('../../src/tui/setup.js');
       const wizard = new SetupWizard();
-      const result = (wizard as unknown as { loadExistingModel: () => object }).loadExistingModel();
+      const result = await (wizard as unknown as { loadExistingModel: () => Promise<object> }).loadExistingModel();
       expect(result).toEqual({});
       process.cwd = origCwd;
     } finally {
@@ -73,7 +73,7 @@ describe('SetupWizard.loadExistingModel', () => {
       process.cwd = () => dir;
       const { SetupWizard } = await import('../../src/tui/setup.js');
       const wizard = new SetupWizard();
-      const result = (wizard as unknown as { loadExistingModel: () => object }).loadExistingModel();
+      const result = await (wizard as unknown as { loadExistingModel: () => Promise<object> }).loadExistingModel();
       expect(result).toMatchObject({ provider: 'ollama', name: 'llama3:8b' });
       process.cwd = origCwd;
     } finally {
@@ -90,7 +90,7 @@ describe('SetupWizard.loadExistingModel', () => {
       process.cwd = () => dir;
       const { SetupWizard } = await import('../../src/tui/setup.js');
       const wizard = new SetupWizard();
-      const result = (wizard as unknown as { loadExistingModel: () => object }).loadExistingModel();
+      const result = await (wizard as unknown as { loadExistingModel: () => Promise<object> }).loadExistingModel();
       expect(result).toEqual({});
       process.cwd = origCwd;
     } finally {

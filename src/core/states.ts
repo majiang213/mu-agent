@@ -160,11 +160,13 @@ export function getNextState(currentState: State, _success: boolean): State {
 // ─── State completion detection ───────────────────────────────────────────────
 
 function extractJson(text: string): Record<string, unknown> | null {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
+  // Strip markdown code fences first
+  const stripped = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '');
+  const start = stripped.indexOf('{');
+  const end = stripped.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
   try {
-    return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>;
+    return JSON.parse(stripped.slice(start, end + 1)) as Record<string, unknown>;
   } catch {
     return null;
   }

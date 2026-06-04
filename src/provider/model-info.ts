@@ -1,5 +1,9 @@
 const FALLBACK_CONTEXT = 131072;
 
+function normalizeBase(url: string): string {
+  return url.replace(/\/v1\/?$/, '');
+}
+
 export interface ModelInfo {
   name: string;
   contextLength: number;
@@ -7,8 +11,8 @@ export interface ModelInfo {
 
 export async function fetchOllamaModels(baseUrl: string): Promise<ModelInfo[]> {
   try {
-    const url = baseUrl.replace(/\/v1\/?$/, '');
-    const res = await fetch(`${url}/api/tags`);
+    const url = normalizeBase(baseUrl);
+    const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return [];
     const data = (await res.json()) as { models?: { name: string }[] };
     const models = data.models ?? [];
@@ -35,6 +39,7 @@ async function fetchOllamaShow(baseUrl: string, modelName: string): Promise<Olla
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: modelName }),
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     return (await res.json()) as OllamaShowResponse;
@@ -56,7 +61,7 @@ async function fetchOllamaContextLength(baseUrl: string, modelName: string): Pro
 }
 
 export async function fetchOllamaParamCount(baseUrl: string, modelName: string): Promise<number | null> {
-  const url = baseUrl.replace(/\/v1\/?$/, '');
+  const url = normalizeBase(baseUrl);
   const data = await fetchOllamaShow(url, modelName);
   if (!data) return null;
   const paramCount = data.model_info?.['general.parameter_count'];
@@ -66,10 +71,10 @@ export async function fetchOllamaParamCount(baseUrl: string, modelName: string):
 
 export async function fetchCustomModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
   try {
-    const base = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+    const base = `${normalizeBase(baseUrl)}/v1`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-    const res = await fetch(`${base}/models`, { headers });
+    const res = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(5000) });
     if (!res.ok) return [];
     const data = (await res.json()) as { data?: { id: string; context_window?: number; max_model_len?: number }[] };
     return (data.data ?? []).map((m) => ({
@@ -88,14 +93,17 @@ export async function fetchContextLength(
   apiKey?: string,
 ): Promise<number> {
   if (provider === 'ollama') {
-    const url = baseUrl.replace(/\/v1\/?$/, '');
+    const url = normalizeBase(baseUrl);
     return fetchOllamaContextLength(url, modelName);
   }
   try {
-    const base = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+    const base = `${normalizeBase(baseUrl)}/v1`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
-    const res = await fetch(`${base}/models/${encodeURIComponent(modelName)}`, { headers });
+    const res = await fetch(`${base}/models/${encodeURIComponent(modelName)}`, {
+      headers,
+      signal: AbortSignal.timeout(5000),
+    });
     if (!res.ok) return FALLBACK_CONTEXT;
     const data = (await res.json()) as { context_window?: number; max_model_len?: number };
     return data.context_window ?? data.max_model_len ?? FALLBACK_CONTEXT;
