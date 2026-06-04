@@ -1,3 +1,4 @@
+import { encode } from 'gpt-tokenizer';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import { completeSimple } from '@mariozechner/pi-ai';
@@ -26,7 +27,7 @@ function estimateTokens(messages: AgentMessage[]): number {
   return messages.reduce((sum, msg) => {
     const c = (msg as { content?: unknown }).content;
     const text = typeof c === 'string' ? c : JSON.stringify(c ?? '');
-    return sum + Math.ceil(text.length / 4);
+    return sum + encode(text).length;
   }, 0);
 }
 

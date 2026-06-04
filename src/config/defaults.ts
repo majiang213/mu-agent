@@ -1,3 +1,4 @@
+import deepmerge from 'deepmerge';
 import type { Config } from './types.js';
 
 export const DEFAULT_TEMPERATURE = 0.1;
@@ -30,21 +31,5 @@ export function getDefaultConfig(): Config {
 }
 
 export function mergeWithDefaults(partial: Partial<Config>): Config {
-  const defaults = getDefaultConfig();
-  return {
-    ...defaults,
-    ...partial,
-    model: {
-      ...defaults.model,
-      ...partial.model,
-    },
-    toolOutput: {
-      ...defaults.toolOutput,
-      ...partial.toolOutput,
-    },
-    safety: {
-      ...defaults.safety,
-      ...partial.safety,
-    },
-  };
+  return deepmerge(getDefaultConfig(), partial as Config) as Config;
 }

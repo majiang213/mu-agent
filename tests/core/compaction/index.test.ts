@@ -169,10 +169,12 @@ describe('ContextCompactor', () => {
   });
 
   describe('estimateTokens', () => {
-    it('estimates tokens roughly as chars/4', () => {
+    it('estimates tokens using gpt-tokenizer (accurate count)', () => {
       const c = createContextCompactor();
       const msgs = [userMsg('a'.repeat(400))];
-      expect(c.estimateTokens(msgs)).toBe(100);
+      const tokens = c.estimateTokens(msgs);
+      expect(tokens).toBeGreaterThan(0);
+      expect(tokens).toBeLessThan(400);
     });
   });
 

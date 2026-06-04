@@ -1,4 +1,19 @@
+import { Value } from '@sinclair/typebox/value';
+import { Type } from '@sinclair/typebox';
 import { State, type ModelParams, type StateConfig } from './types.js';
+
+const STATE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
+  [State.LOCATE]: Type.Object({ locations: Type.Array(Type.Unknown()) }),
+  [State.MODIFY]: Type.Object({ edited: Type.String() }),
+  [State.VERIFY]: Type.Object({ passed: Type.Boolean() }),
+  [State.CLARIFY]: Type.Object({ questions: Type.Array(Type.Unknown()) }),
+  [State.DIAGNOSE]: Type.Object({ rootCause: Type.String() }),
+  [State.REVIEW]: Type.Object({ verdict: Type.String() }),
+  [State.TEST_WRITE]: Type.Object({ testFile: Type.String() }),
+  [State.REFACTOR_PLAN]: Type.Object({ refactorSteps: Type.Array(Type.Unknown()) }),
+  [State.RUN]: Type.Object({ exitCode: Type.Number() }),
+  [State.SETUP]: Type.Object({ created: Type.String() }),
+};
 
 export function detectModelParams(paramCount: number | null): ModelParams {
   const billions = paramCount !== null ? paramCount / 1e9 : null;
@@ -179,38 +194,14 @@ function extractJson(text: string): Record<string, unknown> | null {
 export function hasStateCompletionJson(state: State, text: string): boolean {
   const json = extractJson(text);
   if (!json) return false;
-  switch (state) {
-    case State.LOCATE:
-      return Array.isArray(json['locations']);
-    case State.MODIFY:
-      return typeof json['edited'] === 'string';
-    case State.VERIFY:
-      return typeof json['passed'] === 'boolean';
-    case State.REASON: {
-      const steps = json['steps'];
-      const needsClarify = json['needsClarify'] === true;
-      return Array.isArray(steps) && (needsClarify || (steps as unknown[]).length > 0);
-    }
-    case State.CLARIFY:
-      return Array.isArray(json['questions']);
-    case State.DIAGNOSE:
-      return typeof json['rootCause'] === 'string';
-    case State.REVIEW:
-      return typeof json['verdict'] === 'string';
-    case State.TEST_WRITE:
-      return typeof json['testFile'] === 'string';
-    case State.REFACTOR_PLAN:
-      return Array.isArray(json['refactorSteps']);
-    case State.RUN:
-      return typeof json['exitCode'] === 'number';
-    case State.SETUP:
-      return typeof json['created'] === 'string';
-    case State.ANSWER:
-    case State.RESEARCH:
-      return false;
-    default:
-      return false;
+  if (state === State.REASON) {
+    const steps = json['steps'];
+    const needsClarify = json['needsClarify'] === true;
+    return Array.isArray(steps) && (needsClarify || (steps as unknown[]).length > 0);
   }
+  const schema = STATE_SCHEMAS[state];
+  if (!schema) return false;
+  return Value.Check(schema, json);
 }
 
 export function advanceState(current: State, route: State[]): State {

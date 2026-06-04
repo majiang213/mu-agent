@@ -1,5 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { removeStopwords } from 'stopword';
 
 const IGNORE_DIRS = new Set([
   'node_modules',
@@ -81,27 +82,7 @@ export function buildProjectTree(cwd: string): string {
   return result.length > MAX_CHARS ? result.slice(0, MAX_CHARS) + '\n...' : result;
 }
 
-const STOP_WORDS = new Set([
-  'the',
-  'a',
-  'an',
-  'in',
-  'for',
-  'to',
-  'of',
-  'and',
-  'or',
-  'is',
-  'are',
-  'was',
-  'find',
-  'get',
-  'read',
-  'look',
-  'check',
-  'show',
-  'list',
-  'all',
+const ZH_STOP_WORDS = new Set([
   '的',
   '在',
   '找',
@@ -147,10 +128,11 @@ function parseTreeFiles(tree: string): string[] {
 export function extractCandidateFiles(tree: string, focus: string): string[] {
   const allFiles = parseTreeFiles(tree);
 
-  const keywords = focus
+  const rawWords = focus
     .toLowerCase()
     .split(/[\s\-_./,，。：:()（）[\]{}]+/)
-    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+    .filter((w) => w.length > 2 && !ZH_STOP_WORDS.has(w));
+  const keywords = removeStopwords(rawWords);
 
   if (keywords.length === 0) {
     return allFiles.filter((f) => ENTRY_PATTERNS.some((p) => f.endsWith(p))).slice(0, 5);
