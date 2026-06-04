@@ -19,7 +19,9 @@ packages/*/dist-firefox/
 .vscode/
 .zed/
 .idea/
-.claude/
+.claude/*
+!.claude/workflows/
+!.claude/PRPs/
 *.swp
 *.swo
 *~
