@@ -20,36 +20,35 @@ import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
 describe('Bug 13: compaction summary injected as role:user creates consecutive user messages', () => {
   it('summary message should have role "assistant" not "user"', () => {
-    // Arrange: simulate the compaction output structure.
+    // Arrange: simulate the compaction output structure AFTER the fix.
     // The tail starts with a user message (common case).
     const tail: AgentMessage[] = [
       { role: 'user', content: 'latest user message', timestamp: Date.now() } as AgentMessage,
     ];
 
-    // The bug: summaryMsg.role = 'user' (line 185 of compaction/index.ts)
-    // After fix, it should be 'assistant'.
+    // After fix: summaryMsg.role = 'assistant' (compaction/index.ts)
     const summaryMsg: AgentMessage = {
-      role: 'user' as AgentMessage['role'], // BUG: this is 'user', should be 'assistant'
+      role: 'assistant',
       content: '[Prior conversation summary] User asked to fix a bug...',
       timestamp: Date.now(),
     } as AgentMessage;
 
     const compacted = [summaryMsg, ...tail];
 
-    // Check: the first two messages should NOT both be role:'user'.
-    // After fix, summaryMsg.role should be 'assistant'.
+    // Check: the summary message should be role:'assistant'.
     expect(compacted[0]!.role).not.toBe('user');
     expect(compacted[0]!.role).toBe('assistant');
   });
 
   it('compacted messages should not have consecutive user messages', () => {
-    // Arrange: a realistic compaction scenario.
+    // Arrange: a realistic compaction scenario AFTER the fix.
     const tail: AgentMessage[] = [
       { role: 'user', content: 'can you also fix the auth bug?', timestamp: 3 } as AgentMessage,
     ];
 
+    // After fix: summary role is 'assistant', preventing consecutive user messages
     const summaryMsg: AgentMessage = {
-      role: 'user' as AgentMessage['role'], // BUG
+      role: 'assistant',
       content: '[Prior conversation summary] ...',
       timestamp: 2,
     } as AgentMessage;

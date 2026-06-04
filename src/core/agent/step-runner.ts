@@ -174,7 +174,8 @@ export async function runStepAgent(
       );
       const recovery = await failureHandler.handleFailure(failureCtx);
       if (recovery.action === 'abort') return;
-      cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
+      const localTemp = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
+      cfg = { ...cfg, temperature: localTemp };
       stagnationDetector.reset();
       cfg.stateMachine.resetForRetry();
       cfg.safeModifier.clearAll();
@@ -364,7 +365,13 @@ async function runSingleReasonAttempt(
         content: '[REMINDER] You must call complete() to submit your execution plan.',
         timestamp: Date.now(),
       });
-      await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+      await runStepAgent(
+        agent,
+        '[REMINDER] Call complete() now.',
+        cfg,
+        stagnationDetector,
+        () => capturedComplete !== null,
+      );
     }
 
     if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
@@ -376,7 +383,13 @@ async function runSingleReasonAttempt(
         content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
         timestamp: Date.now(),
       });
-      await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+      await runStepAgent(
+        agent,
+        '[REMINDER] Call complete() now.',
+        cfg,
+        stagnationDetector,
+        () => capturedComplete !== null,
+      );
     }
   } finally {
     cfg.unregisterAgent?.(agent);
@@ -397,7 +410,13 @@ async function runSingleReasonAttempt(
       content: `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
       timestamp: Date.now(),
     });
-    await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    await runStepAgent(
+      agent,
+      '[REMINDER] Call complete() now.',
+      cfg,
+      stagnationDetector,
+      () => capturedComplete !== null,
+    );
     if (capturedComplete !== null) {
       const { steps: retrySteps, error: retryError } = parseReasonSteps(capturedComplete);
       if (!retryError) {
@@ -410,7 +429,13 @@ async function runSingleReasonAttempt(
       content: '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
       timestamp: Date.now(),
     });
-    await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+    await runStepAgent(
+      agent,
+      '[REMINDER] Call complete() now.',
+      cfg,
+      stagnationDetector,
+      () => capturedComplete !== null,
+    );
     if (capturedComplete !== null) {
       const { steps, error } = parseReasonSteps(capturedComplete);
       if (!error) {
@@ -515,7 +540,7 @@ export async function runStep(
   );
 
   onEvent?.({ type: 'task_start', taskIndex: stepIndex, taskTotal: stepTotal, description: step.focus });
-  onEvent?.({ type: 'state_change', from: State.REASON, to: step.state });
+  onEvent?.({ type: 'state_change', from: cfg.stateMachine.getCurrentState(), to: step.state });
 
   const input = buildUserPrompt(step.state, mission.description, step.focus, stepResults);
   cfg.registerAgent?.(agent);
@@ -528,7 +553,13 @@ export async function runStep(
         content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${REMINDER_FIELDS[step.state] ?? 'see system prompt'}.`,
         timestamp: Date.now(),
       });
-      await runStepAgent(agent, '', cfg, stagnationDetector, () => capturedComplete !== null);
+      await runStepAgent(
+        agent,
+        '[REMINDER] Call complete() now.',
+        cfg,
+        stagnationDetector,
+        () => capturedComplete !== null,
+      );
     }
   } finally {
     cfg.unregisterAgent?.(agent);

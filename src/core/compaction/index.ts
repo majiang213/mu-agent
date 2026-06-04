@@ -182,11 +182,11 @@ export async function compressConversationHistoryWithLLM(
         .map((c) => c.text)
         .join('') || 'Prior conversation omitted.';
 
-    const summaryMsg: AgentMessage = {
-      role: 'user',
+    const summaryMsg = {
+      role: 'assistant' as const,
       content: `[Prior conversation summary] ${summaryText}`,
       timestamp: Date.now(),
-    } as AgentMessage;
+    } as unknown as AgentMessage;
 
     return [summaryMsg, ...tail];
   } catch {

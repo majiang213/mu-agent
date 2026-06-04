@@ -467,11 +467,13 @@ class AssistantTurn implements Component {
   startLlmTurn(systemPrompt: string, userPrompt: string, debugMode: boolean): DebugBlock | null {
     this.currentLlmTurn = new LlmTurn();
     this.llmTurns.push(this.currentLlmTurn);
-    this.currentLlmTurn.setDebug(systemPrompt, userPrompt);
-    if (this.currentLlmTurn.debugBlock) {
-      this.currentLlmTurn.debugBlock.setVisible(debugMode);
-      this.currentLlmTurn.debugBlock.setExpanded(debugMode);
-      return this.currentLlmTurn.debugBlock;
+    if (debugMode) {
+      this.currentLlmTurn.setDebug(systemPrompt, userPrompt);
+      if (this.currentLlmTurn.debugBlock) {
+        this.currentLlmTurn.debugBlock.setVisible(debugMode);
+        this.currentLlmTurn.debugBlock.setExpanded(debugMode);
+        return this.currentLlmTurn.debugBlock;
+      }
     }
     return null;
   }
@@ -649,6 +651,9 @@ export class TuiApp {
   private sessionStore: SessionStore;
   private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
   private pendingClarificationAgent: import('../core/agent/index.js').ReactAgent | null = null;
+  private currentTurn: AssistantTurn | null = null;
+  private currentSamplingBlock: SamplingBlock | null = null;
+  private loaderState = 'REASON';
   private _sigwinchHandler = (): void => {
     try {
       this.tui.requestRender(true);
@@ -762,29 +767,35 @@ export class TuiApp {
     taskId: string,
     loader: Loader,
     pendingTools: Map<string, string>,
-    getCurrentTurn: () => AssistantTurn | null,
-    setCurrentTurn: (t: AssistantTurn) => void,
   ): (event: ExecutionEvent) => void {
     const debugShownForState = new Set<string>();
     let currentState = 'REASON';
 
     const ensureCurrentTurn = (state = 'REASON'): AssistantTurn => {
-      let turn = getCurrentTurn();
+      let turn = currentTurn;
       if (!turn) {
         turn = new AssistantTurn(state);
         const idx = this.tui.children.indexOf(loader);
         this.tui.children.splice(idx, 0, turn);
-        setCurrentTurn(turn);
+        currentTurn = turn;
+        syncTurn();
       }
       return turn;
     };
 
-    let samplingBlock: SamplingBlock | null = null;
+    this.currentSamplingBlock = null;
+
+    let currentTurn = this.currentTurn;
+
+    const syncTurn = (): void => {
+      this.currentTurn = currentTurn;
+    };
 
     return (event: ExecutionEvent): void => {
       if (event.type === 'state_change') {
         const prevState = currentState;
         currentState = event.to;
+        this.loaderState = event.to;
         this.header.setState(event.to);
         loader.setMessage(`[${event.to}]`);
         this.metrics.recordStateExit(taskId, event.from);
@@ -793,8 +804,12 @@ export class TuiApp {
           const turn = new AssistantTurn(event.to);
           const idx = this.tui.children.indexOf(loader);
           this.tui.children.splice(idx, 0, turn);
-          setCurrentTurn(turn);
+          currentTurn = turn;
         }
+        if (event.to === 'DONE') {
+          currentTurn = null;
+        }
+        syncTurn();
       } else if (event.type === 'turn_start') {
         const turn = ensureCurrentTurn();
         const alreadyShown = debugShownForState.has(currentState);
@@ -821,18 +836,16 @@ export class TuiApp {
         ensureCurrentTurn().finalizeOutput(event.content);
       } else if (event.type === 'tool_execution_start') {
         const turn = ensureCurrentTurn();
-        const toolId = `${Date.now()}-${event.tool}`;
-        pendingTools.set(toolId, event.tool);
-        const block = turn.addTool(toolId, event.tool, event.args);
+        pendingTools.set(event.toolId, event.tool);
+        const block = turn.addTool(event.toolId, event.tool, event.args);
         this.allToolBlocks.push(block);
         loader.setMessage(`[${event.tool}]`);
         this.metrics.recordToolCall(taskId, event.tool);
       } else if (event.type === 'tool_execution_end') {
-        const entry = [...pendingTools.entries()].reverse().find(([, v]) => v === event.tool);
-        const turn = getCurrentTurn();
-        if (entry && turn) {
-          turn.resolveTool(entry[0], event.isError, event.output);
-          pendingTools.delete(entry[0]);
+        const turn = this.currentTurn;
+        if (turn && pendingTools.has(event.toolId)) {
+          turn.resolveTool(event.toolId, event.isError, event.output);
+          pendingTools.delete(event.toolId);
         }
       } else if (event.type === 'session_info') {
         this.header.setProviderInfo(event.provider, event.tier, event.contextWindow);
@@ -849,21 +862,21 @@ export class TuiApp {
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       } else if (event.type === 'deliberation_start') {
-        samplingBlock = new SamplingBlock();
+        this.currentSamplingBlock = new SamplingBlock();
         const idx = this.tui.children.indexOf(loader);
-        this.tui.children.splice(idx, 0, samplingBlock);
+        this.tui.children.splice(idx, 0, this.currentSamplingBlock);
       } else if (event.type === 'sample_start') {
-        if (samplingBlock) {
+        if (this.currentSamplingBlock) {
           const turn = new SampleTurn(event.index, event.total);
-          samplingBlock.addSample(turn);
+          this.currentSamplingBlock.addSample(turn);
           this.allSampleTurns.push(turn);
         }
       } else if (event.type === 'sample_thinking') {
-        samplingBlock?.getSample(event.index)?.updateThinking(event.content);
+        this.currentSamplingBlock?.getSample(event.index)?.updateThinking(event.content);
       } else if (event.type === 'sample_complete') {
-        samplingBlock?.getSample(event.index)?.complete(event.steps);
+        this.currentSamplingBlock?.getSample(event.index)?.complete(event.steps);
       } else if (event.type === 'sample_failed') {
-        samplingBlock?.getSample(event.index)?.fail();
+        this.currentSamplingBlock?.getSample(event.index)?.fail();
       } else if (event.type === 'sampling_progress') {
         void event;
       } else if (event.type === 'deliberation_refinement') {
@@ -875,13 +888,13 @@ export class TuiApp {
               : event.verdict === 'SAME'
                 ? '相同'
                 : '较差';
-        samplingBlock?.addLine(`  ↻ Refinement ${event.round}: ${label}`);
+        this.currentSamplingBlock?.addLine(`  ↻ Refinement ${event.round}: ${label}`);
       } else if (event.type === 'deliberation_complete') {
         void event;
       } else if (event.type === 'deliberation_fallback') {
-        samplingBlock?.addLine(`  ⚠ ${event.reason}`);
+        this.currentSamplingBlock?.addLine(`  ⚠ ${event.reason}`);
       } else if (event.type === 'deliberation_clarification') {
-        samplingBlock?.addLine(`  ? ${event.question}`);
+        this.currentSamplingBlock?.addLine(`  ? ${event.question}`);
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       } else if (event.type === 'parallel_start') {
@@ -889,7 +902,7 @@ export class TuiApp {
       } else if (event.type === 'parallel_complete') {
         void event;
       } else if (event.type === 'sampling_expand') {
-        samplingBlock?.addLine(`  ↻ 第${event.round}轮分歧，扩展采样`);
+        this.currentSamplingBlock?.addLine(`  ↻ 第${event.round}轮分歧，扩展采样`);
       } else if (event.type === 'sampling_stopped') {
         const labels: Record<typeof event.reason, string> = {
           converged: '收敛',
@@ -897,7 +910,7 @@ export class TuiApp {
           max_rounds: '达到最大轮数',
           no_new_info: '无新信息',
         };
-        samplingBlock?.addLine(`  ✓ 采样完成（${labels[event.reason]}）`);
+        this.currentSamplingBlock?.addLine(`  ✓ 采样完成（${labels[event.reason]}）`);
       }
 
       this.tui.requestRender();
@@ -921,6 +934,7 @@ export class TuiApp {
     if (this.pendingClarificationAgent) {
       const agent = this.pendingClarificationAgent;
       this.pendingClarificationAgent = null;
+      this.editor.disableSubmit = false;
       agent.provideClarification(input);
       return;
     }
@@ -928,12 +942,13 @@ export class TuiApp {
     const taskId = `task-${Date.now()}`;
     this.header.setState('REASON');
 
-    let currentTurn: AssistantTurn | null = null;
+    this.currentTurn = null;
     const pendingTools = new Map<string, string>();
 
+    this.loaderState = 'REASON';
     const loader = new Loader(
       this.tui,
-      (s) => stateColor('REASON')(s),
+      (s) => stateColor(this.loaderState)(s),
       (s) => C.dim(s),
       '执行中...',
     );
@@ -944,15 +959,7 @@ export class TuiApp {
     this.metrics.startTask(taskId);
     this.metrics.recordStateEntry(taskId, 'REASON');
 
-    const onEvent = this.createEventHandler(
-      taskId,
-      loader,
-      pendingTools,
-      () => currentTurn,
-      (t) => {
-        currentTurn = t;
-      },
-    );
+    const onEvent = this.createEventHandler(taskId, loader, pendingTools);
 
     const agent = new ReactAgent();
     this.currentAgent = agent;
@@ -962,6 +969,11 @@ export class TuiApp {
       const result = await agent.run(input, this.options.config, onEvent, this.conversationHistory);
       loader.stop();
       this.tui.removeChild(loader);
+      const samplingBlock = this.currentSamplingBlock;
+      if (samplingBlock) {
+        this.tui.removeChild(samplingBlock);
+        this.currentSamplingBlock = null;
+      }
       this.metrics.recordStateExit(taskId, result.state);
       this.metrics.finishTask(taskId, result.success);
 
@@ -998,18 +1010,28 @@ export class TuiApp {
         }
       }
 
+      const assistantPrefix = '[Assistant]: ';
       const ts = Date.now();
       const userMsg = { role: 'user' as const, content: input, timestamp: ts };
       this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
       await this.sessionStore.append({ type: 'message', ...userMsg });
       if (display) {
-        const assistantMsg = { role: 'user' as const, content: `[Assistant]: ${display}`, timestamp: ts + 1 };
-        this.conversationHistory.push(assistantMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+        const assistantMsg = { role: 'assistant' as const, content: `${assistantPrefix}${display}`, timestamp: ts + 1 };
+        this.conversationHistory.push(assistantMsg as unknown as import('@mariozechner/pi-agent-core').AgentMessage);
         await this.sessionStore.append({ type: 'message', ...assistantMsg });
       }
     } catch (err) {
       loader.stop();
       this.tui.removeChild(loader);
+      const samplingBlock = this.currentSamplingBlock;
+      if (samplingBlock) {
+        this.tui.removeChild(samplingBlock);
+        this.currentSamplingBlock = null;
+      }
+      const ts = Date.now();
+      const userMsg = { role: 'user' as const, content: input, timestamp: ts };
+      this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+      await this.sessionStore.append({ type: 'message', ...userMsg });
       const isAbort =
         err instanceof Error &&
         (err.name === 'AbortError' || err.message.includes('abort') || err.message.includes('Abort'));

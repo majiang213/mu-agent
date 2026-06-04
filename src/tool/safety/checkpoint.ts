@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { dirname, join, basename } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 
 /**
  * Checkpoint for file modification
@@ -84,6 +84,18 @@ export class SafeModifier {
    * Clear all checkpoints
    */
   clearAll(): void {
+    // Delete .bak files from disk before clearing the in-memory map
+    for (const checkpoint of this.checkpoints.values()) {
+      const checkpointPath = join(
+        this.checkpointDir,
+        `${checkpoint.timestamp}_${checkpoint.filePath.replace(/[/\\]/g, '_')}.bak`,
+      );
+      try {
+        unlinkSync(checkpointPath);
+      } catch {
+        // File may already be deleted — non-fatal
+      }
+    }
     this.checkpoints.clear();
   }
 

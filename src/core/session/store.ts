@@ -12,7 +12,7 @@ export interface SessionHeader {
 
 export interface SessionMessage {
   type: 'message';
-  role: 'user';
+  role: 'user' | 'assistant';
   content: string;
   timestamp: number;
 }

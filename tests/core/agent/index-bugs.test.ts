@@ -164,35 +164,18 @@ describe('Bug 5: abort() vs registerAgent race window', () => {
     // Arrange: create a ReactAgent and simulate the race condition.
     const agent = new ReactAgent();
 
-    // Track agents added via registerAgent
-    const registeredAgents: Array<{ abort: ReturnType<typeof vi.fn> }> = [];
-
-    // The cfg.registerAgent callback that the real code uses
-    const registerAgent = (a: { abort: ReturnType<typeof vi.fn> }) => {
-      registeredAgents.push(a);
-    };
-
-    // Simulate: abort() is called (clears _activeAgents).
-    // Then a parallel branch calls registerAgent AFTER the clear.
-    // Bug 5: the agent gets added to the now-empty set and is never aborted.
-
-    // We can't directly access _activeAgents, but we can test the public API:
-    // After abort(), any agents registered should be caught.
-
     // Create a mock agent for the parallel branch
     const lateAgent = { abort: vi.fn() };
 
-    // Abort first (clears internal set)
+    // Abort first (sets _aborted flag and clears internal set)
     agent.abort();
 
     // Now register a new agent after abort (simulates the race)
-    // In the real code, registerAgent is cfg.registerAgent which adds to _activeAgents.
-    // The bug is that _activeAgents was cleared, so this agent won't be aborted.
-    registerAgent(lateAgent);
+    // The public registerAgent method checks the _aborted flag.
+    agent.registerAgent(lateAgent as never);
 
     // The agent should have been aborted immediately upon registration
-    // (if the fix sets an _aborted flag and registerAgent checks it).
-    // Bug 5: lateAgent.abort was never called because abort() already cleared the set.
+    // because _aborted is true.
     expect(lateAgent.abort).toHaveBeenCalled();
   });
 });

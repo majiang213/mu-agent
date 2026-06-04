@@ -16,7 +16,7 @@ describe('Bug 7: LspClient.touchFile missing didOpen notification', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     // Find the touchFile method
-    const touchFileMatch = source.match(/async touchFile[\s\S]*?(?=^\s*(?:dispose|}|$))/m);
+    const touchFileMatch = source.match(/async touchFile[\s\S]*?(?=^\s*dispose)/m);
     expect(touchFileMatch).not.toBeNull();
 
     const touchFileBody = touchFileMatch![0];
@@ -39,7 +39,7 @@ describe('Bug 7: LspClient.touchFile missing didOpen notification', () => {
 
     // After fix, there should be a Set or Map tracking opened URIs.
     // Look for opened tracking in the LspClient class.
-    const classBody = source.match(/export class LspClient[\s\S]*?(?=^export|$)/m);
+    const classBody = source.match(/export class LspClient[\s\S]*(?=^})/m);
     expect(classBody).not.toBeNull();
 
     // The class should have a field to track opened URIs.
@@ -56,7 +56,7 @@ describe('Bug 7: LspClient.touchFile missing didOpen notification', () => {
     const sourcePath = path.join(process.cwd(), 'src/tool/lsp.ts');
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
-    const touchFileMatch = source.match(/async touchFile[\s\S]*?(?=^\s*(?:dispose|}|$))/m);
+    const touchFileMatch = source.match(/async touchFile[\s\S]*?(?=^\s*dispose)/m);
     const touchFileBody = touchFileMatch![0];
 
     // Bug 7: Uses setTimeout(r, 500) — a fixed delay.

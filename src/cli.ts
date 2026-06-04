@@ -16,6 +16,9 @@ function applyCliOverrides(options: { model?: string; provider?: string; baseUrl
   if (options.provider) modelUpdates.provider = options.provider as Config['model']['provider'];
   if (options.baseUrl) modelUpdates.baseUrl = options.baseUrl;
   if (Object.keys(modelUpdates).length > 0) {
+    // Ensure provider and baseUrl have defaults when only --model is provided
+    if (!modelUpdates.provider) modelUpdates.provider = 'ollama';
+    if (!modelUpdates.baseUrl) modelUpdates.baseUrl = 'http://localhost:11434';
     saveConfig({ model: modelUpdates as Config['model'] });
   }
 }
@@ -29,10 +32,10 @@ program
   .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
   .action(async (task, options) => {
     try {
-      applyCliOverrides(options);
       let config;
       try {
         config = loadConfig();
+        applyCliOverrides(options);
       } catch (err) {
         if (err instanceof ConfigNotFoundError) {
           console.error('\n' + err.message + '\n');

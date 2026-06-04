@@ -10,6 +10,7 @@ const STATE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
   [State.DIAGNOSE]: Type.Object({ rootCause: Type.String() }),
   [State.REVIEW]: Type.Object({ verdict: Type.String() }),
   [State.TEST_WRITE]: Type.Object({ testFile: Type.String() }),
+  [State.ROLLBACK]: Type.Object({ restored: Type.Array(Type.String()) }),
   [State.REFACTOR_PLAN]: Type.Object({ refactorSteps: Type.Array(Type.Unknown()) }),
   [State.RUN]: Type.Object({ exitCode: Type.Number() }),
   [State.SETUP]: Type.Object({ created: Type.String() }),
@@ -116,7 +117,7 @@ Check:
     },
     [State.TEST_WRITE]: {
       name: State.TEST_WRITE,
-      allowedTools: ['read', 'write', 'complete'],
+      allowedTools: ['read', 'write', 'edit', 'complete'],
       prompt: 'Write tests for the code.',
     },
     [State.REFACTOR_PLAN]: {
@@ -126,7 +127,7 @@ Check:
     },
     [State.ROLLBACK]: {
       name: State.ROLLBACK,
-      allowedTools: ['read', 'write', 'complete'],
+      allowedTools: ['read', 'write', 'bash', 'edit', 'complete'],
       prompt: 'Restore files to their previous state.',
     },
     [State.RUN]: {
@@ -150,11 +151,11 @@ Check:
 /**
  * State transition rules
  */
-export function getNextState(currentState: State, _success: boolean): State {
+export function getNextState(currentState: State, success: boolean = true): State {
   const transitions: Record<State, State> = {
     [State.LOCATE]: State.MODIFY,
     [State.MODIFY]: State.VERIFY,
-    [State.VERIFY]: State.DONE,
+    [State.VERIFY]: success ? State.DONE : State.ROLLBACK,
     [State.DONE]: State.DONE,
     [State.REASON]: State.LOCATE,
     [State.CLARIFY]: State.LOCATE,

@@ -48,7 +48,7 @@ describe('Bug 10: buildFull() lacks transaction protection', () => {
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
     // Check that buildFull uses db.transaction()
-    const buildFullMatch = source.match(/buildFull\(\)[\s\S]*?(?=^\s*(?:updateFiles|private|}|$))/m);
+    const buildFullMatch = source.match(/buildFull\(\)[\s\S]*?(?=^\s{2}(?:updateFiles|private|}))/m);
     expect(buildFullMatch).not.toBeNull();
 
     const buildFullBody = buildFullMatch![0];

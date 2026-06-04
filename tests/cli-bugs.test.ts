@@ -51,12 +51,12 @@ describe('Bug 17: applyCliOverrides writes config before loadConfig', () => {
     mkdirSync(configDir, { recursive: true });
     const configPath = join(configDir, 'config.json');
 
-    // Simulate what applyCliOverrides writes: only model.name
+    // After fix: applyCliOverrides writes model.name with default provider and baseUrl
     writeFileSync(
       configPath,
       JSON.stringify(
         {
-          model: { name: 'llama3:8b' },
+          model: { name: 'llama3:8b', provider: 'ollama', baseUrl: 'http://localhost:11434' },
         },
         null,
         2,

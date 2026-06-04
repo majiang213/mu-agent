@@ -10,7 +10,7 @@ export interface SearchResult {
 
 async function searchDuckDuckGo(query: string, numResults: number): Promise<SearchResult[]> {
   const encoded = encodeURIComponent(query);
-  const url = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_html=1&skip_disambig=1`;
+  const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
 
   const response = await fetch(url, {
     headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },

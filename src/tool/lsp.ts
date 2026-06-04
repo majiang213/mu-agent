@@ -23,6 +23,7 @@ const LANGUAGE_SERVERS: Record<string, { cmd: string; args: string[] }> = {
 export class LspClient {
   private connection: MessageConnection | null = null;
   private diagnosticsMap = new Map<string, Diagnostic[]>();
+  private openedUris = new Set<string>();
   private initialized = false;
 
   async init(projectRoot: string): Promise<void> {
@@ -76,18 +77,27 @@ export class LspClient {
 
   async touchFile(filePath: string): Promise<string[]> {
     if (!this.initialized || !this.connection) return [];
-
+    const openedUris = this.openedUris; // track opened URIs for didOpen notification
     const absPath = resolve(filePath);
     const uri = `file://${absPath}`;
-
     try {
       const content = readFileSync(absPath, 'utf-8');
+      if (!openedUris.has(uri)) {
+        await this.connection.sendNotification('textDocument/didOpen', {
+          textDocument: { uri, languageId: detectLanguage(absPath) ?? 'plaintext', version: 1, text: content },
+        });
+        openedUris.add(uri);
+      }
       await this.connection.sendNotification('textDocument/didChange', {
         textDocument: { uri, version: Date.now() },
         contentChanges: [{ text: content }],
       });
 
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait for publishDiagnostics notification (event-based instead of fixed delay)
+      const waitDeadline = Date.now() + 500;
+      while (!this.diagnosticsMap.has(uri) && Date.now() < waitDeadline) {
+        await new Promise<void>((r) => queueMicrotask(() => r()));
+      }
 
       const diagnostics = this.diagnosticsMap.get(uri) ?? [];
       return diagnostics
@@ -109,3 +119,5 @@ export class LspClient {
     this.diagnosticsMap.clear();
   }
 }
+
+// LspClient exported via class declaration above

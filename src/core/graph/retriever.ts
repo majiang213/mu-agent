@@ -22,18 +22,25 @@ export class GraphRetriever {
   private bm25Index: Map<number, { tokens: Set<string>; node: RetrieveResult }> | null = null;
   private bm25BuiltAt = 0;
   private projectRoot: string;
+  private db: Database.Database | null = null;
 
   constructor(projectRoot: string) {
     this.projectRoot = resolve(projectRoot);
   }
 
+  private getDb(): Database.Database {
+    if (!this.db) {
+      this.db = new Database(getDbPath(this.projectRoot), { readonly: true });
+    }
+    return this.db;
+  }
+
   hasGraph(): boolean {
     try {
-      const db = new Database(getDbPath(this.projectRoot), { readonly: true });
+      const db = this.getDb();
       const meta = db.prepare('SELECT node_count FROM graph_meta WHERE project_root=?').get(this.projectRoot) as
         | { node_count: number }
         | undefined;
-      db.close();
       return (meta?.node_count ?? 0) > 0;
     } catch {
       return false;
@@ -94,7 +101,7 @@ export class GraphRetriever {
   private expandGraph(seedIds: Set<number>, hops: number): Set<number> {
     if (seedIds.size === 0) return new Set();
     try {
-      const db = new Database(getDbPath(this.projectRoot), { readonly: true });
+      const db = this.getDb();
       const discovered = new Set(seedIds);
       let frontier = new Set(seedIds);
 
@@ -119,7 +126,6 @@ export class GraphRetriever {
         frontier = newNodes;
       }
 
-      db.close();
       for (const id of seedIds) discovered.delete(id);
       return discovered;
     } catch {
@@ -130,7 +136,7 @@ export class GraphRetriever {
   private fetchNodes(ids: Set<number>): RetrieveResult[] {
     if (ids.size === 0) return [];
     try {
-      const db = new Database(getDbPath(this.projectRoot), { readonly: true });
+      const db = this.getDb();
       const ph = [...ids].map(() => '?').join(',');
       const rows = db
         .prepare(
@@ -147,7 +153,6 @@ export class GraphRetriever {
         end_line: number;
         node_type: string;
       }>;
-      db.close();
       return rows.map((r) => ({
         id: r.id,
         name: r.name,
@@ -165,7 +170,7 @@ export class GraphRetriever {
   private ensureBM25(): void {
     if (this.bm25Index && Date.now() - this.bm25BuiltAt < 300_000) return;
     try {
-      const db = new Database(getDbPath(this.projectRoot), { readonly: true });
+      const db = this.getDb();
       const rows = db
         .prepare(
           `
@@ -182,7 +187,6 @@ export class GraphRetriever {
         node_type: string;
         search_text: string;
       }>;
-      db.close();
 
       this.bm25Index = new Map();
       for (const row of rows) {
@@ -203,6 +207,7 @@ export class GraphRetriever {
       }
       this.bm25BuiltAt = Date.now();
     } catch {
+      // Do not cache empty results — leave bm25BuiltAt unchanged so retry occurs next call
       this.bm25Index = new Map();
     }
   }

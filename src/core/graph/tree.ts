@@ -59,7 +59,7 @@ export function buildProjectTree(cwd: string): string {
     }
 
     const dirs = entries.filter((e) => !e.startsWith('.') && !IGNORE_DIRS.has(e) && isDir(join(dir, e)));
-    const files = entries.filter((e) => !IGNORE_DIRS.has(e) && isFile(join(dir, e)));
+    const files = entries.filter((e) => !e.startsWith('.') && !IGNORE_DIRS.has(e) && isFile(join(dir, e)));
 
     for (const f of files) {
       if (fileCount >= MAX_FILES) {
@@ -79,7 +79,11 @@ export function buildProjectTree(cwd: string): string {
   if (truncated) lines.push('... (truncated)');
 
   const result = lines.join('\n');
-  return result.length > MAX_CHARS ? result.slice(0, MAX_CHARS) + '\n...' : result;
+  if (result.length <= MAX_CHARS) return result;
+  // Truncate at the last newline boundary before MAX_CHARS to avoid cutting file names
+  const sliced = result.slice(0, MAX_CHARS);
+  const lastNewline = sliced.lastIndexOf('\n');
+  return (lastNewline > 0 ? sliced.slice(0, lastNewline) : sliced) + '\n...';
 }
 
 const ZH_STOP_WORDS = new Set([

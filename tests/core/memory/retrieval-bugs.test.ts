@@ -5,12 +5,20 @@ import { describe, it, expect } from 'vitest';
 
 /**
  * Replicate the FTS5 query building logic from retrieval.ts.
- * This is the BROKEN version that only filters " but not other FTS5 special chars.
+ * After fix, filters ", *, ^, and NEAR() patterns from FTS5 queries.
  */
 function buildFtsQuery(keywords: string[]): string {
   return keywords
     .slice(0, 3)
-    .map((k) => `"${k.replace(/"/g, '')}"`)
+    .map(
+      (k) =>
+        `"${k
+          .replace(/"/g, '')
+          .replace(/\*/g, '')
+          .replace(/\^/g, '')
+          .replace(/NEAR\([^)]*\)/gi, '')
+          .trim()}"`,
+    )
     .join(' OR ');
 }
 

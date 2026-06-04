@@ -54,7 +54,9 @@ export class StateMachineAgent {
   }
 
   clone(): StateMachineAgent {
-    return new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount);
+    const cloned = new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount);
+    cloned.fileCount = this.fileCount;
+    return cloned;
   }
 
   getCurrentStateConfig(): StateMachineConfig['states'][State] {
@@ -144,6 +146,8 @@ export class StateMachineAgent {
   resetForNextTask(nextState: State): void {
     this.currentState = nextState;
     this.stateIteration = 0;
+    this.fileCount = 0;
+    this.toolCalls = [];
   }
 
   getModelParams(): ModelParams {

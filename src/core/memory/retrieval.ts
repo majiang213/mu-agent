@@ -48,7 +48,15 @@ export function graphRetrieve(userInput: string, db: Database.Database, projectR
   if (keywords.length > 0) {
     const query = keywords
       .slice(0, 3)
-      .map((k) => `"${k.replace(/"/g, '')}"`)
+      .map(
+        (k) =>
+          `"${k
+            .replace(/"/g, '')
+            .replace(/\*/g, '')
+            .replace(/\^/g, '')
+            .replace(/NEAR\([^)]*\)/gi, '')
+            .trim()}"`,
+      )
       .join(' OR ');
     try {
       const rows = db

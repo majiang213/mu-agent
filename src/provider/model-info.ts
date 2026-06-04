@@ -1,7 +1,7 @@
 const FALLBACK_CONTEXT = 131072;
 
 function normalizeBase(url: string): string {
-  return url.replace(/\/v1\/?$/, '');
+  return url.replace(/\/+$/, '').replace(/\/v1$/, '');
 }
 
 export interface ModelInfo {

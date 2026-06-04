@@ -148,7 +148,12 @@ export function subscribeStepEvents(
 
   agent.subscribe((event: AgentEvent) => {
     if (event.type === 'tool_execution_start') {
-      onEvent?.({ type: 'tool_execution_start', tool: event.toolName, args: event.args as Record<string, unknown> });
+      onEvent?.({
+        type: 'tool_execution_start',
+        tool: event.toolName,
+        toolId: event.toolCallId,
+        args: event.args as Record<string, unknown>,
+      });
       cfg.stateMachine.recordToolCall(event.toolName, event.args, null);
       stagnationDetector.recordToolCall({
         tool: event.toolName,
@@ -176,6 +181,7 @@ export function subscribeStepEvents(
       onEvent?.({
         type: 'tool_execution_end',
         tool: event.toolName,
+        toolId: event.toolCallId,
         isError: event.isError,
         output: rawOutput || undefined,
       });

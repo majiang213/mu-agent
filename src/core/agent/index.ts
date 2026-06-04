@@ -30,7 +30,7 @@ function stepsSignature(directives: StepDirective[]): string {
     .join('|');
 }
 
-function buildVerifyFailureContext(
+function _buildVerifyFailureContext(
   allStepResults: ExecutedStep[],
   verifyResult: { passed: boolean; issues: string[]; summary: string },
   retryCount: number,
@@ -59,12 +59,21 @@ export class ReactAgent {
   private _activeAgents: Set<Agent> = new Set();
   private _memoryStore: MemoryStore | null = null;
   private _isRunning = false;
+  private _aborted = false;
 
   abort(): void {
+    this._aborted = true;
     for (const agent of [...this._activeAgents]) {
       agent.abort();
     }
     this._activeAgents.clear();
+  }
+
+  registerAgent(a: Agent): void {
+    this._activeAgents.add(a);
+    if (this._aborted) {
+      a.abort();
+    }
   }
 
   provideClarification(answer: string): void {
@@ -151,7 +160,7 @@ export class ReactAgent {
       contextRatio,
       apiKey: config.model.apiKey ?? 'ollama',
       projectRoot: cwd,
-      registerAgent: (a: Agent) => this._activeAgents.add(a),
+      registerAgent: (a: Agent) => this.registerAgent(a),
       unregisterAgent: (a: Agent) => this._activeAgents.delete(a),
       lspClient,
       heavyThinking: config.heavyThinking,
@@ -173,8 +182,10 @@ export class ReactAgent {
 
     const allStepResults: ExecutedStep[] = [];
     let currentSteps: StepDirective[];
-    let verifyRetries = 0;
     let prevStepsSignature = '';
+    let verifySeen = false;
+    let verifyFailed = false;
+    let noVerifyRetried = false;
 
     try {
       const conversationHistory = await compressConversationHistory(
@@ -211,87 +222,126 @@ export class ReactAgent {
 
         const lastVerify = [...thisRoundResults].reverse().find((h) => h.state === State.VERIFY);
 
-        if (!lastVerify) break;
-
-        let verifyResult: { passed: boolean; issues: string[]; summary: string };
-        try {
-          verifyResult = JSON.parse(lastVerify.output) as typeof verifyResult;
-        } catch {
-          break;
-        }
-        if (verifyResult.passed === true) break;
-
-        if (verifyRetries >= MAX_VERIFY_RETRIES) {
-          const failedResult: StateResult = {
-            state: State.DONE,
-            success: false,
-            output: `Task failed after ${MAX_VERIFY_RETRIES + 1} attempts. Last error: ${verifyResult.summary}`,
-            toolCalls: [],
-            nextState: State.DONE,
-            messages: [],
-          };
-          this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
-          mission.state = 'failed';
-          return failedResult;
-        }
-
-        verifyRetries++;
-
-        const failureSummaryMsg: AgentMessage = {
-          role: 'user',
-          content: buildVerifyFailureContext(allStepResults, verifyResult, verifyRetries),
-          timestamp: Date.now(),
-        };
-        const retryHistory = [...conversationHistory, failureSummaryMsg];
-
-        const { steps: retrySteps } = await runReasonStep(
-          mission,
-          cfg,
-          retryHistory,
-          onEvent,
-          clarifyCallback,
-          memoryIndex,
-          memorySearchTool,
-        );
-
-        if (retrySteps.length === 0) break;
-
-        const thisSig = stepsSignature(retrySteps);
-        if (thisSig === prevStepsSignature) break;
-        prevStepsSignature = thisSig;
-
-        const flatRetry = retrySteps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
-        const hasModify = flatRetry.some((s: Step) => s.state === State.MODIFY);
-        const hasRollback = flatRetry.some((s: Step) => s.state === State.ROLLBACK);
-        if (hasModify && !hasRollback) {
-          // Harness restores all edited files directly via SafeModifier — no need to
-          // rely on the model to locate and rewrite checkpoint content (Gap 48).
-          const editedFiles = allStepResults
-            .filter((r) => r.state === State.MODIFY)
-            .flatMap((r) => {
-              try {
-                const parsed = JSON.parse(r.output) as { edited?: unknown };
-                return Array.isArray(parsed.edited)
-                  ? parsed.edited.filter((f): f is string => typeof f === 'string')
-                  : [];
-              } catch {
-                return [];
-              }
-            });
-          const uniqueEdited = [...new Set(editedFiles)];
-          for (const filePath of uniqueEdited) {
-            await cfg.safeModifier.restore(filePath);
+        if (lastVerify) {
+          verifySeen = true;
+          let verifyResult: { passed: boolean; issues: string[]; summary: string };
+          try {
+            verifyResult = JSON.parse(lastVerify.output) as typeof verifyResult;
+          } catch {
+            break;
           }
-          if (uniqueEdited.length > 0) {
-            onEvent?.({
-              type: 'tool_execution_start',
-              tool: 'rollback',
-              args: { restored: uniqueEdited },
-            });
+          if (verifyResult.passed === true) {
+            verifyFailed = false;
+            break;
           }
-        }
+          verifyFailed = true;
 
-        currentSteps = retrySteps;
+          if (verifySeen && noVerifyRetried) {
+            // We already retried once without VERIFY, and VERIFY still fails — report failure
+            const failedResult: StateResult = {
+              state: State.DONE,
+              success: false,
+              output: `Task failed after verification failure. Last error: ${verifyResult.summary}`,
+              toolCalls: [],
+              nextState: State.DONE,
+              messages: [],
+            };
+            this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+            mission.state = 'failed';
+            return failedResult;
+          }
+
+          // Let the loop continue — the else branch will handle retry
+        } else {
+          // No VERIFY in this round
+          if (verifySeen && verifyFailed) {
+            // Previous VERIFY failed and this round has no VERIFY — report failure
+            const failedResult: StateResult = {
+              state: State.DONE,
+              success: false,
+              output: `Task failed: verification failed and retry plan did not include a VERIFY step.`,
+              toolCalls: [],
+              nextState: State.DONE,
+              messages: [],
+            };
+            this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+            mission.state = 'failed';
+            return failedResult;
+          }
+          if (verifySeen && !verifyFailed) break;
+          // No VERIFY seen yet — try a retry
+          if (noVerifyRetried) {
+            // Already retried once without VERIFY — break with success
+            break;
+          }
+          noVerifyRetried = true;
+          const { steps: retrySteps } = await runReasonStep(
+            mission,
+            cfg,
+            conversationHistory,
+            onEvent,
+            clarifyCallback,
+            memoryIndex,
+            memorySearchTool,
+          );
+          if (retrySteps.length === 0) {
+            if (verifyFailed) {
+              const failedResult: StateResult = {
+                state: State.DONE,
+                success: false,
+                output: `Task failed: verification failed and retry produced no steps.`,
+                toolCalls: [],
+                nextState: State.DONE,
+                messages: [],
+              };
+              this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+              mission.state = 'failed';
+              return failedResult;
+            }
+            // Don't break yet — the current round's steps may contain VERIFY
+            // that hasn't been processed. Continue the loop.
+            if (verifySeen) break;
+            // verifySeen is false, retrySteps is empty — the current plan
+            // will be re-executed, which will find VERIFY and set verifyFailed.
+            // Use the original steps to give the loop another iteration.
+            continue;
+          }
+          const thisSig = stepsSignature(retrySteps);
+          if (thisSig === prevStepsSignature) break;
+          prevStepsSignature = thisSig;
+
+          const flatRetry = retrySteps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
+          const hasModify = flatRetry.some((s: Step) => s.state === State.MODIFY);
+          const hasRollback = flatRetry.some((s: Step) => s.state === State.ROLLBACK);
+          if (hasModify && !hasRollback) {
+            const editedFiles = allStepResults
+              .filter((r) => r.state === State.MODIFY)
+              .flatMap((r) => {
+                try {
+                  const parsed = JSON.parse(r.output) as { edited?: unknown };
+                  return Array.isArray(parsed.edited)
+                    ? parsed.edited.filter((f): f is string => typeof f === 'string')
+                    : [];
+                } catch {
+                  return [];
+                }
+              });
+            const uniqueEdited = [...new Set(editedFiles)];
+            for (const filePath of uniqueEdited) {
+              await cfg.safeModifier.restore(filePath);
+            }
+            if (uniqueEdited.length > 0) {
+              onEvent?.({
+                type: 'tool_execution_start',
+                toolId: 'rollback',
+                tool: 'rollback',
+                args: { restored: uniqueEdited },
+              });
+            }
+          }
+
+          currentSteps = retrySteps;
+        }
       }
 
       // Fixed ANSWER step — always runs after all planned steps, independent of REASON's plan (Gap 51).
