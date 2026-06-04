@@ -33,7 +33,7 @@
   },
   "build": {
     "buildCommand": "pnpm build 2>&1",
-    "testCommand": "pnpm test --run 2>&1 | tail -15",
+    "testCommand": "pnpm test --run tests/core/agent/step-runner-retry.test.ts 2>&1 | tail -10",
     "lintCommand": "pnpm lint",
     "devCommand": "pnpm dev",
     "scripts": {
@@ -144,6 +144,12 @@
       "type": "file"
     },
     {
+      "path": ".claude/PRPs/BUGS.md",
+      "accessCount": 57,
+      "lastAccessed": 1780578557902,
+      "type": "file"
+    },
+    {
       "path": "src/core/agent/index.ts",
       "accessCount": 40,
       "lastAccessed": 1780565624962,
@@ -153,12 +159,6 @@
       "path": "src/core/session/store.ts",
       "accessCount": 30,
       "lastAccessed": 1780565273563,
-      "type": "file"
-    },
-    {
-      "path": ".claude/PRPs/BUGS.md",
-      "accessCount": 28,
-      "lastAccessed": 1780561402020,
       "type": "file"
     },
     {

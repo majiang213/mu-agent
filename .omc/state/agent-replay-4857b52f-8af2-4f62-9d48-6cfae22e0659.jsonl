@@ -27,3 +27,5 @@
 {"t":0,"agent":"a756657","agent_type":"workflow-subagent","event":"agent_stop","success":true,"duration_ms":58944}
 {"t":0,"agent":"af2b919","agent_type":"workflow-subagent","event":"agent_start","parent_mode":"none"}
 {"t":0,"agent":"af2b919","agent_type":"workflow-subagent","event":"agent_stop","success":true,"duration_ms":185469}
+{"t":0,"agent":"ac2e242","agent_type":"workflow-subagent","event":"agent_stop","success":true}
+{"t":0,"agent":"a0882cf","agent_type":"workflow-subagent","event":"agent_start","parent_mode":"none"}

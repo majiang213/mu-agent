@@ -125,10 +125,17 @@
       "status": "completed",
       "completed_at": "2026-06-04T09:31:23.401Z",
       "duration_ms": 185469
+    },
+    {
+      "agent_id": "a0882cf1495540c3f",
+      "agent_type": "workflow-subagent",
+      "started_at": "2026-06-04T13:05:25.950Z",
+      "parent_mode": "none",
+      "status": "running"
     }
   ],
-  "total_spawned": 7,
+  "total_spawned": 8,
   "total_completed": 14,
   "total_failed": 0,
-  "last_updated": "2026-06-04T09:31:23.503Z"
+  "last_updated": "2026-06-04T13:05:26.053Z"
 }

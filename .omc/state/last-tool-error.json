@@ -1,7 +1,7 @@
 {
   "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"git add -A && git commit -m \\\"fix: apply adversarial review findings (C1-C3, H1-H13, M1-M7)\\n\\nCritical:\\n- C1: wrap run() body in try/finally — lspClient/memDb always cleaned up\\n- C2: cr...",
-  "error": "Exit code 1\n[STARTED] Backing up original state...\n[COMPLETED] Backed up original state in git stash (a193838)\n[STARTED] Running tasks for staged files...\n[STARTED] package.json — 23 files\n[STARTED] src/**/*.ts — 12 files\n[STARTED] tests/**/*.ts — 1 file\n[STARTED] eslint --fix\n[STARTED] prettier --write\n[COMPLETED] prettier --write\n[COMPLETED] tests/**/*.ts — 1 file\n[FAILED] eslint --fix [FAILED]\n[FAILED] eslint --fix [FAILED]\n[COMPLETED] Running tasks for staged files...\n[STARTED] Updating Git ...",
-  "timestamp": "2026-06-04T09:32:40.026Z",
+  "tool_input_preview": "{\"command\":\"git stash pop\",\"description\":\"Restore our changes\"}",
+  "error": "Exit code 1\nerror: Your local changes to the following files would be overwritten by merge:\n\t.omc/project-memory.json\nPlease commit your changes or stash them before you merge.\nAborting\nOn branch main\nYour branch is ahead of 'origin/main' by 5 commits.\n  (use \"git push\" to publish your local commits)\n\nChanges not staged for commit:\n  (use \"git add <file>...\" to update what will be committed)\n  (use \"git restore <file>...\" to discard changes in working directory)\n\tmodified:   .omc/project-memory....",
+  "timestamp": "2026-06-04T13:04:30.677Z",
   "retry_count": 1
 }
