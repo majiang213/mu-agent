@@ -44,3 +44,4 @@ plans/
 .pi/hf-sessions-backup/
 collect.sh
 .mu-agent/
+.omc/
