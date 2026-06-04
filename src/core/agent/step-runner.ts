@@ -153,12 +153,14 @@ export async function runStepAgent(
     },
   });
   let attempt = 0;
+  let lastError: Error | undefined;
   while (attempt < maxRetries) {
     try {
       await agent.prompt(input);
       return;
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
+      lastError = error;
       const isAbort = error.name === 'AbortError' || error.message.includes('aborted');
       if (isAbort) {
         return;
@@ -179,6 +181,7 @@ export async function runStepAgent(
     }
     attempt++;
   }
+  throw lastError ?? new Error('runStepAgent: max retries exhausted');
 }
 
 export async function runReasonStep(
