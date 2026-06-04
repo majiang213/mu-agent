@@ -76,6 +76,9 @@ async function runBatch(
     );
   });
   const results = await Promise.all(tasks);
+  const failed = results.filter((r) => r === null).length;
+  if (failed > 0)
+    console.warn('[sampler] ' + failed + '/' + results.length + ' samples failed in batch at index ' + startIndex);
   return results.flatMap((r) => (r !== null ? [r] : []));
 }
 

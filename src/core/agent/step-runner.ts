@@ -1,6 +1,7 @@
 import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
 import type { Model } from '@mariozechner/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
+import { SafeModifier } from '../../tool/safety/checkpoint.js';
 import { FailureHandler } from '../failure/handler.js';
 import {
   DEFAULT_TEMPERATURE,
@@ -594,7 +595,7 @@ export async function executeSteps(
 
       const settled = await Promise.allSettled(
         parallelSteps.map((step) => {
-          const clonedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone() };
+          const clonedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone(), safeModifier: new SafeModifier() };
           const snapshot = [...allStepResults, ...thisRoundResults];
           return runStep(step, i, total, mission, snapshot, clonedCfg, branchOnEvent, memoryIndex, memorySearchTool);
         }),

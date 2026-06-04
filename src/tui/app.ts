@@ -649,6 +649,13 @@ export class TuiApp {
   private sessionStore: SessionStore;
   private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
   private pendingClarificationAgent: import('../core/agent/index.js').ReactAgent | null = null;
+  private _sigwinchHandler = (): void => {
+    try {
+      this.tui.requestRender(true);
+    } catch {
+      // ignore render errors during terminal resize
+    }
+  };
 
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
@@ -725,6 +732,7 @@ export class TuiApp {
     this.running = true;
 
     process.on('SIGINT', () => this.stop());
+    process.on('SIGWINCH', this._sigwinchHandler);
     this.tui.setFocus(this.editor);
     this.tui.start();
 
@@ -740,6 +748,7 @@ export class TuiApp {
   stop(): void {
     if (!this.running) return;
     this.running = false;
+    process.off('SIGWINCH', this._sigwinchHandler);
     this.tui.stop();
     process.exit(0);
   }

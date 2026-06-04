@@ -113,6 +113,8 @@ export function fmtTime(ts: number): string {
 }
 
 export function formatEpisodeDetail(ep: EpisodeRow): string {
+  const trunc = (s: string | null | undefined, max = 400): string =>
+    !s ? '' : s.length <= max ? s : s.slice(0, max) + '…';
   const s = (() => {
     try {
       return JSON.parse(ep.result_summary) as StructuredSummary;
@@ -123,11 +125,11 @@ export function formatEpisodeDetail(ep: EpisodeRow): string {
   const time = fmtTime(ep.timestamp);
   const shortId = ep.id.replace(/-/g, '').slice(0, 4);
 
-  const lines = [`[${time} #${shortId}] ${ep.user_input}`];
+  const lines = [`[${time} #${shortId}] ${trunc(ep.user_input)}`];
   if (s?.action) lines.push(`动作：${s.action}`);
   if (s?.files?.length) lines.push(`文件：${s.files.join(', ')}`);
-  if (s?.key_finding) lines.push(`结论：${s.key_finding}`);
-  if (s?.error_summary) lines.push(`失败：${s.error_summary}`);
+  if (s?.key_finding) lines.push(`结论：${trunc(s.key_finding)}`);
+  if (s?.error_summary) lines.push(`失败：${trunc(s.error_summary)}`);
   const outcome = ep.success ? 'success' : 'failed';
   lines.push(`结果：${outcome}`);
   return lines.join('\n');

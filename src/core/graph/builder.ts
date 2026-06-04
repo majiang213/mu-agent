@@ -109,22 +109,24 @@ export class GraphBuilder {
     const t0 = Date.now();
     const db = getDb(this.projectRoot);
 
-    db.prepare('DELETE FROM edges WHERE project_root=?').run(this.projectRoot);
-    db.prepare('DELETE FROM nodes WHERE project_root=?').run(this.projectRoot);
-
     const files = this.collectSourceFiles();
     let nodeCount = 0;
     let edgeCount = 0;
 
-    for (const file of files) {
-      try {
-        const [n, e] = this.parseFile(db, file);
-        nodeCount += n;
-        edgeCount += e;
-      } catch {
-        continue;
+    const doRebuild = db.transaction(() => {
+      db.prepare('DELETE FROM edges WHERE project_root=?').run(this.projectRoot);
+      db.prepare('DELETE FROM nodes WHERE project_root=?').run(this.projectRoot);
+      for (const file of files) {
+        try {
+          const [n, e] = this.parseFile(db, file);
+          nodeCount += n;
+          edgeCount += e;
+        } catch {
+          continue;
+        }
       }
-    }
+    });
+    doRebuild();
 
     const elapsedMs = Date.now() - t0;
     const currentCommit = this.getCurrentCommit();
@@ -172,7 +174,8 @@ export class GraphBuilder {
     let source: string;
     try {
       source = readFileSync(filePath, 'utf-8');
-    } catch {
+    } catch (err) {
+      console.warn('[graph] parseFile error:', err instanceof Error ? err.message : String(err));
       return [0, 0];
     }
 
@@ -181,7 +184,8 @@ export class GraphBuilder {
     let sourceFile: ts.SourceFile;
     try {
       sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true, scriptKind);
-    } catch {
+    } catch (err) {
+      console.warn('[graph] parseFile error:', err instanceof Error ? err.message : String(err));
       return [0, 0];
     }
 

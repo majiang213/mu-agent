@@ -77,7 +77,8 @@ export function buildStepAgent(
           try {
             await cfg.safeModifier.createCheckpoint(filePath);
           } catch (e) {
-            void e;
+            console.warn('[SafeModifier] createCheckpoint failed for', filePath, ':', e);
+            return { block: true, reason: '[SafeModifier] Cannot create checkpoint: ' + String(e) };
           }
         }
       }
@@ -205,7 +206,19 @@ export function subscribeStepEvents(
                     timestamp: Date.now(),
                   });
                 })
-                .catch(() => {});
+                .catch((restoreErr) => {
+                  console.error('[SafeModifier] restore() failed for', filePath, ':', restoreErr);
+                  agent.steer({
+                    role: 'steer',
+                    content:
+                      '[SAFE MODIFIER] Post-check failed AND restore failed for ' +
+                      filePath +
+                      ': ' +
+                      String(restoreErr) +
+                      '. File may be damaged.',
+                    timestamp: 0,
+                  });
+                });
             } else {
               cfg.safeModifier.clearCheckpoint(filePath);
             }
@@ -277,6 +290,10 @@ export function subscribeStepEvents(
               timestamp: Date.now(),
             });
           }
+        }
+        // Reset warning count when agent makes progress (no stagnation this turn)
+        if (!stagnationResult?.detected) {
+          stagnationWarnings = 0;
         }
       }
 

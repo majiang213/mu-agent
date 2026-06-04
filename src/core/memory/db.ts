@@ -16,20 +16,26 @@ export function findGitRoot(startDir: string): string {
 }
 
 export function initMemoryDb(gitRoot: string): Database.Database {
-  const dbDir = join(gitRoot, DB_DIRNAME);
-  mkdirSync(dbDir, { recursive: true });
-  const dbPath = join(dbDir, DB_FILENAME);
-  const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.pragma('foreign_keys = ON');
+  try {
+    const dbDir = join(gitRoot, DB_DIRNAME);
+    mkdirSync(dbDir, { recursive: true });
+    const dbPath = join(dbDir, DB_FILENAME);
+    const db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('foreign_keys = ON');
 
-  const version = db.pragma('user_version', { simple: true }) as number;
-  if (version < CURRENT_SCHEMA_VERSION) {
-    applySchema(db);
-    db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+    const version = db.pragma('user_version', { simple: true }) as number;
+    if (version < CURRENT_SCHEMA_VERSION) {
+      applySchema(db);
+      db.pragma(`user_version = ${CURRENT_SCHEMA_VERSION}`);
+    }
+    return db;
+  } catch (err) {
+    throw new Error('[MemoryStore] SQLite init failed: ' + (err instanceof Error ? err.message : String(err)), {
+      cause: err,
+    });
   }
-  return db;
 }
 
 function applySchema(db: Database.Database): void {

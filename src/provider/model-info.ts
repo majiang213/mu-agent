@@ -14,6 +14,11 @@ export async function fetchOllamaModels(baseUrl: string): Promise<ModelInfo[]> {
     const url = normalizeBase(baseUrl);
     const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return [];
+    const ct = res.headers.get('content-type') ?? '';
+    if (!ct.includes('json')) {
+      console.warn('[model-info] Unexpected content-type from /api/tags:', ct);
+      return [];
+    }
     const data = (await res.json()) as { models?: { name: string }[] };
     const models = data.models ?? [];
     const infos = await Promise.all(
@@ -23,7 +28,12 @@ export async function fetchOllamaModels(baseUrl: string): Promise<ModelInfo[]> {
       }),
     );
     return infos;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      console.warn('[model-info] Request timed out (5s)');
+    } else if (err instanceof Error) {
+      console.warn('[model-info] Request failed:', err.message);
+    }
     return [];
   }
 }
@@ -43,7 +53,12 @@ async function fetchOllamaShow(baseUrl: string, modelName: string): Promise<Olla
     });
     if (!res.ok) return null;
     return (await res.json()) as OllamaShowResponse;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      console.warn('[model-info] Request timed out (5s)');
+    } else if (err instanceof Error) {
+      console.warn('[model-info] Request failed:', err.message);
+    }
     return null;
   }
 }
@@ -81,7 +96,12 @@ export async function fetchCustomModels(baseUrl: string, apiKey?: string): Promi
       name: m.id,
       contextLength: m.context_window ?? m.max_model_len ?? FALLBACK_CONTEXT,
     }));
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      console.warn('[model-info] Request timed out (5s)');
+    } else if (err instanceof Error) {
+      console.warn('[model-info] Request failed:', err.message);
+    }
     return [];
   }
 }
@@ -107,7 +127,12 @@ export async function fetchContextLength(
     if (!res.ok) return FALLBACK_CONTEXT;
     const data = (await res.json()) as { context_window?: number; max_model_len?: number };
     return data.context_window ?? data.max_model_len ?? FALLBACK_CONTEXT;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      console.warn('[model-info] Request timed out (5s)');
+    } else if (err instanceof Error) {
+      console.warn('[model-info] Request failed:', err.message);
+    }
     return FALLBACK_CONTEXT;
   }
 }

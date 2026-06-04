@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"git add -A && git commit -m \\\"fix: apply adversarial review findings (C1-C3, H1-H13, M1-M7)\\n\\nCritical:\\n- C1: wrap run() body in try/finally — lspClient/memDb always cleaned up\\n- C2: cr...",
+  "error": "Exit code 1\n[STARTED] Backing up original state...\n[COMPLETED] Backed up original state in git stash (a193838)\n[STARTED] Running tasks for staged files...\n[STARTED] package.json — 23 files\n[STARTED] src/**/*.ts — 12 files\n[STARTED] tests/**/*.ts — 1 file\n[STARTED] eslint --fix\n[STARTED] prettier --write\n[COMPLETED] prettier --write\n[COMPLETED] tests/**/*.ts — 1 file\n[FAILED] eslint --fix [FAILED]\n[FAILED] eslint --fix [FAILED]\n[COMPLETED] Running tasks for staged files...\n[STARTED] Updating Git ...",
+  "timestamp": "2026-06-04T09:32:40.026Z",
+  "retry_count": 1
+}

@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-function makeResponse(body: unknown, ok = true): Response {
+function makeResponse(body: unknown, ok = true, contentType = 'application/json'): Response {
   return {
     ok,
+    headers: { get: (name: string) => (name === 'content-type' ? contentType : null) },
     json: () => Promise.resolve(body),
   } as unknown as Response;
 }
@@ -37,7 +38,10 @@ describe('fetchOllamaModels', () => {
     mockFetch.mockResolvedValue(makeResponse({ models: [] }));
     const { fetchOllamaModels } = await import('../../src/provider/model-info.js');
     await fetchOllamaModels('http://localhost:11434/v1');
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:11434/api/tags');
+    expect(mockFetch).toHaveBeenCalledWith(
+      'http://localhost:11434/api/tags',
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('returns models with context length from model_info', async () => {

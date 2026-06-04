@@ -509,13 +509,25 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   const relevant = previousResults.filter((r) => needs.includes(r.state as State));
   if (relevant.length === 0) return '';
 
-  const lines = relevant.map((r) => {
+  const allLines = relevant.map((r) => {
     let output = r.output;
     if (output.length > 600) output = output.slice(0, 600) + '…';
     return `[${r.state}] ${r.focus}\n${output}`;
   });
 
-  return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
+  const BUDGET = 8000;
+  const kept: string[] = [];
+  let total = 0;
+  for (let i = allLines.length - 1; i >= 0; i--) {
+    const line = allLines[i] ?? '';
+    const len = line.length;
+    if (total + len > BUDGET) break;
+    kept.unshift(line);
+    total += len;
+  }
+
+  if (kept.length === 0) return '';
+  return `\n\n<previous_step_results>\n${kept.join('\n\n')}\n</previous_step_results>`;
 }
 
 export function buildUserPrompt(state: State, task: string, focus?: string, previousResults?: ExecutedStep[]): string {

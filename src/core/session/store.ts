@@ -7,6 +7,7 @@ export interface SessionHeader {
   type: 'header';
   cwd: string;
   created: number;
+  version?: number;
 }
 
 export interface SessionMessage {
@@ -94,6 +95,7 @@ export class SessionStore {
         type: 'header',
         cwd: this.projectRoot,
         created: Date.now(),
+        version: 1,
       };
       writeFileSync(this.filePath, `${JSON.stringify(header)}\n`);
       this._isEmpty = false;
@@ -103,6 +105,10 @@ export class SessionStore {
 
   load(): AgentMessage[] {
     const entries = parseEntries(this.filePath);
+    const header = entries.find((e): e is SessionHeader => e.type === 'header');
+    if (header && header.version !== undefined && header.version !== 1) {
+      console.warn('[session] Schema version:', header.version, '(current: 1)');
+    }
     return entries
       .filter((e): e is SessionMessage => e.type === 'message')
       .map(

@@ -1,7 +1,7 @@
 import { codingTools, grepTool, lsTool, findTool } from '@mariozechner/pi-coding-agent';
 import type { AgentTool } from '@mariozechner/pi-agent-core';
 import { State, type StateMachineConfig, type StateContext, type ToolCall, type ModelParams } from '../types.js';
-import { detectModelParams, getBaseStateConfigs } from '../states.js';
+import { detectModelParams, getBaseStateConfigs, getNextState } from '../states.js';
 import { buildSystemPrompt } from '../prompts/index.js';
 
 function createStateContext(
@@ -85,6 +85,9 @@ export class StateMachineAgent {
   }
 
   transitionTo(nextState: State): void {
+    const expected = getNextState(this.currentState, true);
+    if (expected !== nextState)
+      console.warn('[session] Unexpected transition:', this.currentState, '->', nextState, '(expected', expected + ')');
     if (this.config.onStateChange) {
       this.config.onStateChange(this.currentState, nextState);
     }

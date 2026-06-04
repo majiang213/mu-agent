@@ -58,9 +58,10 @@ export class ReactAgent {
   private _pendingClarification: ((answer: string) => void) | null = null;
   private _activeAgents: Set<Agent> = new Set();
   private _memoryStore: MemoryStore | null = null;
+  private _isRunning = false;
 
   abort(): void {
-    for (const agent of this._activeAgents) {
+    for (const agent of [...this._activeAgents]) {
       agent.abort();
     }
     this._activeAgents.clear();
@@ -120,6 +121,9 @@ export class ReactAgent {
       projectContext: loadContext(cwd) ?? undefined,
     };
 
+    if (this._isRunning) throw new Error('ReactAgent.run() already running');
+    this._isRunning = true;
+
     const lspClient = new LspClient();
     await lspClient.init(cwd);
 
@@ -160,13 +164,6 @@ export class ReactAgent {
       contextWindow: model.contextWindow,
     });
 
-    const conversationHistory = await compressConversationHistory(
-      initialMessages ?? [],
-      model,
-      contextRatio,
-      cfg.apiKey,
-    );
-
     const clarifyCallback = async (questions: string[]): Promise<string> => {
       onEvent?.({ type: 'clarification_needed', questions });
       return new Promise<string>((resolve) => {
@@ -174,22 +171,31 @@ export class ReactAgent {
       });
     };
 
-    const { steps } = await runReasonStep(
-      mission,
-      cfg,
-      conversationHistory,
-      onEvent,
-      clarifyCallback,
-      memoryIndex,
-      memorySearchTool,
-    );
-
     const allStepResults: ExecutedStep[] = [];
-    let currentSteps: StepDirective[] = steps;
+    let currentSteps: StepDirective[];
     let verifyRetries = 0;
     let prevStepsSignature = '';
 
     try {
+      const conversationHistory = await compressConversationHistory(
+        initialMessages ?? [],
+        model,
+        contextRatio,
+        cfg.apiKey,
+      );
+
+      const { steps } = await runReasonStep(
+        mission,
+        cfg,
+        conversationHistory,
+        onEvent,
+        clarifyCallback,
+        memoryIndex,
+        memorySearchTool,
+      );
+
+      currentSteps = steps;
+
       while (true) {
         const thisRoundResults = await executeSteps(
           currentSteps,
@@ -226,9 +232,6 @@ export class ReactAgent {
           };
           this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
           mission.state = 'failed';
-          lspClient.dispose();
-          await pendingSummariesPromise;
-          closeMemDb();
           return failedResult;
         }
 
@@ -290,6 +293,52 @@ export class ReactAgent {
 
         currentSteps = retrySteps;
       }
+
+      // Fixed ANSWER step — always runs after all planned steps, independent of REASON's plan (Gap 51).
+      // ANSWER synthesizes all step results for the user. It has only the complete() tool,
+      // so there is no "print text" escape hatch — the model must call complete(answer="...").
+      // Skip if REASON already planned an ANSWER step (e.g. chitchat) to avoid double-summary.
+      const lastExecuted = allStepResults[allStepResults.length - 1];
+      if (lastExecuted?.state !== State.ANSWER) {
+        const answerFocus =
+          allStepResults.length === 0
+            ? 'Answer the user directly based on the task description.'
+            : 'Summarize all previous steps and present the result to the user.';
+        let answerStep: ExecutedStep;
+        try {
+          answerStep = await runStep(
+            { state: State.ANSWER, focus: answerFocus },
+            allStepResults.length,
+            allStepResults.length + 1,
+            mission,
+            allStepResults,
+            cfg,
+            onEvent,
+            memoryIndex,
+            memorySearchTool,
+          );
+        } catch {
+          // ANSWER is best-effort — degrade gracefully to last step output
+          answerStep = {
+            state: State.ANSWER,
+            focus: answerFocus,
+            output: lastExecuted?.output ?? JSON.stringify({ answer: '[Unable to generate response]' }),
+          };
+        }
+        allStepResults.push(answerStep);
+      }
+
+      const finalResult: StateResult = {
+        state: State.DONE,
+        success: true,
+        output: allStepResults[allStepResults.length - 1]?.output ?? 'Task completed',
+        toolCalls: [],
+        nextState: State.DONE,
+        messages: [],
+      };
+      this._memoryStore?.writeEpisodeSync(mission, allStepResults, finalResult);
+      mission.state = 'completed';
+      return finalResult;
     } catch (err) {
       const isAbort = err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'));
       if (!isAbort) {
@@ -304,59 +353,12 @@ export class ReactAgent {
         this._memoryStore?.writeEpisodeSync(mission, allStepResults, errResult);
       }
       mission.state = 'failed';
+      throw err;
+    } finally {
       lspClient.dispose();
       await pendingSummariesPromise;
       closeMemDb();
-      throw err;
+      this._isRunning = false;
     }
-
-    // Fixed ANSWER step — always runs after all planned steps, independent of REASON's plan (Gap 51).
-    // ANSWER synthesizes all step results for the user. It has only the complete() tool,
-    // so there is no "print text" escape hatch — the model must call complete(answer="...").
-    // Skip if REASON already planned an ANSWER step (e.g. chitchat) to avoid double-summary.
-    const lastExecuted = allStepResults[allStepResults.length - 1];
-    if (lastExecuted?.state !== State.ANSWER) {
-      const answerFocus =
-        allStepResults.length === 0
-          ? 'Answer the user directly based on the task description.'
-          : 'Summarize all previous steps and present the result to the user.';
-      let answerStep: ExecutedStep;
-      try {
-        answerStep = await runStep(
-          { state: State.ANSWER, focus: answerFocus },
-          allStepResults.length,
-          allStepResults.length + 1,
-          mission,
-          allStepResults,
-          cfg,
-          onEvent,
-          memoryIndex,
-          memorySearchTool,
-        );
-      } catch {
-        // ANSWER is best-effort — degrade gracefully to last step output
-        answerStep = {
-          state: State.ANSWER,
-          focus: answerFocus,
-          output: lastExecuted?.output ?? JSON.stringify({ answer: '[Unable to generate response]' }),
-        };
-      }
-      allStepResults.push(answerStep);
-    }
-
-    const finalResult: StateResult = {
-      state: State.DONE,
-      success: true,
-      output: allStepResults[allStepResults.length - 1]?.output ?? 'Task completed',
-      toolCalls: [],
-      nextState: State.DONE,
-      messages: [],
-    };
-    this._memoryStore?.writeEpisodeSync(mission, allStepResults, finalResult);
-    mission.state = 'completed';
-    lspClient.dispose();
-    await pendingSummariesPromise;
-    closeMemDb();
-    return finalResult;
   }
 }
