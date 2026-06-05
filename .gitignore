@@ -47,3 +47,4 @@ plans/
 collect.sh
 .mu-agent/
 .omc/
+*.review-report.md
