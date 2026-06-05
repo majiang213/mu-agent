@@ -1,7 +1,7 @@
 {
   "tool_name": "Read",
-  "tool_input_preview": "{\"file_path\":\"/Users/majiang/Documents/freespace/js-local-agent/src/tool/lsp.ts\",\"offset\":118,\"limit\":10}",
-  "error": "File does not exist. Note: your current working directory is /Users/majiang/Documents/freespace/js/local-agent.",
-  "timestamp": "2026-06-04T14:57:11.696Z",
-  "retry_count": 3
+  "tool_input_preview": "{\"file_path\":\"/tmp/review-findings.json\",\"offset\":0,\"limit\":500}",
+  "error": "File content (25016 tokens) exceeds maximum allowed tokens (25000). Use offset and limit parameters to read specific portions of the file, or search for specific content instead of reading the whole file.",
+  "timestamp": "2026-06-05T01:54:45.873Z",
+  "retry_count": 4
 }

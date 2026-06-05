@@ -32,8 +32,8 @@
     "runtime": null
   },
   "build": {
-    "buildCommand": "pnpm build 2>&1 | tail -5",
-    "testCommand": "pnpm test --run 2>&1 | tail -5",
+    "buildCommand": "pnpm build 2>&1 | tail -10",
+    "testCommand": "pnpm test --run 2>&1 | grep \"FAIL\\|✗\\|MODULE_NOT_FOUND\" ",
     "lintCommand": "pnpm lint",
     "devCommand": "pnpm dev",
     "scripts": {
@@ -139,20 +139,272 @@
   "hotPaths": [
     {
       "path": "src/core/agent/step-runner.ts",
-      "accessCount": 114,
-      "lastAccessed": 1780583782998,
+      "accessCount": 288,
+      "lastAccessed": 1780624136358,
       "type": "file"
     },
     {
       "path": "src/tui/app.ts",
-      "accessCount": 77,
-      "lastAccessed": 1780585086513,
+      "accessCount": 279,
+      "lastAccessed": 1780623528795,
       "type": "file"
     },
     {
       "path": "src/core/agent/index.ts",
+      "accessCount": 212,
+      "lastAccessed": 1780624138924,
+      "type": "file"
+    },
+    {
+      "path": "src/core/session/store.ts",
+      "accessCount": 152,
+      "lastAccessed": 1780624129478,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/lsp.ts",
+      "accessCount": 109,
+      "lastAccessed": 1780624130345,
+      "type": "file"
+    },
+    {
+      "path": "src/core/agent/types.ts",
+      "accessCount": 107,
+      "lastAccessed": 1780623635722,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/safety/checkpoint.ts",
+      "accessCount": 103,
+      "lastAccessed": 1780624150994,
+      "type": "file"
+    },
+    {
+      "path": "src/core/compaction/index.ts",
+      "accessCount": 93,
+      "lastAccessed": 1780623468591,
+      "type": "file"
+    },
+    {
+      "path": "src/tui/setup.ts",
+      "accessCount": 93,
+      "lastAccessed": 1780623530762,
+      "type": "file"
+    },
+    {
+      "path": "src/core/failure/handler.ts",
+      "accessCount": 93,
+      "lastAccessed": 1780623533715,
+      "type": "file"
+    },
+    {
+      "path": "src/core/failure/strategies.ts",
+      "accessCount": 93,
+      "lastAccessed": 1780624138983,
+      "type": "file"
+    },
+    {
+      "path": "src/core/agent/context.ts",
+      "accessCount": 91,
+      "lastAccessed": 1780623546411,
+      "type": "file"
+    },
+    {
+      "path": "src/core/session/index.ts",
+      "accessCount": 89,
+      "lastAccessed": 1780623522911,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/safety/post-check.ts",
+      "accessCount": 89,
+      "lastAccessed": 1780623589676,
+      "type": "file"
+    },
+    {
+      "path": "src/core/graph/retriever.ts",
+      "accessCount": 88,
+      "lastAccessed": 1780624158084,
+      "type": "file"
+    },
+    {
+      "path": "src/core/cognitive/index.ts",
+      "accessCount": 87,
+      "lastAccessed": 1780623468331,
+      "type": "file"
+    },
+    {
+      "path": "src/tui/metrics.ts",
+      "accessCount": 84,
+      "lastAccessed": 1780623530023,
+      "type": "file"
+    },
+    {
+      "path": "src/cli.ts",
+      "accessCount": 83,
+      "lastAccessed": 1780624130865,
+      "type": "file"
+    },
+    {
+      "path": "src/core/failure/types.ts",
+      "accessCount": 82,
+      "lastAccessed": 1780623470360,
+      "type": "file"
+    },
+    {
+      "path": "src/tui/index.ts",
+      "accessCount": 82,
+      "lastAccessed": 1780623529265,
+      "type": "file"
+    },
+    {
+      "path": "src/tui/theme.ts",
+      "accessCount": 82,
+      "lastAccessed": 1780623530786,
+      "type": "file"
+    },
+    {
+      "path": "src/core/graph/locator.ts",
+      "accessCount": 81,
+      "lastAccessed": 1780624157456,
+      "type": "file"
+    },
+    {
+      "path": "src/provider/model-info.ts",
+      "accessCount": 79,
+      "lastAccessed": 1780623618678,
+      "type": "file"
+    },
+    {
+      "path": "src/core/failure/index.ts",
+      "accessCount": 77,
+      "lastAccessed": 1780623469517,
+      "type": "file"
+    },
+    {
+      "path": "src/core/graph/tree.ts",
+      "accessCount": 75,
+      "lastAccessed": 1780623606910,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/lsp-utils.ts",
+      "accessCount": 75,
+      "lastAccessed": 1780624158481,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/websearch.ts",
+      "accessCount": 74,
+      "lastAccessed": 1780624128656,
+      "type": "file"
+    },
+    {
+      "path": "src/config/lsp-status.ts",
+      "accessCount": 73,
+      "lastAccessed": 1780623613282,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/webfetch.ts",
       "accessCount": 72,
-      "lastAccessed": 1780585062405,
+      "lastAccessed": 1780624129957,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/complete.ts",
+      "accessCount": 71,
+      "lastAccessed": 1780623531564,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/executor.ts",
+      "accessCount": 71,
+      "lastAccessed": 1780623537284,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/locator.ts",
+      "accessCount": 71,
+      "lastAccessed": 1780623537927,
+      "type": "file"
+    },
+    {
+      "path": "src/core/heavy/deliberator.ts",
+      "accessCount": 71,
+      "lastAccessed": 1780623547475,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/memory-search.ts",
+      "accessCount": 71,
+      "lastAccessed": 1780624129039,
+      "type": "file"
+    },
+    {
+      "path": "src/config/loader.ts",
+      "accessCount": 69,
+      "lastAccessed": 1780624158878,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/safety/index.ts",
+      "accessCount": 68,
+      "lastAccessed": 1780623588669,
+      "type": "file"
+    },
+    {
+      "path": "src/tool/safety/line-limits.ts",
+      "accessCount": 68,
+      "lastAccessed": 1780623589166,
+      "type": "file"
+    },
+    {
+      "path": "src/config/defaults.ts",
+      "accessCount": 67,
+      "lastAccessed": 1780623612062,
+      "type": "file"
+    },
+    {
+      "path": "src/core/memory/retrieval.ts",
+      "accessCount": 67,
+      "lastAccessed": 1780624152066,
+      "type": "file"
+    },
+    {
+      "path": "src/config/index.ts",
+      "accessCount": 65,
+      "lastAccessed": 1780623612479,
+      "type": "file"
+    },
+    {
+      "path": "src/config/types.ts",
+      "accessCount": 65,
+      "lastAccessed": 1780623635191,
+      "type": "file"
+    },
+    {
+      "path": "src/core/memory/episode.ts",
+      "accessCount": 63,
+      "lastAccessed": 1780624151543,
+      "type": "file"
+    },
+    {
+      "path": "src/core/memory/db.ts",
+      "accessCount": 62,
+      "lastAccessed": 1780623590198,
+      "type": "file"
+    },
+    {
+      "path": "src/core/memory/summarizer.ts",
+      "accessCount": 62,
+      "lastAccessed": 1780624152523,
+      "type": "file"
+    },
+    {
+      "path": "src/core/memory/extractor.ts",
+      "accessCount": 58,
+      "lastAccessed": 1780623596001,
       "type": "file"
     },
     {
@@ -162,279 +414,27 @@
       "type": "file"
     },
     {
-      "path": "src/core/session/store.ts",
-      "accessCount": 32,
-      "lastAccessed": 1780585008192,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/lsp.ts",
-      "accessCount": 31,
-      "lastAccessed": 1780585065315,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/safety/checkpoint.ts",
-      "accessCount": 25,
-      "lastAccessed": 1780583847681,
-      "type": "file"
-    },
-    {
-      "path": "src/provider/model-info.ts",
-      "accessCount": 20,
-      "lastAccessed": 1780583089922,
-      "type": "file"
-    },
-    {
-      "path": "src/core/session/index.ts",
-      "accessCount": 16,
-      "lastAccessed": 1780583826572,
-      "type": "file"
-    },
-    {
-      "path": "src/core/agent/types.ts",
-      "accessCount": 15,
-      "lastAccessed": 1780583984941,
-      "type": "file"
-    },
-    {
-      "path": "src/core/graph/retriever.ts",
-      "accessCount": 14,
-      "lastAccessed": 1780583811473,
-      "type": "file"
-    },
-    {
-      "path": "src/core/compaction/index.ts",
-      "accessCount": 14,
-      "lastAccessed": 1780585063874,
-      "type": "file"
-    },
-    {
-      "path": "src/core/memory/retrieval.ts",
-      "accessCount": 13,
-      "lastAccessed": 1780583823099,
-      "type": "file"
-    },
-    {
-      "path": "src/core/graph/tree.ts",
-      "accessCount": 11,
-      "lastAccessed": 1780583955299,
-      "type": "file"
-    },
-    {
-      "path": "src/core/memory/db.ts",
-      "accessCount": 10,
-      "lastAccessed": 1780565626308,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/websearch.ts",
-      "accessCount": 10,
-      "lastAccessed": 1780583114418,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/executor.ts",
-      "accessCount": 9,
-      "lastAccessed": 1780563509999,
-      "type": "file"
-    },
-    {
-      "path": "src/core/memory/episode.ts",
-      "accessCount": 9,
-      "lastAccessed": 1780565257849,
-      "type": "file"
-    },
-    {
-      "path": "src/cli.ts",
-      "accessCount": 9,
-      "lastAccessed": 1780583838915,
-      "type": "file"
-    },
-    {
-      "path": "src/core/failure/handler.ts",
-      "accessCount": 8,
-      "lastAccessed": 1780563490990,
-      "type": "file"
-    },
-    {
-      "path": "src/core/cognitive/index.ts",
-      "accessCount": 8,
-      "lastAccessed": 1780563513476,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/safety/post-check.ts",
-      "accessCount": 8,
-      "lastAccessed": 1780563550424,
-      "type": "file"
-    },
-    {
-      "path": "src/core/failure/strategies.ts",
-      "accessCount": 8,
-      "lastAccessed": 1780563635435,
-      "type": "file"
-    },
-    {
-      "path": "src/tui/setup.ts",
-      "accessCount": 8,
-      "lastAccessed": 1780563674522,
-      "type": "file"
-    },
-    {
       "path": "src/core/memory/index.ts",
-      "accessCount": 7,
-      "lastAccessed": 1780563421773,
-      "type": "file"
-    },
-    {
-      "path": "src/core/heavy/deliberator.ts",
-      "accessCount": 7,
-      "lastAccessed": 1780563490085,
-      "type": "file"
-    },
-    {
-      "path": "src/tui/metrics.ts",
-      "accessCount": 7,
-      "lastAccessed": 1780563494832,
-      "type": "file"
-    },
-    {
-      "path": "src/core/graph/locator.ts",
-      "accessCount": 7,
-      "lastAccessed": 1780563565718,
-      "type": "file"
-    },
-    {
-      "path": "src/core/memory/summarizer.ts",
-      "accessCount": 7,
-      "lastAccessed": 1780563630637,
-      "type": "file"
-    },
-    {
-      "path": "src/config/loader.ts",
-      "accessCount": 7,
-      "lastAccessed": 1780583789409,
-      "type": "file"
-    },
-    {
-      "path": "src/core/agent/context.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563360078,
+      "accessCount": 57,
+      "lastAccessed": 1780623596874,
       "type": "file"
     },
     {
       "path": "src/core/memory/semantic.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563376702,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/safety/index.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563393897,
-      "type": "file"
-    },
-    {
-      "path": "src/tui/theme.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563408816,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/webfetch.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563486757,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/complete.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563495645,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/locator.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563496503,
-      "type": "file"
-    },
-    {
-      "path": "src/core/memory/extractor.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780563576394,
-      "type": "file"
-    },
-    {
-      "path": "src/config/index.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780583783559,
-      "type": "file"
-    },
-    {
-      "path": "src/config/types.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780583790424,
-      "type": "file"
-    },
-    {
-      "path": "src/config/defaults.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780583790458,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/lsp-utils.ts",
-      "accessCount": 6,
-      "lastAccessed": 1780583827252,
-      "type": "file"
-    },
-    {
-      "path": "src/config/lsp-status.ts",
-      "accessCount": 5,
-      "lastAccessed": 1780563293472,
-      "type": "file"
-    },
-    {
-      "path": "src/core/failure/types.ts",
-      "accessCount": 5,
-      "lastAccessed": 1780563320440,
+      "accessCount": 57,
+      "lastAccessed": 1780623597684,
       "type": "file"
     },
     {
       "path": "src/core/memory/types.ts",
-      "accessCount": 5,
-      "lastAccessed": 1780563377605,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/safety/line-limits.ts",
-      "accessCount": 5,
-      "lastAccessed": 1780563393514,
-      "type": "file"
-    },
-    {
-      "path": "src/tool/memory-search.ts",
-      "accessCount": 5,
-      "lastAccessed": 1780563395100,
-      "type": "file"
-    },
-    {
-      "path": "src/tui/index.ts",
-      "accessCount": 5,
-      "lastAccessed": 1780563409607,
-      "type": "file"
-    },
-    {
-      "path": "src/core/failure/index.ts",
-      "accessCount": 4,
-      "lastAccessed": 1780561428212,
+      "accessCount": 56,
+      "lastAccessed": 1780623604781,
       "type": "file"
     },
     {
       "path": "AGENTS.md",
-      "accessCount": 1,
-      "lastAccessed": 1780561326257,
+      "accessCount": 4,
+      "lastAccessed": 1780586580774,
       "type": "file"
     }
   ],
