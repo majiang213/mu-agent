@@ -200,7 +200,7 @@ export function subscribeStepEvents(
       ) {
         const checkpoint = cfg.safeModifier.getCheckpoint(filePath);
         const originalContent = checkpoint?.originalContent ?? '';
-        Promise.all([
+        void Promise.all([
           syntaxCheckHook.check(filePath, originalContent),
           damageCheckHook.check(filePath, originalContent),
         ])

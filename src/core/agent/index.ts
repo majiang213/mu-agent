@@ -276,10 +276,19 @@ export class ReactAgent {
             break;
           }
           noVerifyRetried = true;
+          // Build enriched history with accumulated step results so retry has context.
+          const retryHistory: AgentMessage[] = [
+            ...conversationHistory,
+            {
+              role: 'user' as const,
+              content: `Previous steps attempted:\n${allStepResults.map((s, i) => `${i + 1}. [${s.state}] ${s.focus}: ${typeof s.output === 'string' ? s.output.slice(0, 200) : JSON.stringify(s.output).slice(0, 200)}`).join('\n')}`,
+              timestamp: Date.now(),
+            },
+          ];
           const { steps: retrySteps } = await runReasonStep(
             mission,
             cfg,
-            conversationHistory,
+            retryHistory,
             onEvent,
             clarifyCallback,
             memoryIndex,

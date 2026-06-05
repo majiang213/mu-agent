@@ -58,21 +58,24 @@ export function writeEpisodeSync(
     ).run(episodeId, Math.floor(Date.now() / 1000));
 
     for (const entity of entities) {
-      const entityId = randomUUID();
-      db.prepare(
-        `
-        INSERT OR IGNORE INTO entities (id, project_root, type, name) VALUES (?,?,?,?)
-      `,
-      ).run(entityId, projectRoot, entity.type, entity.name);
+      // INSERT OR IGNORE: if entity already exists the provided entityId is discarded.
+      // Always SELECT after to get the actual persisted id.
+      const newEntityId = randomUUID();
+      db.prepare(`INSERT OR IGNORE INTO entities (id, project_root, type, name) VALUES (?,?,?,?)`).run(
+        newEntityId,
+        projectRoot,
+        entity.type,
+        entity.name,
+      );
       const existing = db
         .prepare(`SELECT id FROM entities WHERE project_root=? AND type=? AND name=?`)
         .get(projectRoot, entity.type, entity.name) as { id: string } | undefined;
       if (existing) {
-        db.prepare(
-          `
-          INSERT OR IGNORE INTO episode_entities (episode_id, entity_id, role) VALUES (?,?,?)
-        `,
-        ).run(episodeId, existing.id, entity.role);
+        db.prepare(`INSERT OR IGNORE INTO episode_entities (episode_id, entity_id, role) VALUES (?,?,?)`).run(
+          episodeId,
+          existing.id,
+          entity.role,
+        );
       }
     }
 

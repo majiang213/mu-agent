@@ -175,10 +175,11 @@ export async function runStepAgent(
       const recovery = await failureHandler.handleFailure(failureCtx);
       if (recovery.action === 'abort') return;
       const localTemp = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
-      cfg = { ...cfg, temperature: localTemp };
+      const retryCfg = { ...cfg, temperature: localTemp };
       stagnationDetector.reset();
-      cfg.stateMachine.resetForRetry();
-      cfg.safeModifier.clearAll();
+      retryCfg.stateMachine.resetForRetry();
+      retryCfg.safeModifier.clearAll();
+      cfg = retryCfg;
     }
     attempt++;
   }

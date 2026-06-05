@@ -57,6 +57,7 @@ function parseEntries(filePath: string): SessionEntry[] {
 
 export class SessionStore {
   private _isEmpty = true;
+  private _writeQueue: Promise<void> = Promise.resolve();
 
   private constructor(
     readonly filePath: string,
@@ -92,19 +93,22 @@ export class SessionStore {
     return listSessions(dir);
   }
 
-  async append(msg: SessionMessage): Promise<void> {
-    if (this._isEmpty) {
-      const header: SessionHeader = {
-        type: 'header',
-        cwd: this.projectRoot,
-        created: Date.now(),
-        version: 1,
-      };
-      await writeFile(this.filePath, `${JSON.stringify(header)}\n${JSON.stringify(msg)}\n`);
-      this._isEmpty = false;
-      return;
-    }
-    await appendFile(this.filePath, `${JSON.stringify(msg)}\n`);
+  append(msg: SessionMessage): Promise<void> {
+    this._writeQueue = this._writeQueue.then(async () => {
+      if (this._isEmpty) {
+        const header: SessionHeader = {
+          type: 'header',
+          cwd: this.projectRoot,
+          created: Date.now(),
+          version: 1,
+        };
+        await writeFile(this.filePath, `${JSON.stringify(header)}\n${JSON.stringify(msg)}\n`);
+        this._isEmpty = false;
+        return;
+      }
+      await appendFile(this.filePath, `${JSON.stringify(msg)}\n`);
+    });
+    return this._writeQueue;
   }
 
   load(): AgentMessage[] {

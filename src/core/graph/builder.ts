@@ -118,33 +118,36 @@ export class GraphBuilder {
     let nodeCount = 0;
     let edgeCount = 0;
 
-    const doRebuild = db.transaction(() => {
-      db.prepare('DELETE FROM edges WHERE project_root=?').run(this.projectRoot);
-      db.prepare('DELETE FROM nodes WHERE project_root=?').run(this.projectRoot);
-      for (const file of files) {
-        try {
-          const [n, e] = this.parseFile(db, file);
-          nodeCount += n;
-          edgeCount += e;
-        } catch {
-          continue;
+    try {
+      const doRebuild = db.transaction(() => {
+        db.prepare('DELETE FROM edges WHERE project_root=?').run(this.projectRoot);
+        db.prepare('DELETE FROM nodes WHERE project_root=?').run(this.projectRoot);
+        for (const file of files) {
+          try {
+            const [n, e] = this.parseFile(db, file);
+            nodeCount += n;
+            edgeCount += e;
+          } catch {
+            continue;
+          }
         }
-      }
-    });
-    doRebuild();
+      });
+      doRebuild();
 
-    const elapsedMs = Date.now() - t0;
-    const currentCommit = this.getCurrentCommit();
+      const elapsedMs = Date.now() - t0;
+      const currentCommit = this.getCurrentCommit();
 
-    db.prepare(
-      `
-      INSERT OR REPLACE INTO graph_meta (project_root, last_built, last_commit, node_count, edge_count, build_time_ms)
-      VALUES (?, datetime('now'), ?, ?, ?, ?)
-    `,
-    ).run(this.projectRoot, currentCommit ?? '', nodeCount, edgeCount, elapsedMs);
+      db.prepare(
+        `
+        INSERT OR REPLACE INTO graph_meta (project_root, last_built, last_commit, node_count, edge_count, build_time_ms)
+        VALUES (?, datetime('now'), ?, ?, ?, ?)
+      `,
+      ).run(this.projectRoot, currentCommit ?? '', nodeCount, edgeCount, elapsedMs);
 
-    db.close();
-    return { nodeCount, edgeCount, fileCount: files.length, elapsedMs };
+      return { nodeCount, edgeCount, fileCount: files.length, elapsedMs };
+    } finally {
+      db.close();
+    }
   }
 
   updateFiles(filePaths: string[]): void {

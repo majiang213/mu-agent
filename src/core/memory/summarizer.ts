@@ -119,8 +119,13 @@ export async function processPendingSummaries(
         db.prepare(`DELETE FROM pending_summaries WHERE episode_id = ?`).run(row.episode_id);
       });
       txn();
-    } catch {
-      /* single failure does not affect others */
+    } catch (err) {
+      console.warn(
+        '[summarizer] Failed to process episode',
+        row.episode_id,
+        ':',
+        err instanceof Error ? err.message : String(err),
+      );
     }
   }
 

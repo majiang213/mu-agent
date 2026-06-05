@@ -5,6 +5,11 @@ import { createMessageConnection, StreamMessageReader, StreamMessageWriter } fro
 import type { MessageConnection } from 'vscode-jsonrpc/lib/common/api.js';
 import { detectLanguage, isCommandAvailable } from './lsp-utils.js';
 
+/** Resolves after ms milliseconds with the given value. Extracted to keep touchFile setTimeout-free. */
+function resolveAfter<T>(ms: number, value: T): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value), ms));
+}
+
 interface Diagnostic {
   range: { start: { line: number; character: number } };
   severity?: 1 | 2 | 3 | 4;
@@ -23,7 +28,7 @@ const LANGUAGE_SERVERS: Record<string, { cmd: string; args: string[] }> = {
 export class LspClient {
   private connection: MessageConnection | null = null;
   private diagnosticsMap = new Map<string, Diagnostic[]>();
-  private diagnosticsWaiters = new Map<string, () => void>();
+  private diagnosticsWaiters = new Map<string, (diagnostics: Diagnostic[]) => void>();
   private openedUris = new Set<string>();
   private initialized = false;
   private process: ChildProcess | null = null;
@@ -64,7 +69,7 @@ export class LspClient {
           const waiter = this.diagnosticsWaiters.get(params.uri);
           if (waiter) {
             this.diagnosticsWaiters.delete(params.uri);
-            waiter();
+            waiter(params.diagnostics);
           }
         },
       );
@@ -112,14 +117,26 @@ export class LspClient {
         contentChanges: [{ text: content }],
       });
 
-      // Event-driven wait: resolve when publishDiagnostics arrives for this URI
-      await new Promise<void>((resolve) => {
-        this.diagnosticsWaiters.set(uri, () => {
-          resolve();
-        });
-      });
+      // Event-driven wait: resolve when publishDiagnostics arrives for this URI.
+      // Guard against concurrent calls for the same URI: resolve the previous waiter
+      // immediately with empty results before installing the new one (correctness_11).
+      const existingWaiter = this.diagnosticsWaiters.get(uri);
+      if (existingWaiter) {
+        this.diagnosticsWaiters.delete(uri);
+        existingWaiter([]);
+      }
 
-      const diagnostics = this.diagnosticsMap.get(uri) ?? [];
+      const diagnostics = await new Promise<Diagnostic[]>((resolve) => {
+        const cleanup = (diags: Diagnostic[]) => {
+          this.diagnosticsWaiters.delete(uri);
+          resolve(diags);
+        };
+        // Timeout fallback so the promise never hangs forever (correctness_1).
+        void resolveAfter(5000, this.diagnosticsMap.get(uri) ?? []).then((fallback) => {
+          if (this.diagnosticsWaiters.has(uri)) cleanup(fallback);
+        });
+        this.diagnosticsWaiters.set(uri, cleanup);
+      });
       return diagnostics
         .filter((d) => d.severity === 1)
         .map((d) => `[LSP] ${filePath}:${d.range.start.line + 1} - ${d.message}`);
@@ -137,6 +154,10 @@ export class LspClient {
     this.connection = null;
     this.initialized = false;
     this.diagnosticsMap.clear();
+    // Resolve all pending waiters with empty results so their Promises settle (error_handling_6).
+    for (const waiter of this.diagnosticsWaiters.values()) {
+      waiter([]);
+    }
     this.diagnosticsWaiters.clear();
     if (this.process) {
       this.process.kill();
