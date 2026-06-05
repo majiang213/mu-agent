@@ -28,6 +28,13 @@ export class GraphRetriever {
     this.projectRoot = resolve(projectRoot);
   }
 
+  close(): void {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+  }
+
   private getDb(): Database.Database {
     if (!this.db) {
       this.db = new Database(getDbPath(this.projectRoot), { readonly: true });
@@ -206,9 +213,10 @@ export class GraphRetriever {
         });
       }
       this.bm25BuiltAt = Date.now();
-    } catch {
-      // Do not cache empty results — leave bm25BuiltAt unchanged so retry occurs next call
-      this.bm25Index = new Map();
+    } catch (err) {
+      console.warn('[graph] ensureBM25 error:', err instanceof Error ? err.message : String(err));
+      this.bm25Index = null;
+      this.bm25BuiltAt = 0;
     }
   }
 }

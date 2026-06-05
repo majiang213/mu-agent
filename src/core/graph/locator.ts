@@ -74,7 +74,8 @@ export class CodeGraphLocator {
     }
 
     for (const [filePath, ranges] of byFile) {
-      const absPath = join(this.projectRoot, filePath);
+      const absPath = resolve(join(this.projectRoot, filePath));
+      if (!absPath.startsWith(this.projectRoot + '/') && absPath !== this.projectRoot) continue;
       try {
         const lines = readFileSync(absPath, 'utf-8').split('\n');
         const parts: string[] = [];

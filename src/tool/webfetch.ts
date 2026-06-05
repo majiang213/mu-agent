@@ -5,7 +5,34 @@ import type { AgentTool } from '@mariozechner/pi-agent-core';
 
 const MAX_CONTENT_LENGTH = 32000;
 
+function validateUrl(urlString: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlString);
+  } catch {
+    throw new Error(`Invalid URL: ${urlString}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Unsupported URL protocol: ${parsed.protocol}. Only http: and https: are allowed.`);
+  }
+  const hostname = parsed.hostname;
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '0.0.0.0' ||
+    /^10\./.test(hostname) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+    /^192\.168\./.test(hostname) ||
+    /^169\.254\./.test(hostname)
+  ) {
+    throw new Error(`Refusing to fetch private/local address: ${hostname}`);
+  }
+  return parsed;
+}
+
 async function fetchUrl(url: string, format: 'markdown' | 'text' | 'html'): Promise<string> {
+  validateUrl(url);
   const response = await fetch(url, {
     headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
     signal: AbortSignal.timeout(15000),

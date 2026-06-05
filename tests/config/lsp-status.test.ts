@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 vi.mock('node:child_process', () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -54,16 +54,16 @@ describe('isLspCommandAvailable', () => {
     vi.clearAllMocks();
   });
 
-  it('returns true when execSync succeeds', async () => {
-    const { execSync } = await import('node:child_process');
-    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+  it('returns true when execFileSync succeeds', async () => {
+    const { execFileSync } = await import('node:child_process');
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(''));
     const { isLspCommandAvailable } = await import('../../src/config/lsp-status.js');
     expect(isLspCommandAvailable('typescript-language-server')).toBe(true);
   });
 
-  it('returns false when execSync throws', async () => {
-    const { execSync } = await import('node:child_process');
-    vi.mocked(execSync).mockImplementation(() => {
+  it('returns false when execFileSync throws', async () => {
+    const { execFileSync } = await import('node:child_process');
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('not found');
     });
     const { isLspCommandAvailable } = await import('../../src/config/lsp-status.js');
@@ -89,9 +89,9 @@ describe('getLspStatus', () => {
 
   it('returns active when typescript server is installed', async () => {
     const { existsSync } = await import('node:fs');
-    const { execSync } = await import('node:child_process');
+    const { execFileSync } = await import('node:child_process');
     vi.mocked(existsSync).mockImplementation((p) => String(p).endsWith('tsconfig.json'));
-    vi.mocked(execSync).mockReturnValue(Buffer.from(''));
+    vi.mocked(execFileSync).mockReturnValue(Buffer.from(''));
     const { getLspStatus } = await import('../../src/config/lsp-status.js');
     const status = getLspStatus('/project');
     expect(status.status).toBe('active');
@@ -102,9 +102,9 @@ describe('getLspStatus', () => {
 
   it('returns not_installed with install command when server missing', async () => {
     const { existsSync } = await import('node:fs');
-    const { execSync } = await import('node:child_process');
+    const { execFileSync } = await import('node:child_process');
     vi.mocked(existsSync).mockImplementation((p) => String(p).endsWith('tsconfig.json'));
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('not found');
     });
     const { getLspStatus } = await import('../../src/config/lsp-status.js');
@@ -115,9 +115,9 @@ describe('getLspStatus', () => {
 
   it('detects go and returns correct server', async () => {
     const { existsSync } = await import('node:fs');
-    const { execSync } = await import('node:child_process');
+    const { execFileSync } = await import('node:child_process');
     vi.mocked(existsSync).mockImplementation((p) => String(p).endsWith('go.mod'));
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('not found');
     });
     const { getLspStatus } = await import('../../src/config/lsp-status.js');

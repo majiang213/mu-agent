@@ -51,7 +51,7 @@ class HintLine implements Component {
       C.hintKey('Ctrl+O') +
       C.dim(' 工具') +
       '   ' +
-      C.hintKey('d') +
+      C.hintKey('Ctrl+D') +
       debugLabel;
     return [truncateToWidth(line, width)];
   }
@@ -693,7 +693,6 @@ export class TuiApp {
       if (data === '\x1b') {
         if (this.currentAgent) {
           this.currentAgent.abort();
-          this.currentAgent = null;
         }
         return { consume: true };
       }
@@ -715,7 +714,7 @@ export class TuiApp {
         }
         return { consume: true };
       }
-      if (data === 'd' || data === 'D') {
+      if (matchesKey(data, 'ctrl+d')) {
         this.debugMode = !this.debugMode;
         this.hintLine.setDebugMode(this.debugMode);
         for (const b of this.allDebugBlocks) {
@@ -1013,25 +1012,45 @@ export class TuiApp {
       const assistantPrefix = '[Assistant]: ';
       const ts = Date.now();
       const userMsg = { role: 'user' as const, content: input, timestamp: ts };
-      this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
-      await this.sessionStore.append({ type: 'message', ...userMsg });
-      if (display) {
-        const assistantMsg = { role: 'assistant' as const, content: `${assistantPrefix}${display}`, timestamp: ts + 1 };
-        this.conversationHistory.push(assistantMsg as unknown as import('@mariozechner/pi-agent-core').AgentMessage);
-        await this.sessionStore.append({ type: 'message', ...assistantMsg });
+      try {
+        this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+        await this.sessionStore.append({ type: 'message', ...userMsg });
+        if (display) {
+          const assistantMsg = {
+            role: 'assistant' as const,
+            content: `${assistantPrefix}${display}`,
+            timestamp: ts + 1,
+          };
+          this.conversationHistory.push(assistantMsg as unknown as import('@mariozechner/pi-agent-core').AgentMessage);
+          await this.sessionStore.append({ type: 'message', ...assistantMsg });
+        }
+      } catch (persistErr) {
+        console.error('[TuiApp] session persistence failed:', persistErr);
       }
     } catch (err) {
-      loader.stop();
-      this.tui.removeChild(loader);
-      const samplingBlock = this.currentSamplingBlock;
-      if (samplingBlock) {
-        this.tui.removeChild(samplingBlock);
-        this.currentSamplingBlock = null;
+      try {
+        loader.stop();
+        this.tui.removeChild(loader);
+      } catch {
+        /* cleanup best-effort */
       }
-      const ts = Date.now();
-      const userMsg = { role: 'user' as const, content: input, timestamp: ts };
-      this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
-      await this.sessionStore.append({ type: 'message', ...userMsg });
+      try {
+        const samplingBlock = this.currentSamplingBlock;
+        if (samplingBlock) {
+          this.tui.removeChild(samplingBlock);
+          this.currentSamplingBlock = null;
+        }
+      } catch {
+        /* cleanup best-effort */
+      }
+      try {
+        const ts = Date.now();
+        const userMsg = { role: 'user' as const, content: input, timestamp: ts };
+        this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+        await this.sessionStore.append({ type: 'message', ...userMsg });
+      } catch (persistErr) {
+        console.error('[TuiApp] session persistence failed in catch:', persistErr);
+      }
       const isAbort =
         err instanceof Error &&
         (err.name === 'AbortError' || err.message.includes('abort') || err.message.includes('Abort'));

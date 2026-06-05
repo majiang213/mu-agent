@@ -1,6 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { appendFile } from 'node:fs/promises';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import type { AgentMessage } from '@mariozechner/pi-agent-core';
 
 export interface SessionHeader {
@@ -34,7 +35,9 @@ function getSessionsDir(projectRoot: string): string {
 }
 
 function formatTimestamp(ts: number): string {
-  return new Date(ts).toISOString().slice(0, 19).replace(/:/g, '-').replace(' ', 'T') + 'Z';
+  const tsStr = new Date(ts).toISOString().slice(0, 19).replace(/:/g, '-').replace(' ', 'T') + 'Z';
+  const suffix = randomBytes(4).toString('hex');
+  return `${tsStr}_${suffix}`;
 }
 
 function parseEntries(filePath: string): SessionEntry[] {
@@ -97,28 +100,33 @@ export class SessionStore {
         created: Date.now(),
         version: 1,
       };
-      writeFileSync(this.filePath, `${JSON.stringify(header)}\n`);
+      await writeFile(this.filePath, `${JSON.stringify(header)}\n${JSON.stringify(msg)}\n`);
       this._isEmpty = false;
+      return;
     }
     await appendFile(this.filePath, `${JSON.stringify(msg)}\n`);
   }
 
   load(): AgentMessage[] {
-    const entries = parseEntries(this.filePath);
-    const header = entries.find((e): e is SessionHeader => e.type === 'header');
-    if (header && header.version !== undefined && header.version !== 1) {
-      console.warn('[session] Schema version:', header.version, '(current: 1)');
+    try {
+      const entries = parseEntries(this.filePath);
+      const header = entries.find((e): e is SessionHeader => e.type === 'header');
+      if (header && header.version !== undefined && header.version !== 1) {
+        console.warn('[session] Schema version:', header.version, '(current: 1)');
+      }
+      return entries
+        .filter((e): e is SessionMessage => e.type === 'message')
+        .map(
+          (e) =>
+            ({
+              role: e.role,
+              content: e.content,
+              timestamp: e.timestamp,
+            }) as AgentMessage,
+        );
+    } catch {
+      return [];
     }
-    return entries
-      .filter((e): e is SessionMessage => e.type === 'message')
-      .map(
-        (e) =>
-          ({
-            role: 'user',
-            content: e.content,
-            timestamp: e.timestamp,
-          }) as AgentMessage,
-      );
   }
 }
 

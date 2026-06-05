@@ -89,33 +89,36 @@ export async function processPendingSummaries(
         }
       })();
 
-      db.prepare(
-        `
-        UPDATE episodes SET description = ?, keywords = ?, is_summarized = 1
-        WHERE id = ?
-      `,
-      ).run(summary.description, JSON.stringify(summary.keywords), row.episode_id);
+      const txn = db.transaction(() => {
+        db.prepare(
+          `
+          UPDATE episodes SET description = ?, keywords = ?, is_summarized = 1
+          WHERE id = ?
+        `,
+        ).run(summary.description, JSON.stringify(summary.keywords), row.episode_id);
 
-      const ep = db.prepare(`SELECT rowid, user_input FROM episodes WHERE id = ?`).get(row.episode_id) as
-        | { rowid: number; user_input: string }
-        | undefined;
-      if (ep) {
-        const newContent = [
-          ep.user_input,
-          summary.description,
-          summary.keywords.join(' '),
-          structuredSummary?.key_finding ?? '',
-          (structuredSummary?.files ?? []).join(' '),
-        ].join(' ');
-        db.prepare(`INSERT INTO episodes_fts(episodes_fts, rowid) VALUES('delete', ?)`).run(ep.rowid);
-        db.prepare(`INSERT INTO episodes_fts(rowid, user_input, searchable_content) VALUES(?,?,?)`).run(
-          ep.rowid,
-          ep.user_input,
-          newContent,
-        );
-      }
+        const ep = db.prepare(`SELECT rowid, user_input FROM episodes WHERE id = ?`).get(row.episode_id) as
+          | { rowid: number; user_input: string }
+          | undefined;
+        if (ep) {
+          const newContent = [
+            ep.user_input,
+            summary.description,
+            summary.keywords.join(' '),
+            structuredSummary?.key_finding ?? '',
+            (structuredSummary?.files ?? []).join(' '),
+          ].join(' ');
+          db.prepare(`INSERT INTO episodes_fts(episodes_fts, rowid) VALUES('delete', ?)`).run(ep.rowid);
+          db.prepare(`INSERT INTO episodes_fts(rowid, user_input, searchable_content) VALUES(?,?,?)`).run(
+            ep.rowid,
+            ep.user_input,
+            newContent,
+          );
+        }
 
-      db.prepare(`DELETE FROM pending_summaries WHERE episode_id = ?`).run(row.episode_id);
+        db.prepare(`DELETE FROM pending_summaries WHERE episode_id = ?`).run(row.episode_id);
+      });
+      txn();
     } catch {
       /* single failure does not affect others */
     }

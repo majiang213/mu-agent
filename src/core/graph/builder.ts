@@ -43,42 +43,47 @@ function getDb(projectRoot: string): Database.Database {
   const dbPath = getDbPath(projectRoot);
   mkdirSync(join(projectRoot, DB_DIRNAME), { recursive: true });
   const db = new Database(dbPath);
-  db.pragma('journal_mode = WAL');
-  db.pragma('synchronous = NORMAL');
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS nodes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      start_line INTEGER,
-      end_line INTEGER,
-      node_type TEXT DEFAULT 'function',
-      search_text TEXT,
-      project_root TEXT NOT NULL,
-      UNIQUE(name, file_path, project_root)
-    );
-    CREATE TABLE IF NOT EXISTS edges (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      from_id INTEGER NOT NULL REFERENCES nodes(id),
-      to_id INTEGER NOT NULL REFERENCES nodes(id),
-      edge_type TEXT NOT NULL DEFAULT 'CALLS',
-      project_root TEXT NOT NULL,
-      UNIQUE(from_id, to_id, edge_type)
-    );
-    CREATE TABLE IF NOT EXISTS graph_meta (
-      project_root TEXT PRIMARY KEY,
-      last_built TEXT,
-      last_commit TEXT,
-      node_count INTEGER,
-      edge_count INTEGER,
-      build_time_ms INTEGER
-    );
-    CREATE INDEX IF NOT EXISTS idx_nodes_project ON nodes(project_root);
-    CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path, project_root);
-    CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name, project_root);
-    CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
-    CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
-  `);
+  try {
+    db.pragma('journal_mode = WAL');
+    db.pragma('synchronous = NORMAL');
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS nodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        start_line INTEGER,
+        end_line INTEGER,
+        node_type TEXT DEFAULT 'function',
+        search_text TEXT,
+        project_root TEXT NOT NULL,
+        UNIQUE(name, file_path, project_root)
+      );
+      CREATE TABLE IF NOT EXISTS edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        from_id INTEGER NOT NULL REFERENCES nodes(id),
+        to_id INTEGER NOT NULL REFERENCES nodes(id),
+        edge_type TEXT NOT NULL DEFAULT 'CALLS',
+        project_root TEXT NOT NULL,
+        UNIQUE(from_id, to_id, edge_type)
+      );
+      CREATE TABLE IF NOT EXISTS graph_meta (
+        project_root TEXT PRIMARY KEY,
+        last_built TEXT,
+        last_commit TEXT,
+        node_count INTEGER,
+        edge_count INTEGER,
+        build_time_ms INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_nodes_project ON nodes(project_root);
+      CREATE INDEX IF NOT EXISTS idx_nodes_file ON nodes(file_path, project_root);
+      CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(name, project_root);
+      CREATE INDEX IF NOT EXISTS idx_edges_from ON edges(from_id);
+      CREATE INDEX IF NOT EXISTS idx_edges_to ON edges(to_id);
+    `);
+  } catch (err) {
+    db.close();
+    throw err;
+  }
   return db;
 }
 
@@ -143,30 +148,41 @@ export class GraphBuilder {
   }
 
   updateFiles(filePaths: string[]): void {
+    const resolvedRoot = this.projectRoot;
+    const validatedPaths = filePaths.filter((fp) => {
+      const resolved = resolve(fp);
+      return resolved.startsWith(resolvedRoot + '/') || resolved === resolvedRoot;
+    });
     const db = getDb(this.projectRoot);
-    for (const filePath of filePaths) {
-      const relPath = relative(this.projectRoot, filePath).replace(/\\/g, '/');
-      const oldIds = (
-        db.prepare('SELECT id FROM nodes WHERE file_path=? AND project_root=?').all(relPath, this.projectRoot) as {
-          id: number;
-        }[]
-      ).map((r) => r.id);
-      if (oldIds.length > 0) {
-        const ph = oldIds.map(() => '?').join(',');
-        db.prepare(`DELETE FROM edges WHERE (from_id IN (${ph}) OR to_id IN (${ph})) AND project_root=?`).run(
-          ...oldIds,
-          ...oldIds,
-          this.projectRoot,
-        );
-        db.prepare(`DELETE FROM nodes WHERE id IN (${ph})`).run(...oldIds);
-      }
-      try {
-        this.parseFile(db, filePath);
-      } catch {
-        continue;
-      }
+    try {
+      const doUpdate = db.transaction(() => {
+        for (const filePath of validatedPaths) {
+          const relPath = relative(this.projectRoot, filePath).replace(/\\/g, '/');
+          const oldIds = (
+            db.prepare('SELECT id FROM nodes WHERE file_path=? AND project_root=?').all(relPath, this.projectRoot) as {
+              id: number;
+            }[]
+          ).map((r) => r.id);
+          if (oldIds.length > 0) {
+            const ph = oldIds.map(() => '?').join(',');
+            db.prepare(`DELETE FROM edges WHERE (from_id IN (${ph}) OR to_id IN (${ph})) AND project_root=?`).run(
+              ...oldIds,
+              ...oldIds,
+              this.projectRoot,
+            );
+            db.prepare(`DELETE FROM nodes WHERE id IN (${ph})`).run(...oldIds);
+          }
+          try {
+            this.parseFile(db, filePath);
+          } catch {
+            continue;
+          }
+        }
+      });
+      doUpdate();
+    } finally {
+      db.close();
     }
-    db.close();
   }
 
   private parseFile(db: Database.Database, filePath: string): [number, number] {

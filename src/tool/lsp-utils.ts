@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -14,7 +14,7 @@ export function detectLanguage(cwd: string): string | null {
 
 export function isCommandAvailable(cmd: string): boolean {
   try {
-    execSync(`which ${cmd}`, { stdio: 'ignore' });
+    execFileSync('which', [cmd], { stdio: 'ignore' });
     return true;
   } catch {
     return false;

@@ -16,11 +16,11 @@ export function findGitRoot(startDir: string): string {
 }
 
 export function initMemoryDb(gitRoot: string): Database.Database {
+  const dbDir = join(gitRoot, DB_DIRNAME);
+  mkdirSync(dbDir, { recursive: true });
+  const dbPath = join(dbDir, DB_FILENAME);
+  const db = new Database(dbPath);
   try {
-    const dbDir = join(gitRoot, DB_DIRNAME);
-    mkdirSync(dbDir, { recursive: true });
-    const dbPath = join(dbDir, DB_FILENAME);
-    const db = new Database(dbPath);
     db.pragma('journal_mode = WAL');
     db.pragma('synchronous = NORMAL');
     db.pragma('foreign_keys = ON');
@@ -32,6 +32,11 @@ export function initMemoryDb(gitRoot: string): Database.Database {
     }
     return db;
   } catch (err) {
+    try {
+      db.close();
+    } catch {
+      /* best-effort cleanup */
+    }
     throw new Error('[MemoryStore] SQLite init failed: ' + (err instanceof Error ? err.message : String(err)), {
       cause: err,
     });

@@ -89,11 +89,12 @@ export class ReactAgent {
     onEvent?: (event: ExecutionEvent) => void,
     initialMessages?: AgentMessage[],
   ): Promise<StateResult> {
-    const mission: Mission = {
+    const baseMission: Mission = {
       id: `task-${Date.now()}`,
       description: input,
       state: 'running',
     };
+    let mission = { ...baseMission };
 
     const contextRatio = config.model.contextRatio ?? DEFAULT_CONTEXT_RATIO;
     const [paramCount, model] = await Promise.all([
@@ -247,7 +248,7 @@ export class ReactAgent {
               messages: [],
             };
             this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
-            mission.state = 'failed';
+            mission = { ...mission, state: 'failed' as const };
             return failedResult;
           }
 
@@ -265,7 +266,7 @@ export class ReactAgent {
               messages: [],
             };
             this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
-            mission.state = 'failed';
+            mission = { ...mission, state: 'failed' as const };
             return failedResult;
           }
           if (verifySeen && !verifyFailed) break;
@@ -295,7 +296,7 @@ export class ReactAgent {
                 messages: [],
               };
               this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
-              mission.state = 'failed';
+              mission = { ...mission, state: 'failed' as const };
               return failedResult;
             }
             // Don't break yet — the current round's steps may contain VERIFY
@@ -387,7 +388,7 @@ export class ReactAgent {
         messages: [],
       };
       this._memoryStore?.writeEpisodeSync(mission, allStepResults, finalResult);
-      mission.state = 'completed';
+      mission = { ...mission, state: 'completed' as const };
       return finalResult;
     } catch (err) {
       const isAbort = err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'));
@@ -402,7 +403,6 @@ export class ReactAgent {
         };
         this._memoryStore?.writeEpisodeSync(mission, allStepResults, errResult);
       }
-      mission.state = 'failed';
       throw err;
     } finally {
       lspClient.dispose();

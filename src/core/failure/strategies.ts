@@ -7,7 +7,7 @@ import { type FailureContext, type RecoveryResult, type RecoveryStrategy } from 
 export const level1RetryStrategy: RecoveryStrategy = {
   level: 1,
   name: 'retry_with_adjustment',
-  canHandle: (ctx) => ctx.attempt < ctx.maxAttempts && ctx.type !== 'validation',
+  canHandle: (ctx) => ctx.attempt === 0 && ctx.type !== 'validation',
   execute: async (ctx): Promise<RecoveryResult> => {
     const backoffMs = Math.pow(2, ctx.attempt) * 1000;
     await setTimeout(backoffMs);

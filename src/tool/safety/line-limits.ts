@@ -69,13 +69,12 @@ export class LineLimitChecker {
     const functionPattern = /(?:function|const|let|var)\s+(\w+)\s*[(=]/g;
 
     const originalFunctions = new Set<string>();
-    let match;
-    while ((match = functionPattern.exec(original)) !== null) {
+    for (const match of original.matchAll(functionPattern)) {
       if (match[1]) originalFunctions.add(match[1]);
     }
 
     const modifiedFunctions = new Set<string>();
-    while ((match = functionPattern.exec(modified)) !== null) {
+    for (const match of modified.matchAll(functionPattern)) {
       if (match[1]) modifiedFunctions.add(match[1]);
     }
 

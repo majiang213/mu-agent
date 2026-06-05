@@ -569,11 +569,20 @@ export async function runStep(
 
   if (step.state === State.MODIFY && capturedComplete !== null) {
     try {
+      const { resolve: pathResolve, relative } = await import('node:path');
       const edited = Array.isArray(capturedComplete['edited']) ? (capturedComplete['edited'] as string[]) : [];
       if (edited.length > 0) {
-        const locator = new CodeGraphLocator(cfg.projectRoot);
-        const absPaths = edited.map((f) => (f.startsWith('/') ? f : `${cfg.projectRoot}/${f}`));
-        locator.updateFiles(absPaths);
+        const absPaths = edited
+          .map((f) => (f.startsWith('/') ? f : `${cfg.projectRoot}/${f}`))
+          .map((f) => pathResolve(f));
+        const safePaths = absPaths.filter((f) => {
+          const rel = relative(cfg.projectRoot, f);
+          return rel && !rel.startsWith('..') && !rel.startsWith('/');
+        });
+        if (safePaths.length > 0) {
+          const locator = new CodeGraphLocator(cfg.projectRoot);
+          locator.updateFiles(safePaths);
+        }
       }
     } catch (e) {
       void e;

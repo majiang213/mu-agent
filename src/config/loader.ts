@@ -14,6 +14,11 @@ export class ConfigNotFoundError extends Error {
   }
 }
 
+function mergeNestedSection<T extends object>(existing: T | undefined, updates: T | undefined): T | undefined {
+  if (!existing && !updates) return undefined;
+  return { ...existing, ...updates } as T;
+}
+
 function readJson(path: string): Partial<Config> {
   const text = readFileSync(path, 'utf-8');
   const parsed: unknown = JSON.parse(text);
@@ -61,18 +66,16 @@ export function loadConfig(projectRoot?: string): Config {
     projectPartial = readJson(projectConfigPath);
   }
 
+  const mergedModel = mergeNestedSection(globalPartial.model, projectPartial.model);
+  const mergedToolOutput = mergeNestedSection(globalPartial.toolOutput, projectPartial.toolOutput);
+  const mergedSafety = mergeNestedSection(globalPartial.safety, projectPartial.safety);
+
   const layered: Partial<Config> = {
     ...globalPartial,
     ...projectPartial,
-    ...(globalPartial.model || projectPartial.model
-      ? { model: { ...globalPartial.model, ...projectPartial.model } as Config['model'] }
-      : {}),
-    ...(globalPartial.toolOutput || projectPartial.toolOutput
-      ? { toolOutput: { ...globalPartial.toolOutput, ...projectPartial.toolOutput } }
-      : {}),
-    ...(globalPartial.safety || projectPartial.safety
-      ? { safety: { ...globalPartial.safety, ...projectPartial.safety } }
-      : {}),
+    ...(mergedModel ? { model: mergedModel as Config['model'] } : {}),
+    ...(mergedToolOutput ? { toolOutput: mergedToolOutput } : {}),
+    ...(mergedSafety ? { safety: mergedSafety } : {}),
   };
 
   const merged = mergeWithDefaults(layered);
@@ -85,14 +88,16 @@ export function saveConfig(updates: Partial<Config>, projectRoot?: string): void
 
   const existing: Partial<Config> = existsSync(projectConfigPath) ? readJson(projectConfigPath) : {};
 
+  const mergedModel = mergeNestedSection(existing.model, updates.model);
+  const mergedToolOutput = mergeNestedSection(existing.toolOutput, updates.toolOutput);
+  const mergedSafety = mergeNestedSection(existing.safety, updates.safety);
+
   const merged: Partial<Config> = {
     ...existing,
     ...updates,
-    ...(existing.model || updates.model ? { model: { ...existing.model, ...updates.model } as Config['model'] } : {}),
-    ...(existing.toolOutput || updates.toolOutput
-      ? { toolOutput: { ...existing.toolOutput, ...updates.toolOutput } }
-      : {}),
-    ...(existing.safety || updates.safety ? { safety: { ...existing.safety, ...updates.safety } } : {}),
+    ...(mergedModel ? { model: mergedModel as Config['model'] } : {}),
+    ...(mergedToolOutput ? { toolOutput: mergedToolOutput } : {}),
+    ...(mergedSafety ? { safety: mergedSafety } : {}),
   };
 
   const dir = dirname(projectConfigPath);

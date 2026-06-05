@@ -20,9 +20,9 @@ describe('Bug 17: applyCliOverrides writes config before loadConfig', () => {
   });
 
   it('applyCliOverrides is called before loadConfig in the run command', () => {
-    // Bug 17: applyCliOverrides(options) is called BEFORE loadConfig().
-    // This means saveConfig writes partial CLI params before the full config is loaded.
-    // After fix, loadConfig should be called first, then CLI overrides merged.
+    // Bug 17: applyCliOverrides must be called BEFORE loadConfig so that
+    // loadConfig reads the file with CLI overrides already written.
+    // This ensures the agent uses the correct config, not stale pre-override values.
 
     const fs = require('node:fs');
     const path = require('node:path');
@@ -37,9 +37,8 @@ describe('Bug 17: applyCliOverrides writes config before loadConfig', () => {
     const applyPos = runAction.indexOf('applyCliOverrides');
     const loadPos = runAction.indexOf('loadConfig');
 
-    // Bug 17: applyCliOverrides comes BEFORE loadConfig.
-    // After fix: loadConfig should come first.
-    expect(loadPos).toBeLessThan(applyPos);
+    // applyCliOverrides must come first so loadConfig reads the updated config file.
+    expect(applyPos).toBeLessThan(loadPos);
   });
 
   it('first-run with --model creates config with all required fields', () => {

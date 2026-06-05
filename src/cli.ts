@@ -34,8 +34,8 @@ program
     try {
       let config;
       try {
-        config = loadConfig();
         applyCliOverrides(options);
+        config = loadConfig();
       } catch (err) {
         if (err instanceof ConfigNotFoundError) {
           console.error('\n' + err.message + '\n');
@@ -71,7 +71,11 @@ program
       applyCliOverrides(options);
       const config = loadConfig();
       const lsp = getLspStatus(process.cwd());
-      console.log(JSON.stringify({ ...config, lsp }, null, 2));
+      const safe = {
+        ...config,
+        model: { ...config.model, apiKey: config.model.apiKey ? '***' : undefined },
+      };
+      console.log(JSON.stringify({ ...safe, lsp }, null, 2));
     } catch (err) {
       console.error('Config error:', err instanceof Error ? err.message : err);
       process.exit(1);
@@ -103,15 +107,20 @@ async function pickSession(): Promise<SessionStore | null> {
     description: s.preview,
   }));
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const header = new Text('\x1b[2m  选择要继续的会话  ↑↓ 选择  Enter 确认  Esc 取消\x1b[0m', 0, 0);
     tui.addChild(header);
 
     const list = new SelectList(items, 10, selectTheme);
 
     list.onSelect = (item) => {
-      tui.stop();
-      resolve(SessionStore.open(item.value, process.cwd()));
+      try {
+        tui.stop();
+        resolve(SessionStore.open(item.value, process.cwd()));
+      } catch (err) {
+        tui.stop();
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
     };
 
     list.onCancel = () => {
@@ -135,9 +144,9 @@ program
   .option('-c, --continue', 'Continue the most recent session')
   .option('--resume', 'Interactively select a session to resume')
   .action(async (options) => {
-    applyCliOverrides(options);
     let config;
     try {
+      applyCliOverrides(options);
       config = loadConfig();
     } catch (err) {
       if (err instanceof ConfigNotFoundError) {

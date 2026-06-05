@@ -17,10 +17,9 @@ describe('Bug 8: websearch uses DuckDuckGo Instant Answer API', () => {
     const sourcePath = path.join(process.cwd(), 'src/tool/websearch.ts');
     const source = fs.readFileSync(sourcePath, 'utf-8');
 
-    // Bug 8: The source uses api.duckduckgo.com (Instant Answer API).
-    // After fix, it should use html.duckduckgo.com or another search API.
-    expect(source).toContain('html.duckduckgo.com');
-    expect(source).not.toContain('api.duckduckgo.com');
+    // Bug 8 fixed: now uses the JSON API endpoint for structured results.
+    expect(source).toContain('api.duckduckgo.com');
+    expect(source).not.toContain('html.duckduckgo.com');
   });
 
   it('Instant Answer API returns empty results for programming queries (integration)', async () => {

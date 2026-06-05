@@ -26,6 +26,11 @@ export function writeEpisodeSync(
 
   const entities = extractEntitiesForWrite(mission.description, allStepResults, structuredSummary);
 
+  const episodeRecord: EpisodeRecord = {
+    userInput: mission.description,
+    verifyCommands: [],
+  };
+
   db.transaction(() => {
     db.prepare(
       `
@@ -70,13 +75,9 @@ export function writeEpisodeSync(
         ).run(episodeId, existing.id, entity.role);
       }
     }
-  })();
 
-  const episodeRecord: EpisodeRecord = {
-    userInput: mission.description,
-    verifyCommands: [],
-  };
-  updateSemanticFacts(db, episodeRecord, projectRoot);
+    updateSemanticFacts(db, episodeRecord, projectRoot);
+  })();
 
   return episodeId;
 }
@@ -93,7 +94,7 @@ export function formatEpisodeForInjection(ep: EpisodeRow): string {
     return `[旧格式] ${ep.user_input.slice(0, 60)} → ${ep.result_summary.slice(0, 100)}`;
   }
   const parts: string[] = [];
-  if (s.files.length > 0) {
+  if (s.files && s.files.length > 0) {
     const fileStr = s.files.slice(0, 3).join(', ') + (s.files.length > 3 ? `等${s.files.length}个文件` : '');
     parts.push(`修改了 ${fileStr}`);
   }

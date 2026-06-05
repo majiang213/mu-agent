@@ -18,12 +18,7 @@ describe('FailureHandler', () => {
   describe('level 1: retry', () => {
     it('should retry on tool execution error', async () => {
       const handler = createFailureHandler();
-      const context = handler.createContext(
-        'tool_execution',
-        new Error('Tool failed'),
-        'ANALYZE',
-        1
-      );
+      const context = handler.createContext('tool_execution', new Error('Tool failed'), 'ANALYZE', 0);
 
       const result = await handler.handleFailure(context);
       expect(result.shouldRetry).toBe(true);
@@ -34,12 +29,7 @@ describe('FailureHandler', () => {
   describe('level 4: human intervention', () => {
     it('should request human help when all retries exhausted', async () => {
       const handler = createFailureHandler({ maxRetries: 1 });
-      const context = handler.createContext(
-        'timeout',
-        new Error('Operation timed out'),
-        'VERIFY',
-        5
-      );
+      const context = handler.createContext('timeout', new Error('Operation timed out'), 'VERIFY', 5);
 
       const result = await handler.handleFailure(context);
       expect(result.shouldRetry).toBe(false);
@@ -50,12 +40,7 @@ describe('FailureHandler', () => {
   describe('reset', () => {
     it('should reset to level 1', async () => {
       const handler = createFailureHandler({ maxRetries: 1 });
-      const context = handler.createContext(
-        'validation',
-        new Error('Validation failed'),
-        'VERIFY',
-        2
-      );
+      const context = handler.createContext('validation', new Error('Validation failed'), 'VERIFY', 2);
 
       await handler.handleFailure(context);
       handler.reset();

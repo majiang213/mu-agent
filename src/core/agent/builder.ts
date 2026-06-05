@@ -74,6 +74,10 @@ export function buildStepAgent(
         const args = toolCtx.args as Record<string, unknown>;
         const filePath = typeof args['path'] === 'string' ? args['path'] : null;
         if (filePath) {
+          const resolved = filePath.startsWith('/') ? filePath : `${cfg.projectRoot}/${filePath}`;
+          if (!resolved.startsWith(cfg.projectRoot)) {
+            return { block: true, reason: `Path traversal blocked: ${filePath} is outside project root` };
+          }
           try {
             await cfg.safeModifier.createCheckpoint(filePath);
           } catch (e) {
@@ -229,7 +233,9 @@ export function subscribeStepEvents(
               cfg.safeModifier.clearCheckpoint(filePath);
             }
           })
-          .catch(() => {});
+          .catch((checkErr) => {
+            console.warn('[SafeModifier] Post-check pipeline failed for', filePath, ':', checkErr);
+          });
       }
     }
 

@@ -7,13 +7,18 @@ import type { EpisodeRow } from '../core/memory/types.js';
 export function createMemorySearchTool(db: Database.Database, projectRoot: string) {
   return {
     name: 'memory_search',
+    label: 'Memory Search',
     description:
       'Search past task history. Use query for keyword search, or id for exact lookup by short ID (e.g. "a3f2").',
     parameters: Type.Object({
       query: Type.Optional(Type.String({ description: 'Keyword search query' })),
       id: Type.Optional(Type.String({ description: 'Short episode ID (first 4 chars without dashes)' })),
     }),
-    execute: async (params: { query?: string; id?: string }): Promise<string> => {
+    execute: async (
+      _toolCallId: string,
+      params: { query?: string; id?: string },
+    ): Promise<{ content: [{ type: 'text'; text: string }]; details: { query?: string; id?: string } }> => {
+      let text: string;
       if (params.id) {
         const row = db
           .prepare(
@@ -26,17 +31,20 @@ export function createMemorySearchTool(db: Database.Database, projectRoot: strin
         `,
           )
           .get(projectRoot, `${params.id}%`) as EpisodeRow | undefined;
-        if (!row) return `未找到 ID 为 #${params.id} 的记忆。`;
-        return formatEpisodeDetail(row);
-      }
-
-      if (params.query) {
+        text = row ? formatEpisodeDetail(row) : `未找到 ID 为 #${params.id} 的记忆。`;
+      } else if (params.query) {
         const rows = graphRetrieve(params.query, db, projectRoot);
-        if (rows.length === 0) return `未找到与"${params.query}"相关的记忆。`;
-        return rows.map((r) => formatEpisodeDetail(r)).join('\n\n---\n\n');
+        text =
+          rows.length > 0
+            ? rows.map((r) => formatEpisodeDetail(r)).join('\n\n---\n\n')
+            : `未找到与"${params.query}"相关的记忆。`;
+      } else {
+        text = '请提供 query 或 id 参数。';
       }
-
-      return '请提供 query 或 id 参数。';
+      return {
+        content: [{ type: 'text' as const, text }],
+        details: { query: params.query, id: params.id },
+      };
     },
   };
 }

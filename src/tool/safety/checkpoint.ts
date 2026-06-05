@@ -88,7 +88,7 @@ export class SafeModifier {
     for (const checkpoint of this.checkpoints.values()) {
       const checkpointPath = join(
         this.checkpointDir,
-        `${checkpoint.timestamp}_${checkpoint.filePath.replace(/[/\\]/g, '_')}.bak`,
+        `${checkpoint.timestamp}_${checkpoint.filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%')}.bak`,
       );
       try {
         unlinkSync(checkpointPath);
@@ -105,7 +105,7 @@ export class SafeModifier {
   private async saveToDisk(checkpoint: Checkpoint): Promise<void> {
     const checkpointPath = join(
       this.checkpointDir,
-      `${checkpoint.timestamp}_${checkpoint.filePath.replace(/[/\\]/g, '_')}.bak`,
+      `${checkpoint.timestamp}_${checkpoint.filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%')}.bak`,
     );
 
     await mkdir(dirname(checkpointPath), { recursive: true });
@@ -116,7 +116,7 @@ export class SafeModifier {
     if (!existsSync(this.checkpointDir)) return null;
     try {
       const entries = await readdir(this.checkpointDir);
-      const escapedPath = filePath.replace(/[/\\]/g, '_');
+      const escapedPath = filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%');
       const matching = entries
         .filter((e) => e.endsWith(`_${escapedPath}.bak`))
         .sort()

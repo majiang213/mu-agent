@@ -70,13 +70,12 @@ function detectDeletedFunctions(original: string, modified: string): string[] {
   const functionPattern = /(?:export\s+)?(?:async\s+)?function\s+(\w+)/g;
 
   const originalFunctions = new Set<string>();
-  let match;
-  while ((match = functionPattern.exec(original)) !== null) {
+  for (const match of original.matchAll(functionPattern)) {
     if (match[1]) originalFunctions.add(match[1]);
   }
 
   const modifiedFunctions = new Set<string>();
-  while ((match = functionPattern.exec(modified)) !== null) {
+  for (const match of modified.matchAll(functionPattern)) {
     if (match[1]) modifiedFunctions.add(match[1]);
   }
 
@@ -98,13 +97,12 @@ function detectSignatureChanges(original: string, modified: string): string[] {
   const signaturePattern = /export\s+(?:async\s+)?function\s+(\w+)\s*\([^)]*\)/g;
 
   const originalSigs = new Map<string, string>();
-  let match;
-  while ((match = signaturePattern.exec(original)) !== null) {
+  for (const match of original.matchAll(signaturePattern)) {
     if (match[1]) originalSigs.set(match[1], match[0]);
   }
 
   const modifiedSigs = new Map<string, string>();
-  while ((match = signaturePattern.exec(modified)) !== null) {
+  for (const match of modified.matchAll(signaturePattern)) {
     if (match[1]) modifiedSigs.set(match[1], match[0]);
   }
 
