@@ -31,33 +31,37 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
 }));
 
 vi.mock('../../../src/core/session/index.js', () => ({
-  StateMachineAgent: vi.fn(() => ({
-    getModelParams: vi.fn(() => ({
-      tier: 'LARGE',
-      maxRetries: 3,
-      strictPlanning: false,
-      maxFilesPerTask: 5,
-      paramCount: 0,
-    })),
-    getCurrentState: vi.fn(() => State.REASON),
-    transitionTo: vi.fn(),
-    clone: vi.fn(),
-    resetForNextTask: vi.fn(),
-    getAllowedTools: vi.fn(() => []),
-    recordToolCall: vi.fn(),
-    canModifyMoreFiles: vi.fn(() => true),
-    resetForRetry: vi.fn(),
-  })),
+  StateMachineAgent: vi.fn(function () {
+    return {
+      getModelParams: vi.fn(() => ({
+        tier: 'LARGE',
+        maxRetries: 3,
+        strictPlanning: false,
+        maxFilesPerTask: 5,
+        paramCount: 0,
+      })),
+      getCurrentState: vi.fn(() => State.REASON),
+      transitionTo: vi.fn(),
+      clone: vi.fn(),
+      resetForNextTask: vi.fn(),
+      getAllowedTools: vi.fn(() => []),
+      recordToolCall: vi.fn(),
+      canModifyMoreFiles: vi.fn(() => true),
+      resetForRetry: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../../../src/tool/safety/index.js', () => ({
-  SafeModifier: vi.fn(() => ({
-    createCheckpoint: vi.fn(),
-    clearAll: vi.fn(),
-    restore: vi.fn(),
-    hasCheckpoint: vi.fn(() => false),
-    clearCheckpoint: vi.fn(),
-  })),
+  SafeModifier: vi.fn(function () {
+    return {
+      createCheckpoint: vi.fn(),
+      clearAll: vi.fn(),
+      restore: vi.fn(),
+      hasCheckpoint: vi.fn(() => false),
+      clearCheckpoint: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../../../src/tool/locator.js', () => ({ astLocatorTool: {} }));
@@ -70,18 +74,22 @@ vi.mock('../../../src/provider/model-info.js', () => ({
 }));
 
 vi.mock('../../../src/tool/lsp.js', () => ({
-  LspClient: vi.fn(() => ({
-    init: vi.fn(async () => {}),
-    dispose: vi.fn(),
-    touchFile: vi.fn(async () => []),
-  })),
+  LspClient: vi.fn(function () {
+    return {
+      init: vi.fn(async () => {}),
+      dispose: vi.fn(),
+      touchFile: vi.fn(async () => []),
+    };
+  }),
 }));
 
 vi.mock('../../../src/core/memory/index.js', () => ({
-  MemoryStore: vi.fn(() => ({
-    processPendingSummaries: vi.fn(async () => {}),
-    writeEpisodeSync: vi.fn(),
-  })),
+  MemoryStore: vi.fn(function () {
+    return {
+      processPendingSummaries: vi.fn(async () => {}),
+      writeEpisodeSync: vi.fn(),
+    };
+  }),
   findGitRoot: vi.fn(() => '/tmp'),
   initMemoryDb: vi.fn(() => ({
     prepare: vi.fn(() => ({ get: vi.fn(), all: vi.fn(() => []), run: vi.fn() })),

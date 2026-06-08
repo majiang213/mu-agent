@@ -8,12 +8,14 @@ vi.mock('../../../src/core/agent/builder.js', () => ({
 }));
 
 vi.mock('../../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(() => ({
-    recordToolCall: vi.fn(),
-    recordError: vi.fn(),
-    check: vi.fn(() => ({ detected: false })),
-    reset: vi.fn(),
-  })),
+  StagnationDetector: vi.fn(function () {
+    return {
+      recordToolCall: vi.fn(),
+      recordError: vi.fn(),
+      check: vi.fn(() => ({ detected: false })),
+      reset: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../../../src/core/compaction/index.js', () => ({

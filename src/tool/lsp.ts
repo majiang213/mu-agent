@@ -1,8 +1,8 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/lib/node/main.js';
-import type { MessageConnection } from 'vscode-jsonrpc/lib/common/api.js';
+import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
+import type { MessageConnection } from 'vscode-jsonrpc';
 import { detectLanguage, isCommandAvailable } from './lsp-utils.js';
 
 /** Resolves after ms milliseconds with the given value. Extracted to keep touchFile setTimeout-free. */

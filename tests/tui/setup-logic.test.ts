@@ -3,27 +3,33 @@ import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-vi.mock('@mariozechner/pi-tui', () => ({
-  TUI: vi.fn().mockImplementation(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-    addChild: vi.fn(),
-    removeChild: vi.fn(),
-    setFocus: vi.fn(),
-    requestRender: vi.fn(),
-    addInputListener: vi.fn().mockReturnValue(vi.fn()),
-    children: [],
-  })),
+vi.mock('@earendil-works/pi-tui', () => ({
+  TUI: vi.fn().mockImplementation(function () {
+    return {
+      start: vi.fn(),
+      stop: vi.fn(),
+      addChild: vi.fn(),
+      removeChild: vi.fn(),
+      setFocus: vi.fn(),
+      requestRender: vi.fn(),
+      addInputListener: vi.fn().mockReturnValue(vi.fn()),
+      children: [],
+    };
+  }),
   ProcessTerminal: vi.fn(),
-  Text: vi.fn().mockImplementation((text: string) => ({ text, invalidate: vi.fn(), render: vi.fn() })),
+  Text: vi.fn().mockImplementation(function (text: string) {
+    return { text, invalidate: vi.fn(), render: vi.fn() };
+  }),
   Input: vi.fn(),
-  Loader: vi.fn().mockImplementation(() => ({
-    start: vi.fn(),
-    stop: vi.fn(),
-    setMessage: vi.fn(),
-    invalidate: vi.fn(),
-    render: vi.fn(),
-  })),
+  Loader: vi.fn().mockImplementation(function () {
+    return {
+      start: vi.fn(),
+      stop: vi.fn(),
+      setMessage: vi.fn(),
+      invalidate: vi.fn(),
+      render: vi.fn(),
+    };
+  }),
   SelectList: vi.fn(),
 }));
 
@@ -137,8 +143,8 @@ describe('stepDone graphOk logic', () => {
       (wizard as unknown as { graphBuilt: boolean | null }).graphBuilt = false;
 
       const textContents: string[] = [];
-      const { Text } = await import('@mariozechner/pi-tui');
-      vi.mocked(Text).mockImplementation((text: string) => {
+      const { Text } = await import('@earendil-works/pi-tui');
+      vi.mocked(Text).mockImplementation(function (text: string) {
         textContents.push(text);
         return { text, invalidate: vi.fn(), render: vi.fn() } as unknown as InstanceType<typeof Text>;
       });
@@ -173,8 +179,8 @@ describe('stepDone graphOk logic', () => {
       (wizard as unknown as { graphBuilt: boolean | null }).graphBuilt = true;
 
       const textContents: string[] = [];
-      const { Text } = await import('@mariozechner/pi-tui');
-      vi.mocked(Text).mockImplementation((text: string) => {
+      const { Text } = await import('@earendil-works/pi-tui');
+      vi.mocked(Text).mockImplementation(function (text: string) {
         textContents.push(text);
         return { text, invalidate: vi.fn(), render: vi.fn() } as unknown as InstanceType<typeof Text>;
       });
@@ -209,8 +215,8 @@ describe('stepDone graphOk logic', () => {
       const wizard = new SetupWizard();
 
       const textContents: string[] = [];
-      const { Text } = await import('@mariozechner/pi-tui');
-      vi.mocked(Text).mockImplementation((text: string) => {
+      const { Text } = await import('@earendil-works/pi-tui');
+      vi.mocked(Text).mockImplementation(function (text: string) {
         textContents.push(text);
         return { text, invalidate: vi.fn(), render: vi.fn() } as unknown as InstanceType<typeof Text>;
       });

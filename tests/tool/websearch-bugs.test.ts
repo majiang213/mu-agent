@@ -32,7 +32,7 @@ describe('Bug 8: websearch uses DuckDuckGo Instant Answer API', () => {
 
       const response = await fetch(url, {
         headers: { 'User-Agent': 'test' },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(3000),
       });
 
       if (!response.ok) return; // skip if network issue

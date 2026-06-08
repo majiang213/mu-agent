@@ -10,19 +10,23 @@ vi.mock('../../../src/core/agent/builder.js', () => ({
 }));
 
 vi.mock('../../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(() => ({
-    recordToolCall: vi.fn(),
-    recordError: vi.fn(),
-    check: vi.fn(() => ({ detected: false })),
-    reset: vi.fn(),
-  })),
+  StagnationDetector: vi.fn(function () {
+    return {
+      recordToolCall: vi.fn(),
+      recordError: vi.fn(),
+      check: vi.fn(() => ({ detected: false })),
+      reset: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../../../src/core/failure/handler.js', () => ({
-  FailureHandler: vi.fn(() => ({
-    createContext: vi.fn(() => ({})),
-    handleFailure: vi.fn(async () => ({ action: 'retry_with_backoff' })),
-  })),
+  FailureHandler: vi.fn(function () {
+    return {
+      createContext: vi.fn(() => ({})),
+      handleFailure: vi.fn(async () => ({ action: 'retry_with_backoff' })),
+    };
+  }),
 }));
 
 vi.mock('../../../src/provider/model-info.js', () => ({
@@ -30,14 +34,18 @@ vi.mock('../../../src/provider/model-info.js', () => ({
 }));
 
 vi.mock('../../../src/tool/safety/checkpoint.js', () => ({
-  SafeModifier: vi.fn(() => ({ createCheckpoint: vi.fn(), clearAll: vi.fn() })),
+  SafeModifier: vi.fn(function () {
+    return { createCheckpoint: vi.fn(), clearAll: vi.fn() };
+  }),
 }));
 
 vi.mock('../../../src/core/graph/locator.js', () => ({
-  CodeGraphLocator: vi.fn(() => ({
-    locate: vi.fn(() => ({ tree: '', suggestedFiles: [], snippets: {} })),
-    updateFiles: vi.fn(),
-  })),
+  CodeGraphLocator: vi.fn(function () {
+    return {
+      locate: vi.fn(() => ({ tree: '', suggestedFiles: [], snippets: {} })),
+      updateFiles: vi.fn(),
+    };
+  }),
 }));
 
 vi.mock('../../../src/core/prompts/index.js', () => ({
@@ -60,7 +68,9 @@ vi.mock('../../../src/tool/complete.js', () => ({
 }));
 
 vi.mock('../../../src/core/compaction/index.js', () => ({
-  ContextCompactor: vi.fn(() => ({ compact: vi.fn((msgs: unknown[]) => ({ messages: msgs })) })),
+  ContextCompactor: vi.fn(function () {
+    return { compact: vi.fn((msgs: unknown[]) => ({ messages: msgs })) };
+  }),
   compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
 }));
 
