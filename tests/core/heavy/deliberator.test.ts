@@ -4,11 +4,11 @@ import type { PlanCandidate } from '../../../src/core/heavy/types.js';
 import { State } from '../../../src/core/types.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
 
-vi.mock('@mariozechner/pi-ai', () => ({
+vi.mock('@earendil-works/pi-ai', () => ({
   completeSimple: vi.fn(),
 }));
 
-import { completeSimple } from '@mariozechner/pi-ai';
+import { completeSimple } from '@earendil-works/pi-ai';
 
 function makePlan(id: string, states: State[], whys?: string[]): PlanCandidate {
   return {

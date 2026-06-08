@@ -8,15 +8,15 @@ import {
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
-} from '@mariozechner/pi-tui';
-import type { Component } from '@mariozechner/pi-tui';
-import { Markdown } from '@mariozechner/pi-tui';
+} from '@earendil-works/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
+import { Markdown } from '@earendil-works/pi-tui';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
 import { ReactAgent } from '../core/agent/index.js';
 import type { ExecutionEvent } from '../core/agent/index.js';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
 import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import type { Config } from '../config/types.js';
@@ -1013,7 +1013,7 @@ export class TuiApp {
       const ts = Date.now();
       const userMsg = { role: 'user' as const, content: input, timestamp: ts };
       try {
-        this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+        this.conversationHistory.push(userMsg as import('@earendil-works/pi-agent-core').AgentMessage);
         await this.sessionStore.append({ type: 'message', ...userMsg });
         if (display) {
           const assistantMsg = {
@@ -1021,7 +1021,9 @@ export class TuiApp {
             content: `${assistantPrefix}${display}`,
             timestamp: ts + 1,
           };
-          this.conversationHistory.push(assistantMsg as unknown as import('@mariozechner/pi-agent-core').AgentMessage);
+          this.conversationHistory.push(
+            assistantMsg as unknown as import('@earendil-works/pi-agent-core').AgentMessage,
+          );
           await this.sessionStore.append({ type: 'message', ...assistantMsg });
         }
       } catch (persistErr) {
@@ -1046,7 +1048,7 @@ export class TuiApp {
       try {
         const ts = Date.now();
         const userMsg = { role: 'user' as const, content: input, timestamp: ts };
-        this.conversationHistory.push(userMsg as import('@mariozechner/pi-agent-core').AgentMessage);
+        this.conversationHistory.push(userMsg as import('@earendil-works/pi-agent-core').AgentMessage);
         await this.sessionStore.append({ type: 'message', ...userMsg });
       } catch (persistErr) {
         console.error('[TuiApp] session persistence failed in catch:', persistErr);

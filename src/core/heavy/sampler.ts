@@ -6,7 +6,7 @@ import { runStepAgent, parseReasonSteps } from '../agent/step-runner.js';
 import { State } from '../types.js';
 import type { Step } from '../types.js';
 import type { RunConfig, Mission, ExecutionEvent } from '../agent/types.js';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { PlanCandidate } from './types.js';
 import { DEFAULT_SAMPLING_TEMPERATURE } from '../../config/defaults.js';
 

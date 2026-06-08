@@ -1,5 +1,5 @@
-import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
-import type { Component } from '@mariozechner/pi-tui';
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
 import { C, bold } from '../theme.js';
 
 export function fmtToolArgs(tool: string, args?: Record<string, unknown>): string {

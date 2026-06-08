@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import type { Model } from '@mariozechner/pi-ai';
+import type { Model } from '@earendil-works/pi-ai';
 import type { StructuredSummary } from './types.js';
 
 interface LLMSummary {
@@ -11,7 +11,7 @@ async function generateEpisodeSummary(
   row: { episode_id: string; user_input: string; result_summary: string },
   model: Model<'openai-completions'>,
 ): Promise<LLMSummary> {
-  const { completeSimple } = await import('@mariozechner/pi-ai');
+  const { completeSimple } = await import('@earendil-works/pi-ai');
   let context = row.user_input;
   try {
     const s = JSON.parse(row.result_summary) as StructuredSummary;

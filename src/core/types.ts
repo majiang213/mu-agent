@@ -3,7 +3,7 @@
  * Based on architecture design: deterministic pipeline + constrained LLM
  */
 
-import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 
 export interface SteerMessage {
   role: 'steer';
@@ -11,7 +11,7 @@ export interface SteerMessage {
   timestamp: number;
 }
 
-declare module '@mariozechner/pi-agent-core' {
+declare module '@earendil-works/pi-agent-core' {
   interface CustomAgentMessages {
     steer: SteerMessage;
   }

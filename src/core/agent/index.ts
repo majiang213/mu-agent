@@ -1,5 +1,5 @@
-import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
+import { Agent } from '@earendil-works/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { astLocatorTool } from '../../tool/locator.js';

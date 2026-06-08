@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createContextCompactor } from '../../../src/core/compaction/index.js';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 function userMsg(content: string): AgentMessage {
   return { role: 'user', content, timestamp: Date.now() } as AgentMessage;

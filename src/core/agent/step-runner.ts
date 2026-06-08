@@ -1,5 +1,5 @@
-import type { AgentMessage, AgentTool } from '@mariozechner/pi-agent-core';
-import type { Model } from '@mariozechner/pi-ai';
+import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
+import type { Model } from '@earendil-works/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
 import { SafeModifier } from '../../tool/safety/checkpoint.js';
 import { FailureHandler } from '../failure/handler.js';
@@ -139,7 +139,7 @@ export function parseReasonSteps(json: Record<string, unknown> | null): {
 }
 
 export async function runStepAgent(
-  agent: import('@mariozechner/pi-agent-core').Agent,
+  agent: import('@earendil-works/pi-agent-core').Agent,
   input: string,
   cfg: RunConfig,
   stagnationDetector: StagnationDetector,

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node
 import { appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 export interface SessionHeader {
   type: 'header';

@@ -1,6 +1,6 @@
-import { codingTools } from '@mariozechner/pi-coding-agent';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
-import type { TextContent } from '@mariozechner/pi-ai';
+import { createCodingTools } from '@earendil-works/pi-coding-agent';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
+import type { TextContent } from '@earendil-works/pi-ai';
 
 export interface ToolExecutionResult {
   success: boolean;
@@ -12,7 +12,7 @@ export class ToolExecutor {
   private tools: Map<string, AgentTool<any>>;
 
   constructor(availableTools?: AgentTool<any>[]) {
-    const toolList = availableTools ?? codingTools;
+    const toolList = availableTools ?? createCodingTools(process.cwd());
     this.tools = new Map(toolList.map((t) => [t.name, t]));
   }
 

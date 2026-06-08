@@ -1,5 +1,5 @@
-import type { Agent } from '@mariozechner/pi-agent-core';
-import type { Model } from '@mariozechner/pi-ai';
+import type { Agent } from '@earendil-works/pi-agent-core';
+import type { Model } from '@earendil-works/pi-ai';
 import type { StateMachineAgent } from '../session/index.js';
 import type { EnvContext } from '../prompts/agent.js';
 import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { AgentMessage } from '@mariozechner/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 // Bug 13: compaction summary is injected as role:'user', creating consecutive user messages.
 
 // We can't easily test compressConversationHistoryWithLLM in isolation because it
-// calls completeSimple from @mariozechner/pi-ai. Instead, we test the logic directly
+// calls completeSimple from @earendil-works/pi-ai. Instead, we test the logic directly
 // by examining the source code behavior.
 
 // The bug is at compaction/index.ts lines 184-190:

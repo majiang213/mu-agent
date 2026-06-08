@@ -1,7 +1,7 @@
-import { Agent } from '@mariozechner/pi-agent-core';
-import type { AgentEvent, AgentMessage } from '@mariozechner/pi-agent-core';
-import { streamSimple } from '@mariozechner/pi-ai';
-import { codingTools, grepTool, lsTool, findTool } from '@mariozechner/pi-coding-agent';
+import { Agent } from '@earendil-works/pi-agent-core';
+import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
+import { streamSimple } from '@earendil-works/pi-ai';
+import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 
 import { astLocatorTool } from '../../tool/locator.js';
 import { syntaxCheckHook, damageCheckHook } from '../../tool/safety/index.js';
@@ -16,7 +16,13 @@ export function buildStepAgent(
   cfg: RunConfig,
   onEvent: ((event: ExecutionEvent) => void) | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[] = [...codingTools, grepTool, lsTool, findTool, astLocatorTool],
+  tools: any[] = [
+    ...createCodingTools(process.cwd()),
+    createGrepTool(process.cwd()),
+    createLsTool(process.cwd()),
+    createFindTool(process.cwd()),
+    astLocatorTool,
+  ],
   readFiles?: Set<string>,
 ): Agent {
   let agentRef: Agent | null = null;
@@ -129,7 +135,7 @@ export function buildStepAgent(
           const sm = m as import('../types.js').SteerMessage;
           return [{ role: 'user' as const, content: sm.content, timestamp: sm.timestamp }];
         }
-        return [m as import('@mariozechner/pi-ai').Message];
+        return [m as import('@earendil-works/pi-ai').Message];
       });
     },
   });

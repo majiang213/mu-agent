@@ -1,5 +1,5 @@
-import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@mariozechner/pi-tui';
-import type { SelectItem } from '@mariozechner/pi-tui';
+import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@earendil-works/pi-tui';
+import type { SelectItem } from '@earendil-works/pi-tui';
 import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';

@@ -3,8 +3,7 @@ import { resolve } from 'node:path';
 import { glob } from 'glob';
 import ts from 'typescript';
 import { Type } from '@sinclair/typebox';
-import type { Static } from '@sinclair/typebox';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 export interface ASTSearchResult {
   functionName: string;
@@ -20,11 +19,7 @@ export function createASTLocator(): ASTLocator {
 }
 
 export class ASTLocator {
-  async search(params: {
-    query: string;
-    scope?: string;
-    limit?: number;
-  }): Promise<ASTSearchResult[]> {
+  async search(params: { query: string; scope?: string; limit?: number }): Promise<ASTSearchResult[]> {
     const { query, scope = '.', limit = 5 } = params;
     const results: ASTSearchResult[] = [];
 
@@ -44,9 +39,7 @@ export class ASTLocator {
       }
     }
 
-    return results
-      .sort((a, b) => b.score - a.score)
-      .slice(0, limit);
+    return results.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
   private parseFile(absolutePath: string, relativePath: string, query: string): ASTSearchResult[] {
@@ -62,13 +55,7 @@ export class ASTLocator {
 
     let sourceFile: ts.SourceFile;
     try {
-      sourceFile = ts.createSourceFile(
-        absolutePath,
-        source,
-        ts.ScriptTarget.Latest,
-        true,
-        scriptKind,
-      );
+      sourceFile = ts.createSourceFile(absolutePath, source, ts.ScriptTarget.Latest, true, scriptKind);
     } catch {
       return [];
     }
@@ -168,24 +155,30 @@ const _astLocatorParams = Type.Object({
   scope: Type.Optional(Type.String({ description: 'Directory to search in (default: current directory)' })),
   limit: Type.Optional(Type.Number({ description: 'Maximum results to return (default: 5)' })),
 });
-type AstLocatorParams = Static<typeof _astLocatorParams>;
 
-export const astLocatorTool: AgentTool<typeof _astLocatorParams, ASTSearchResult[]> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const astLocatorTool: AgentTool<any, ASTSearchResult[]> = {
   name: 'ast_code_locator',
   label: 'AST Code Locator',
-  description: 'Find functions, classes, methods, or arrow functions by name using TypeScript AST. Returns file paths and exact line numbers.',
+  description:
+    'Find functions, classes, methods, or arrow functions by name using TypeScript AST. Returns file paths and exact line numbers.',
   parameters: _astLocatorParams,
-  execute: async (_toolCallId, params: AstLocatorParams) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  execute: async (_toolCallId, params: any) => {
     const results = await _astLocatorInstance.search({
       query: params.query,
       scope: params.scope,
       limit: params.limit,
     });
-    const text = results.length === 0
-      ? `No symbols found matching "${params.query}"`
-      : results.map((r) =>
-          `${r.filePath}:${r.location.startLine}-${r.location.endLine} [${r.kind}] ${r.functionName}${r.signature ? ` — ${r.signature}` : ''}`
-        ).join('\n');
+    const text =
+      results.length === 0
+        ? `No symbols found matching "${params.query}"`
+        : results
+            .map(
+              (r) =>
+                `${r.filePath}:${r.location.startLine}-${r.location.endLine} [${r.kind}] ${r.functionName}${r.signature ? ` — ${r.signature}` : ''}`,
+            )
+            .join('\n');
     return { content: [{ type: 'text' as const, text }], details: results };
   },
 };

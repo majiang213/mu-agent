@@ -1,5 +1,5 @@
-import { truncateToWidth, visibleWidth } from '@mariozechner/pi-tui';
-import type { Component } from '@mariozechner/pi-tui';
+import { truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { C, stateColor } from '../theme.js';

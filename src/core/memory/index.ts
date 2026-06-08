@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import type { Model } from '@mariozechner/pi-ai';
+import type { Model } from '@earendil-works/pi-ai';
 import { writeEpisodeSync } from './episode.js';
 import { processPendingSummaries as _processPendingSummaries } from './summarizer.js';
 import { decaySemanticFacts } from './semantic.js';

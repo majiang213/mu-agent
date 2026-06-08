@@ -1,5 +1,11 @@
-import type { EditorTheme, MarkdownTheme } from '@mariozechner/pi-tui';
-import { applyBackgroundToLine } from '@mariozechner/pi-tui/dist/utils.js';
+import { visibleWidth } from '@earendil-works/pi-tui';
+import type { EditorTheme, MarkdownTheme } from '@earendil-works/pi-tui';
+
+function applyBackgroundToLine(line: string, width: number, bgFn: (s: string) => string): string {
+  const visibleLen = visibleWidth(line);
+  const padding = ' '.repeat(Math.max(0, width - visibleLen));
+  return bgFn(line + padding);
+}
 
 export const R = '\x1b[0m';
 const RF = '\x1b[39m\x1b[22m\x1b[23m\x1b[29m';

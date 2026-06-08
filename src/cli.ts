@@ -89,7 +89,7 @@ async function pickSession(): Promise<SessionStore | null> {
     return null;
   }
 
-  const { ProcessTerminal, SelectList, Text, TUI } = await import('@mariozechner/pi-tui');
+  const { ProcessTerminal, SelectList, Text, TUI } = await import('@earendil-works/pi-tui');
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
 

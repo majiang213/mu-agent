@@ -1,5 +1,5 @@
 import { Type } from '@sinclair/typebox';
-import type { AgentTool } from '@mariozechner/pi-agent-core';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../core/types.js';
 
 const COMPLETE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {

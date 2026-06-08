@@ -1,6 +1,6 @@
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@mariozechner/pi-tui';
-import type { Component } from '@mariozechner/pi-tui';
-import { Markdown } from '@mariozechner/pi-tui';
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
+import type { Component } from '@earendil-works/pi-tui';
+import { Markdown } from '@earendil-works/pi-tui';
 import { C, fillLine, markdownTheme } from '../theme.js';
 
 // ─── UserMessage ──────────────────────────────────────────────────────────────

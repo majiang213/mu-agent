@@ -1,5 +1,5 @@
-import { completeSimple } from '@mariozechner/pi-ai';
-import type { Model } from '@mariozechner/pi-ai';
+import { completeSimple } from '@earendil-works/pi-ai';
+import type { Model } from '@earendil-works/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
 import { State, type Step } from '../types.js';
 import type { PlanCandidate, DeliberateOutcome } from './types.js';
