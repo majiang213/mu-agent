@@ -88,7 +88,7 @@ export class StateMachineAgent {
 
   transitionTo(nextState: State): void {
     const expected = getNextState(this.currentState, true);
-    if (expected !== nextState)
+    if (expected !== nextState && !(this.currentState === State.REASON && nextState === State.REASON))
       console.warn('[session] Unexpected transition:', this.currentState, '->', nextState, '(expected', expected + ')');
     if (this.config.onStateChange) {
       this.config.onStateChange(this.currentState, nextState);

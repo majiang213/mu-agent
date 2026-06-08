@@ -88,6 +88,7 @@ export class ReactAgent {
     config: Config,
     onEvent?: (event: ExecutionEvent) => void,
     initialMessages?: AgentMessage[],
+    options?: { cwd?: string },
   ): Promise<StateResult> {
     const baseMission: Mission = {
       id: `task-${Date.now()}`,
@@ -112,12 +113,12 @@ export class ReactAgent {
       paramCount,
     );
 
-    const cwd = process.cwd();
+    const cwd = options?.cwd ?? process.cwd();
     const home = homedir();
     const cwdDisplay = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
     let isGitRepo: boolean;
     try {
-      execSync('git rev-parse --git-dir', { stdio: 'ignore' });
+      execSync('git rev-parse --git-dir', { stdio: 'ignore', cwd });
       isGitRepo = true;
     } catch {
       isGitRepo = false;

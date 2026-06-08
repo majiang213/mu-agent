@@ -28,7 +28,7 @@ async function generateEpisodeSummary(
       systemPrompt: `你是代码助手。用一句中文总结这次任务（≤50字），然后列出3-5个搜索关键词。\n输出格式（JSON）：{"description": "...", "keywords": ["...", "..."]}`,
       messages: [{ role: 'user', content: context, timestamp: Date.now() }],
     },
-    { temperature: 0.1 },
+    { temperature: 0.1, apiKey: model.provider === 'ollama' ? 'ollama' : undefined },
   );
 
   try {
