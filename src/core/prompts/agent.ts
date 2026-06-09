@@ -116,6 +116,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
+  const trunc = (s: string) => (s.length > 600 ? s.slice(0, 600) + '…' : s);
 
   // VERIFY: special handling for Gap 41 (path audit) + Gap 43 (multi-MODIFY merge)
   if (state === State.VERIFY) {
@@ -139,18 +140,14 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     const locateDiag = previousResults.filter((r) => r.state === State.LOCATE || r.state === State.DIAGNOSE);
     const lines: string[] = [];
     if (lastModify) {
-      let out = lastModify.output;
-      if (out.length > 600) out = out.slice(0, 600) + '…';
-      lines.push(`[MODIFY] ${lastModify.focus}\n${out}`);
+      lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(lastModify.output)}`);
     }
     const uniqueEdited = [...new Set(allEdited)];
     if (uniqueEdited.length > 1) {
       lines.push(`[MODIFY] all edited files: ${uniqueEdited.join(', ')}`);
     }
     for (const r of locateDiag) {
-      let output = r.output;
-      if (output.length > 600) output = output.slice(0, 600) + '…';
-      lines.push(`[${r.state}] ${r.focus}\n${output}`);
+      lines.push(`[${r.state}] ${r.focus}\n${trunc(r.output)}`);
     }
     if (lines.length === 0) return '';
     return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
@@ -162,11 +159,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   const relevant = previousResults.filter((r) => needs.includes(r.state as State));
   if (relevant.length === 0) return '';
 
-  const allLines = relevant.map((r) => {
-    let output = r.output;
-    if (output.length > 600) output = output.slice(0, 600) + '…';
-    return `[${r.state}] ${r.focus}\n${output}`;
-  });
+  const allLines = relevant.map((r) => `[${r.state}] ${r.focus}\n${trunc(r.output)}`);
 
   const BUDGET = 8000;
   const kept: string[] = [];

@@ -224,9 +224,6 @@ export class StagnationDetector {
   }
 }
 
-/**
- * Create stagnation detector
- */
 export function createStagnationDetector(config?: Partial<StagnationDetectorConfig>): StagnationDetector {
   return new StagnationDetector(config);
 }

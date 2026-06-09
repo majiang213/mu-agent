@@ -136,9 +136,6 @@ export class SafeModifier {
   }
 }
 
-/**
- * Create safe modifier instance
- */
 export function createSafeModifier(checkpointDir?: string): SafeModifier {
   return new SafeModifier(checkpointDir);
 }

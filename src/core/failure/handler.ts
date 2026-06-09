@@ -1,9 +1,4 @@
-import {
-  type FailureContext,
-  type FailureHandlerConfig,
-  type RecoveryResult,
-  type RecoveryLevel,
-} from './types.js';
+import { type FailureContext, type FailureHandlerConfig, type RecoveryResult, type RecoveryLevel } from './types.js';
 import { getDefaultStrategies, findStrategy } from './strategies.js';
 
 /**
@@ -97,9 +92,6 @@ export class FailureHandler {
   }
 }
 
-/**
-   * Create failure handler instance
-   */
 export function createFailureHandler(config?: Partial<FailureHandlerConfig>): FailureHandler {
   return new FailureHandler(config);
 }

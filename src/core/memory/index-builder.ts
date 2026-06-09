@@ -1,15 +1,11 @@
 import Database from 'better-sqlite3';
-import type { EpisodeRow, StructuredSummary, SemanticFact } from './types.js';
-import { fmtTime } from './episode.js';
+import type { EpisodeRow, SemanticFact } from './types.js';
+import { fmtTime, toShortId, parseStructuredSummary } from './episode.js';
 import { readSemanticFacts } from './semantic.js';
 
 function fmtTitle(row: EpisodeRow): string {
-  try {
-    const s = JSON.parse(row.result_summary) as StructuredSummary;
-    if (s.action) return s.action.slice(0, 20);
-  } catch {
-    /* fallback */
-  }
+  const s = parseStructuredSummary(row.result_summary);
+  if (s?.action) return s.action.slice(0, 20);
   return row.user_input.slice(0, 20);
 }
 
@@ -64,7 +60,7 @@ export function formatMemoryIndex(db: Database.Database, projectRoot: string): s
 
   const lines: string[] = ['<memory>', '最近任务：'];
   for (const row of rows) {
-    const shortId = row.id.replace(/-/g, '').slice(0, 4);
+    const shortId = toShortId(row.id);
     lines.push(`  [${fmtTime(row.timestamp)} #${shortId}] ${fmtTitle(row)}`);
   }
   lines.push(`共 ${total} 条记忆（近30天）`);

@@ -1,21 +1,7 @@
 import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { State, type StateMachineConfig, type StateContext, type ToolCall, type ModelParams } from '../types.js';
+import { State, type StateMachineConfig, type ToolCall, type ModelParams } from '../types.js';
 import { detectModelParams, getBaseStateConfigs, getNextState } from '../states.js';
-import { buildSystemPrompt } from '../prompts/index.js';
-
-function createStateContext(
-  state: State,
-  task: string,
-  _stateConfig: StateMachineConfig['states'][State],
-): StateContext {
-  return {
-    state,
-    task,
-    history: [],
-    availableTools: [],
-  };
-}
 
 export class StateMachineAgent {
   private config: StateMachineConfig;
@@ -74,23 +60,6 @@ export class StateMachineAgent {
     const stateConfig = this.getCurrentStateConfig();
     const allowedSet = new Set(stateConfig.allowedTools);
     return this.allTools.filter((tool) => allowedSet.has(tool.name));
-  }
-
-  generatePrompt(task: string): string {
-    const context = this.createContext(task);
-    return buildSystemPrompt({
-      state: this.currentState,
-      task,
-      modelParams: this.config.modelParams,
-      context,
-    });
-  }
-
-  createContext(task: string): StateContext {
-    const stateConfig = this.getCurrentStateConfig();
-    const context = createStateContext(this.currentState, task, stateConfig);
-    context.availableTools = this.getAllowedTools();
-    return context;
   }
 
   transitionTo(nextState: State): void {

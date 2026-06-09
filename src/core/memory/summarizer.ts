@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import type { Model } from '@earendil-works/pi-ai';
-import type { StructuredSummary } from './types.js';
+import { parseStructuredSummary } from './episode.js';
 
 interface LLMSummary {
   description: string;
@@ -13,13 +13,11 @@ async function generateEpisodeSummary(
 ): Promise<LLMSummary> {
   const { completeSimple } = await import('@earendil-works/pi-ai');
   let context = row.user_input;
-  try {
-    const s = JSON.parse(row.result_summary) as StructuredSummary;
+  const s = parseStructuredSummary(row.result_summary);
+  if (s) {
     if (s.files?.length) context += `\n修改了: ${s.files.join(', ')}`;
     if (s.key_finding) context += `\n结论: ${s.key_finding}`;
     if (s.error_summary) context += `\n失败: ${s.error_summary}`;
-  } catch {
-    /* 旧格式 */
   }
 
   const result = await completeSimple(
@@ -81,13 +79,7 @@ export async function processPendingSummaries(
   for (const row of pending) {
     try {
       const summary = await generateEpisodeSummary(row, model);
-      const structuredSummary = (() => {
-        try {
-          return JSON.parse(row.result_summary) as StructuredSummary;
-        } catch {
-          return null;
-        }
-      })();
+      const structuredSummary = parseStructuredSummary(row.result_summary);
 
       const txn = db.transaction(() => {
         db.prepare(

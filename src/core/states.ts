@@ -1,20 +1,5 @@
-import { Value } from '@sinclair/typebox/value';
-import { Type } from '@sinclair/typebox';
 import { State, type ModelParams, type StateConfig } from './types.js';
 import { STATE_REGISTRY } from './state-registry.js';
-
-const STATE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
-  [State.LOCATE]: Type.Object({ locations: Type.Array(Type.Unknown()) }),
-  [State.MODIFY]: Type.Object({ edited: Type.String() }),
-  [State.VERIFY]: Type.Object({ passed: Type.Boolean() }),
-  [State.CLARIFY]: Type.Object({ questions: Type.Array(Type.Unknown()) }),
-  [State.DIAGNOSE]: Type.Object({ rootCause: Type.String() }),
-  [State.REVIEW]: Type.Object({ verdict: Type.String() }),
-  [State.TEST_WRITE]: Type.Object({ testFile: Type.String() }),
-  [State.ROLLBACK]: Type.Object({ restored: Type.Array(Type.String()) }),
-  [State.REFACTOR_PLAN]: Type.Object({ refactorSteps: Type.Array(Type.Unknown()) }),
-  [State.SETUP]: Type.Object({ created: Type.String() }),
-};
 
 export function detectModelParams(paramCount: number | null): ModelParams {
   const billions = paramCount !== null ? paramCount / 1e9 : null;
@@ -73,34 +58,6 @@ export function getNextState(currentState: State, success: boolean = true): Stat
   };
 
   return transitions[currentState];
-}
-
-// ─── State completion detection ───────────────────────────────────────────────
-
-function extractJson(text: string): Record<string, unknown> | null {
-  // Strip markdown code fences first
-  const stripped = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '');
-  const start = stripped.indexOf('{');
-  const end = stripped.lastIndexOf('}');
-  if (start === -1 || end === -1 || end <= start) return null;
-  try {
-    return JSON.parse(stripped.slice(start, end + 1)) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
-export function hasStateCompletionJson(state: State, text: string): boolean {
-  const json = extractJson(text);
-  if (!json) return false;
-  if (state === State.REASON) {
-    const steps = json['steps'];
-    const needsClarify = json['needsClarify'] === true;
-    return Array.isArray(steps) && (needsClarify || (steps as unknown[]).length > 0);
-  }
-  const schema = STATE_SCHEMAS[state];
-  if (!schema) return false;
-  return Value.Check(schema, json);
 }
 
 export function advanceState(current: State, route: State[]): State {

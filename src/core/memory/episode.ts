@@ -111,6 +111,18 @@ export function formatEpisodeForInjection(ep: EpisodeRow): string {
   return parts.join('，');
 }
 
+export function toShortId(id: string): string {
+  return id.replace(/-/g, '').slice(0, 4);
+}
+
+export function parseStructuredSummary(json: string): StructuredSummary | null {
+  try {
+    return JSON.parse(json) as StructuredSummary;
+  } catch {
+    return null;
+  }
+}
+
 export function fmtTime(ts: number): string {
   const d = new Date(ts * 1000);
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -120,15 +132,9 @@ export function fmtTime(ts: number): string {
 export function formatEpisodeDetail(ep: EpisodeRow): string {
   const trunc = (s: string | null | undefined, max = 400): string =>
     !s ? '' : s.length <= max ? s : s.slice(0, max) + '…';
-  const s = (() => {
-    try {
-      return JSON.parse(ep.result_summary) as StructuredSummary;
-    } catch {
-      return null;
-    }
-  })();
+  const s = parseStructuredSummary(ep.result_summary);
   const time = fmtTime(ep.timestamp);
-  const shortId = ep.id.replace(/-/g, '').slice(0, 4);
+  const shortId = toShortId(ep.id);
 
   const lines = [`[${time} #${shortId}] ${trunc(ep.user_input)}`];
   if (s?.action) lines.push(`动作：${s.action}`);

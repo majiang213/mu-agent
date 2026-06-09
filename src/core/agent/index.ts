@@ -14,7 +14,7 @@ import type { StateResult, Step, ExecutedStep, StepDirective } from '../types.js
 import type { ExecutionEvent, Mission } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
-export { compressConversationHistorySync } from './step-runner.js';
+
 import type { EnvContext } from '../prompts/agent.js';
 import { loadContext } from './context.js';
 import { LspClient } from '../../tool/lsp.js';

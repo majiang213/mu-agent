@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getNextState, getBaseStateConfigs, hasStateCompletionJson } from '../../src/core/states.js';
+import { getNextState, getBaseStateConfigs } from '../../src/core/states.js';
 import { State } from '../../src/core/types.js';
 
 // ---- Bug 19 (states.ts:114): getNextState ignores success parameter ----
@@ -54,25 +54,5 @@ describe('Bug 19: TEST_WRITE allowedTools missing edit', () => {
     // Bug 19 (states.ts:104): TEST_WRITE has ['read', 'write', 'complete'].
     // It needs 'edit' to modify existing test files.
     expect(testWriteTools).toContain('edit');
-  });
-});
-
-// ---- Bug 19 (states.ts:179): ROLLBACK has no hasStateCompletionJson case ----
-
-describe('Bug 19: ROLLBACK has no hasStateCompletionJson case', () => {
-  it('hasStateCompletionJson returns true for valid ROLLBACK output', () => {
-    const validRollbackJson = '{"restored": ["src/a.ts", "src/b.ts"]}';
-
-    // Bug 19 (states.ts:179): STATE_SCHEMAS does not have a ROLLBACK entry,
-    // so hasStateCompletionJson always returns false for ROLLBACK.
-    // After fix, a schema like Type.Object({ restored: Type.Array(Type.String()) }) should be added.
-    const result = hasStateCompletionJson(State.ROLLBACK, validRollbackJson);
-    expect(result).toBe(true);
-  });
-
-  it('hasStateCompletionJson returns false for invalid ROLLBACK output', () => {
-    const invalidJson = '{"wrong": "format"}';
-    const result = hasStateCompletionJson(State.ROLLBACK, invalidJson);
-    expect(result).toBe(false);
   });
 });
