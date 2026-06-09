@@ -80,13 +80,6 @@ export interface ToolCall {
 }
 
 /** State machine configuration */
-export interface StateMachineConfig {
-  modelParams: ModelParams;
-  states: Record<State, StateConfig>;
-  onStateChange?: (from: State, to: State) => void;
-  onToolCall?: (call: ToolCall) => void;
-}
-
 /** A single execution step in the agent's dynamic plan (from REASON output) */
 export interface Step {
   state: State;

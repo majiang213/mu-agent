@@ -40,9 +40,6 @@ function validateConfig(cfg: Config, source: string): void {
   if (!['ollama', 'custom'].includes(model.provider)) {
     throw new Error(`${source}: model.provider must be one of: ollama, custom`);
   }
-  if (cfg.logLevel !== undefined && !['debug', 'info', 'warn', 'error'].includes(cfg.logLevel)) {
-    throw new Error(`${source}: logLevel must be one of: debug, info, warn, error`);
-  }
 }
 
 export function loadConfig(projectRoot?: string): Config {
@@ -67,14 +64,12 @@ export function loadConfig(projectRoot?: string): Config {
   }
 
   const mergedModel = mergeNestedSection(globalPartial.model, projectPartial.model);
-  const mergedToolOutput = mergeNestedSection(globalPartial.toolOutput, projectPartial.toolOutput);
   const mergedSafety = mergeNestedSection(globalPartial.safety, projectPartial.safety);
 
   const layered: Partial<Config> = {
     ...globalPartial,
     ...projectPartial,
     ...(mergedModel ? { model: mergedModel as Config['model'] } : {}),
-    ...(mergedToolOutput ? { toolOutput: mergedToolOutput } : {}),
     ...(mergedSafety ? { safety: mergedSafety } : {}),
   };
 
@@ -89,14 +84,12 @@ export function saveConfig(updates: Partial<Config>, projectRoot?: string): void
   const existing: Partial<Config> = existsSync(projectConfigPath) ? readJson(projectConfigPath) : {};
 
   const mergedModel = mergeNestedSection(existing.model, updates.model);
-  const mergedToolOutput = mergeNestedSection(existing.toolOutput, updates.toolOutput);
   const mergedSafety = mergeNestedSection(existing.safety, updates.safety);
 
   const merged: Partial<Config> = {
     ...existing,
     ...updates,
     ...(mergedModel ? { model: mergedModel as Config['model'] } : {}),
-    ...(mergedToolOutput ? { toolOutput: mergedToolOutput } : {}),
     ...(mergedSafety ? { safety: mergedSafety } : {}),
   };
 

@@ -14,16 +14,11 @@ export const DEFAULT_CONFIG: Config = {
     baseUrl: 'http://localhost:11434',
     temperature: 0.1,
   },
-  toolOutput: {
-    maxLines: 200,
-    maxBytes: 51200,
-  },
   safety: {
     enableCheckpoint: true,
     maxLinesPerEdit: 50,
     maxFilesPerTask: 5,
   },
-  logLevel: 'info',
 };
 
 export function getDefaultConfig(): Config {

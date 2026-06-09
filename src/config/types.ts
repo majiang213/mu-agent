@@ -21,13 +21,6 @@ export interface ModelConfig {
   modelSize?: number;
 }
 
-export interface ToolOutputConfig {
-  /** Max lines to return from tool output, default 200 */
-  maxLines?: number;
-  /** Max bytes to return from tool output, default 51200 */
-  maxBytes?: number;
-}
-
 export interface SafetyConfig {
   /** Enable file checkpointing before modification, default true */
   enableCheckpoint?: boolean;
@@ -48,8 +41,6 @@ export interface HeavyThinkingConfig {
 export interface Config {
   $schema?: string;
   model: ModelConfig;
-  toolOutput?: ToolOutputConfig;
   safety?: SafetyConfig;
-  logLevel?: 'debug' | 'info' | 'warn' | 'error';
   heavyThinking?: HeavyThinkingConfig;
 }
