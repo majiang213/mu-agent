@@ -12,7 +12,6 @@ const STATE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
   [State.TEST_WRITE]: Type.Object({ testFile: Type.String() }),
   [State.ROLLBACK]: Type.Object({ restored: Type.Array(Type.String()) }),
   [State.REFACTOR_PLAN]: Type.Object({ refactorSteps: Type.Array(Type.Unknown()) }),
-  [State.RUN]: Type.Object({ exitCode: Type.Number() }),
   [State.SETUP]: Type.Object({ created: Type.String() }),
 };
 
@@ -130,11 +129,6 @@ Check:
       allowedTools: ['read', 'write', 'bash', 'edit', 'complete'],
       prompt: 'Restore files to their previous state.',
     },
-    [State.RUN]: {
-      name: State.RUN,
-      allowedTools: ['bash', 'complete'],
-      prompt: 'Execute the requested command and report the result.',
-    },
     [State.RESEARCH]: {
       name: State.RESEARCH,
       allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch', 'complete'],
@@ -165,7 +159,6 @@ export function getNextState(currentState: State, success: boolean = true): Stat
     [State.TEST_WRITE]: State.VERIFY,
     [State.REFACTOR_PLAN]: State.LOCATE,
     [State.ROLLBACK]: State.DONE,
-    [State.RUN]: State.DONE,
     [State.RESEARCH]: State.DONE,
     [State.SETUP]: State.DONE,
   };

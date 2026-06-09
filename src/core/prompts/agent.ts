@@ -1,4 +1,4 @@
-import { State, type ModelParams, type StateContext } from '../types.js';
+import { State, STATES_NEEDING_CODE_CONTEXT, type ModelParams, type StateContext } from '../types.js';
 import type { AgentContext } from '../agent/context.js';
 import type { ExecutedStep } from '../types.js';
 
@@ -23,22 +23,20 @@ export interface SystemPromptOptions {
   memoryIndex?: string;
 }
 
-const STATES_NEEDING_TREE = new Set([State.LOCATE, State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.REFACTOR_PLAN]);
-
 function buildBasePrompt(env?: EnvContext, state?: State): string {
   let envBlock = '';
   if (env) {
     const treeSection =
-      state && STATES_NEEDING_TREE.has(state) && env.projectTree
+      state && STATES_NEEDING_CODE_CONTEXT.has(state) && env.projectTree
         ? `\n<project_structure>\n${env.projectTree}\n</project_structure>`
         : '';
     const suggestedSection =
-      state && STATES_NEEDING_TREE.has(state) && env.suggestedFiles?.length
+      state && STATES_NEEDING_CODE_CONTEXT.has(state) && env.suggestedFiles?.length
         ? `\n<suggested_files>\n${env.suggestedFiles.map((f) => `- ${f.path}${f.hint ? ` (${f.hint})` : ''}`).join('\n')}\n</suggested_files>`
         : '';
     const snippetEntries = env.snippets ? Object.entries(env.snippets) : [];
     const snippetsSection =
-      state && STATES_NEEDING_TREE.has(state) && snippetEntries.length
+      state && STATES_NEEDING_CODE_CONTEXT.has(state) && snippetEntries.length
         ? `\n<code_snippets>\n${snippetEntries.map(([file, code]) => `// ${file}\n${code}`).join('\n\n')}\n</code_snippets>`
         : '';
     envBlock = `<env>
@@ -99,8 +97,9 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Fix bug when file+location are NOT stated explicitly → [LOCATE, MODIFY, VERIFY]
 - Fix bug when file+location ARE stated explicitly → [MODIFY, VERIFY]
 - Bug investigation (cause unknown) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
-- Check AND fix (user asks to find and fix issues) → [RESEARCH, LOCATE, MODIFY, VERIFY]
-- User wants a shell command executed → [RUN]
+- Tests failing, fix them → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
+- Tests failing, complex codebase (need to understand context) → [DIAGNOSE, RESEARCH, LOCATE, MODIFY, VERIFY]
+- Code review + fix (no tests, static analysis only) → [RESEARCH, LOCATE, MODIFY, VERIFY]
 - Project setup / generate AGENTS.md → [SETUP]
 
 RULES:
@@ -122,11 +121,10 @@ Examples:
 - Check for issues: complete(steps=[{state:"RESEARCH", focus:"read calc.js and identify any bugs or problems"}], needsClarify=false)
 - Web search:   complete(steps=[{state:"RESEARCH", focus:"search for best practices for JWT expiry"}], needsClarify=false)
 - Review code:  complete(steps=[{state:"REVIEW", focus:"review auth.js for security issues"}], needsClarify=false)
-- Check and fix: complete(steps=[{state:"RESEARCH",focus:"read calc.js and identify bugs"},{state:"LOCATE",focus:"find exact lines to change"},{state:"MODIFY",focus:"add divide-by-zero guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
+- Fix failing tests: complete(steps=[{state:"DIAGNOSE",focus:"run npm test to capture failing output"},{state:"LOCATE",focus:"find exact lines in calc.js to change"},{state:"MODIFY",focus:"add divide-by-zero guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
 - Fix bug (location known): complete(steps=[{state:"LOCATE",focus:"find divide function in calc.js"},{state:"MODIFY",focus:"add zero-check before division"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
 - Simple edit (file+line explicit): complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts line 42"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
 - Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
-- Run command:  complete(steps=[{state:"RUN", focus:"run npm install"}], needsClarify=false)
 - Setup:        complete(steps=[{state:"SETUP", focus:"analyze project and generate AGENTS.md"}], needsClarify=false)
 - Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])
 - Retry after VERIFY failure: complete(steps=[{state:"ROLLBACK",focus:"restore files to checkpoint"},{state:"DIAGNOSE",focus:"why did the fix not work"},{state:"MODIFY",focus:"apply correct fix based on diagnosis"},{state:"VERIFY",focus:"run tests again"}], needsClarify=false)
@@ -339,24 +337,6 @@ complete(restored=["calc.js"])
 
 When done, call complete(restored=["<file1>", ...]).`,
 
-  [State.RUN]: `Execute the requested command using bash.
-
-Available tools: bash, complete.
-
-Rules:
-- Run exactly the command requested — not a variation
-- Do NOT modify any files
-- Do NOT install packages the user did not ask for
-- If the command needs interactive input, report it cannot run non-interactively
-
-<example>
-focus: run npm test
-assistant: bash(command="npm test") → exit code 0, 7 tests passed
-complete(exitCode=0, summary="npm test: 7 passing (1.2s)")
-</example>
-
-When done, call complete(exitCode=<n>, summary="<what happened, key output>").`,
-
   [State.RESEARCH]: `Research and investigate the topic.
 
 Available tools: read, ls, grep, find, webfetch, websearch, complete.
@@ -384,6 +364,7 @@ complete(report="Use express-rate-limit package. Set windowMs=15min, max=100. ht
 
 You do NOT have edit or write tools. Do NOT attempt to modify or create files — read and report only.
 Do NOT modify files.
+If you read the code and find no bugs, or the existing implementation already satisfies all requirements, call complete(report="No issues found — code is already correct.") immediately. Do NOT invent bugs that are not present in the code.
 As soon as you have gathered enough information, call complete(report="...") IMMEDIATELY.
 Do NOT output a summary to the user before calling complete(). The complete() call IS your output.`,
 
@@ -454,7 +435,6 @@ export const STEP_CONTEXT_NEEDS: Partial<Record<State, State[]>> = {
   [State.VERIFY]: [State.MODIFY, State.LOCATE, State.DIAGNOSE], // special handling below
   [State.ROLLBACK]: [State.MODIFY, State.LOCATE],
   [State.TEST_WRITE]: [State.RESEARCH, State.LOCATE, State.DIAGNOSE],
-  [State.RUN]: [State.DIAGNOSE, State.RESEARCH],
   [State.REFACTOR_PLAN]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
   [State.REVIEW]: [State.RESEARCH, State.DIAGNOSE],
   [State.ANSWER]: [State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.VERIFY, State.MODIFY],

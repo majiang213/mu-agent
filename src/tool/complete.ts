@@ -83,11 +83,6 @@ const COMPLETE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> =
     estimatedFiles: Type.Number(),
   }),
 
-  [State.RUN]: Type.Object({
-    exitCode: Type.Number(),
-    summary: Type.String({ description: 'Key output or what happened' }),
-  }),
-
   [State.RESEARCH]: Type.Object({
     report: Type.String({ description: 'Your findings, cite file paths or URLs' }),
   }),

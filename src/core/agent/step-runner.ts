@@ -17,7 +17,7 @@ import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
 import { advanceState } from '../states.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { samplePlans, deliberate, pickShortest, SAMPLING_BATCH_SIZE } from '../heavy/index.js';
-import { State } from '../types.js';
+import { State, STATES_NEEDING_CODE_CONTEXT } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 
@@ -32,7 +32,6 @@ const REMINDER_FIELDS: Partial<Record<State, string>> = {
   [State.DIAGNOSE]: 'rootCause (string), location (string), fix (string)',
   [State.REVIEW]: 'issues (array), suggestions (array), verdict ("pass"|"fail")',
   [State.ROLLBACK]: 'restored (array of file paths)',
-  [State.RUN]: 'exitCode (number), summary (string)',
   [State.TEST_WRITE]: 'testFile (string), cases (number)',
   [State.REFACTOR_PLAN]: 'refactorSteps (array of strings), estimatedFiles (number)',
 };
@@ -197,7 +196,7 @@ export async function runReasonStep(
 ): Promise<{ steps: StepDirective[] }> {
   const htCfg = cfg.heavyThinking;
   const tier = cfg.stateMachine.getModelParams().tier;
-  const heavyEnabled = tier === 'SMALL' || tier === 'MEDIUM';
+  const heavyEnabled = (tier === 'SMALL' || tier === 'MEDIUM') && htCfg?.enabled !== false;
 
   if (!heavyEnabled) {
     return runSingleReasonAttempt(
@@ -462,16 +461,8 @@ export async function runStep(
   const trajectory = [step.state, State.DONE];
   cfg.stateMachine.resetForNextTask(step.state);
 
-  const STATES_NEEDING_LOCATE = new Set([
-    State.LOCATE,
-    State.RESEARCH,
-    State.DIAGNOSE,
-    State.REVIEW,
-    State.REFACTOR_PLAN,
-  ]);
-
   let stepEnv = cfg.env;
-  if (STATES_NEEDING_LOCATE.has(step.state)) {
+  if (STATES_NEEDING_CODE_CONTEXT.has(step.state)) {
     try {
       const locator = new CodeGraphLocator(cfg.projectRoot);
       const result = locator.locate(step.focus);

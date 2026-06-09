@@ -38,6 +38,8 @@ export interface SafetyConfig {
 }
 
 export interface HeavyThinkingConfig {
+  /** Set to false to disable Heavy Thinking regardless of model tier. Default: true. */
+  enabled?: boolean;
   planCount?: number;
   samplingTemperature?: number;
   deliberationModel?: string;

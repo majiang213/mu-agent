@@ -31,7 +31,6 @@ export enum State {
   TEST_WRITE = 'TEST_WRITE',
   REFACTOR_PLAN = 'REFACTOR_PLAN',
   ROLLBACK = 'ROLLBACK',
-  RUN = 'RUN',
   RESEARCH = 'RESEARCH',
   SETUP = 'SETUP',
 }
@@ -126,3 +125,11 @@ export interface AgendaItem {
   id?: string;
   dependencies?: string[];
 }
+
+export const STATES_NEEDING_CODE_CONTEXT = new Set([
+  State.LOCATE,
+  State.RESEARCH,
+  State.DIAGNOSE,
+  State.REVIEW,
+  State.REFACTOR_PLAN,
+]);

@@ -23,6 +23,35 @@ import { createMemorySearchTool } from '../../tool/memory-search.js';
 
 const MAX_VERIFY_RETRIES = 2;
 
+async function rollbackEditedFiles(
+  allStepResults: ExecutedStep[],
+  safeModifier: SafeModifier,
+  onEvent?: (e: ExecutionEvent) => void,
+): Promise<void> {
+  const editedFiles = allStepResults
+    .filter((r) => r.state === State.MODIFY)
+    .flatMap((r) => {
+      try {
+        const parsed = JSON.parse(r.output) as { edited?: unknown };
+        return Array.isArray(parsed.edited) ? parsed.edited.filter((f): f is string => typeof f === 'string') : [];
+      } catch {
+        return [];
+      }
+    });
+  const uniqueEdited = [...new Set(editedFiles)];
+  for (const filePath of uniqueEdited) {
+    await safeModifier.restore(filePath);
+  }
+  if (uniqueEdited.length > 0) {
+    onEvent?.({
+      type: 'tool_execution_start',
+      toolId: 'rollback',
+      tool: 'rollback',
+      args: { restored: uniqueEdited },
+    });
+  }
+}
+
 function stepsSignature(directives: StepDirective[]): string {
   return directives
     .flatMap((d) => ('parallel' in d ? d.parallel : [d]))
@@ -105,15 +134,16 @@ export class ReactAgent {
       buildModel(config.model.name, config.model.provider, config.model.baseUrl, contextRatio, config.model.apiKey),
     ]);
 
+    const cwd = options?.cwd ?? process.cwd();
+
     const stateMachine = new StateMachineAgent(
       config.model.name,
       // Cast needed: pi-agent-core's AgentTool<TParameters> requires TSchema [Kind] symbol
       // which @sinclair/typebox TObject lacks — pre-existing upstream type gap
       [astLocatorTool, webfetchTool as AgentTool<any, any>, websearchTool as AgentTool<any, any>],
       paramCount,
+      cwd,
     );
-
-    const cwd = options?.cwd ?? process.cwd();
     const home = homedir();
     const cwdDisplay = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
     let isGitRepo: boolean;
@@ -188,6 +218,7 @@ export class ReactAgent {
     let verifySeen = false;
     let verifyFailed = false;
     let noVerifyRetried = false;
+    let verifyRetryCount = 0;
 
     try {
       const conversationHistory = await compressConversationHistory(
@@ -237,9 +268,9 @@ export class ReactAgent {
             break;
           }
           verifyFailed = true;
+          verifyRetryCount++;
 
           if (verifySeen && noVerifyRetried) {
-            // We already retried once without VERIFY, and VERIFY still fails — report failure
             const failedResult: StateResult = {
               state: State.DONE,
               success: false,
@@ -253,7 +284,75 @@ export class ReactAgent {
             return failedResult;
           }
 
-          // Let the loop continue — the else branch will handle retry
+          if (verifyRetryCount > MAX_VERIFY_RETRIES) {
+            const failedResult: StateResult = {
+              state: State.DONE,
+              success: false,
+              output: `Task failed after ${MAX_VERIFY_RETRIES} verification retries. Last error: ${verifyResult.summary}`,
+              toolCalls: [],
+              nextState: State.DONE,
+              messages: [],
+            };
+            this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+            mission = { ...mission, state: 'failed' as const };
+            return failedResult;
+          }
+
+          const verifyFailureHistory: AgentMessage[] = [
+            ...conversationHistory,
+            {
+              role: 'user' as const,
+              content: _buildVerifyFailureContext(allStepResults, verifyResult, verifyRetryCount),
+              timestamp: Date.now(),
+            },
+          ];
+          const { steps: verifyRetrySteps } = await runReasonStep(
+            mission,
+            cfg,
+            verifyFailureHistory,
+            onEvent,
+            clarifyCallback,
+            memoryIndex,
+            memorySearchTool,
+          );
+          if (verifyRetrySteps.length === 0) {
+            const failedResult: StateResult = {
+              state: State.DONE,
+              success: false,
+              output: `Task failed: verification failed and retry produced no steps. Last error: ${verifyResult.summary}`,
+              toolCalls: [],
+              nextState: State.DONE,
+              messages: [],
+            };
+            this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+            mission = { ...mission, state: 'failed' as const };
+            return failedResult;
+          }
+
+          const verifySig = stepsSignature(verifyRetrySteps);
+          if (verifySig === prevStepsSignature) {
+            const failedResult: StateResult = {
+              state: State.DONE,
+              success: false,
+              output: `Task failed: retry plan identical to previous. Last error: ${verifyResult.summary}`,
+              toolCalls: [],
+              nextState: State.DONE,
+              messages: [],
+            };
+            this._memoryStore?.writeEpisodeSync(mission, allStepResults, failedResult);
+            mission = { ...mission, state: 'failed' as const };
+            return failedResult;
+          }
+          prevStepsSignature = verifySig;
+
+          const flatVerifyRetry = verifyRetrySteps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
+          const verifyRetryHasModify = flatVerifyRetry.some((s: Step) => s.state === State.MODIFY);
+          const verifyRetryHasRollback = flatVerifyRetry.some((s: Step) => s.state === State.ROLLBACK);
+          if (verifyRetryHasModify && !verifyRetryHasRollback) {
+            await rollbackEditedFiles(allStepResults, cfg.safeModifier, onEvent);
+          }
+
+          currentSteps = verifyRetrySteps;
         } else {
           // No VERIFY in this round
           if (verifySeen && verifyFailed) {
@@ -325,30 +424,7 @@ export class ReactAgent {
           const hasModify = flatRetry.some((s: Step) => s.state === State.MODIFY);
           const hasRollback = flatRetry.some((s: Step) => s.state === State.ROLLBACK);
           if (hasModify && !hasRollback) {
-            const editedFiles = allStepResults
-              .filter((r) => r.state === State.MODIFY)
-              .flatMap((r) => {
-                try {
-                  const parsed = JSON.parse(r.output) as { edited?: unknown };
-                  return Array.isArray(parsed.edited)
-                    ? parsed.edited.filter((f): f is string => typeof f === 'string')
-                    : [];
-                } catch {
-                  return [];
-                }
-              });
-            const uniqueEdited = [...new Set(editedFiles)];
-            for (const filePath of uniqueEdited) {
-              await cfg.safeModifier.restore(filePath);
-            }
-            if (uniqueEdited.length > 0) {
-              onEvent?.({
-                type: 'tool_execution_start',
-                toolId: 'rollback',
-                tool: 'rollback',
-                args: { restored: uniqueEdited },
-              });
-            }
+            await rollbackEditedFiles(allStepResults, cfg.safeModifier, onEvent);
           }
 
           currentSteps = retrySteps;

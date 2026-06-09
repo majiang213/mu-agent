@@ -250,23 +250,6 @@ describe('buildSystemPrompt', () => {
     });
   });
 
-  describe('RUN state', () => {
-    it('instructs to use bash', () => {
-      const p = prompt(State.RUN);
-      expect(p).toContain('bash');
-    });
-
-    it('instructs not to modify files', () => {
-      const p = prompt(State.RUN);
-      expect(p.toUpperCase()).toContain('NOT MODIFY');
-    });
-
-    it('complete() output schema mentions exitCode', () => {
-      const p = prompt(State.RUN);
-      expect(p).toContain('exitCode');
-    });
-  });
-
   describe('SETUP state', () => {
     it('instructs to generate AGENTS.md', () => {
       const p = prompt(State.SETUP);
@@ -719,11 +702,6 @@ describe('REASON — all routing branches have examples', () => {
     expect(p).toContain('DIAGNOSE');
   });
 
-  it('has example for run command', () => {
-    const p = prompt(State.REASON);
-    expect(p).toContain('Run command');
-  });
-
   it('has example for setup', () => {
     const p = prompt(State.REASON);
     expect(p).toContain('Setup');
@@ -803,20 +781,6 @@ describe('CLARIFY — one tool + example', () => {
 
   it('contains example block', () => {
     const p = prompt(State.CLARIFY);
-    expect(p).toContain('<example>');
-  });
-});
-
-describe('RUN — tools and example', () => {
-  it('lists available tools', () => {
-    const p = prompt(State.RUN);
-    expect(p).toContain('Available tools');
-    expect(p).toContain('bash');
-    expect(p).toContain('complete');
-  });
-
-  it('contains example block', () => {
-    const p = prompt(State.RUN);
     expect(p).toContain('<example>');
   });
 });

@@ -17,10 +17,10 @@ export function buildStepAgent(
   onEvent: ((event: ExecutionEvent) => void) | undefined,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tools: any[] = [
-    ...createCodingTools(process.cwd()),
-    createGrepTool(process.cwd()),
-    createLsTool(process.cwd()),
-    createFindTool(process.cwd()),
+    ...createCodingTools(cfg.projectRoot),
+    createGrepTool(cfg.projectRoot),
+    createLsTool(cfg.projectRoot),
+    createFindTool(cfg.projectRoot),
     astLocatorTool,
   ],
   readFiles?: Set<string>,
@@ -85,7 +85,7 @@ export function buildStepAgent(
             return { block: true, reason: `Path traversal blocked: ${filePath} is outside project root` };
           }
           try {
-            await cfg.safeModifier.createCheckpoint(filePath);
+            await cfg.safeModifier.createCheckpoint(resolved);
           } catch (e) {
             console.warn('[SafeModifier] createCheckpoint failed for', filePath, ':', e);
             return { block: true, reason: '[SafeModifier] Cannot create checkpoint: ' + String(e) };

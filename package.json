@@ -64,7 +64,6 @@
     "commander": "^15.0.0",
     "deepmerge": "^4.3.1",
     "glob": "^13.0.6",
-    "gpt-tokenizer": "^3.4.0",
     "node-html-markdown": "^2.0.0",
     "stopword": "^3.1.5",
     "vscode-jsonrpc": "^9.0.0",

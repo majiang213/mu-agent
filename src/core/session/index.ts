@@ -27,11 +27,18 @@ export class StateMachineAgent {
   private readonly modelName: string;
   private readonly extraTools: AgentTool[];
   private readonly paramCount: number | null;
+  private readonly projectRoot: string;
 
-  constructor(modelName: string, extraTools: AgentTool<any, any>[] = [], paramCount: number | null = null) {
+  constructor(
+    modelName: string,
+    extraTools: AgentTool<any, any>[] = [],
+    paramCount: number | null = null,
+    projectRoot: string = process.cwd(),
+  ) {
     this.modelName = modelName;
     this.extraTools = extraTools;
     this.paramCount = paramCount;
+    this.projectRoot = projectRoot;
     const modelParams = detectModelParams(paramCount);
     const states = getBaseStateConfigs();
 
@@ -44,18 +51,17 @@ export class StateMachineAgent {
     this.stateIteration = 0;
     this.toolCalls = [];
     this.fileCount = 0;
-    const cwd = process.cwd();
     this.allTools = [
-      ...createCodingTools(cwd),
-      createGrepTool(cwd) as AgentTool<any, any>,
-      createLsTool(cwd) as AgentTool<any, any>,
-      createFindTool(cwd) as AgentTool<any, any>,
+      ...createCodingTools(projectRoot),
+      createGrepTool(projectRoot) as AgentTool<any, any>,
+      createLsTool(projectRoot) as AgentTool<any, any>,
+      createFindTool(projectRoot) as AgentTool<any, any>,
       ...extraTools,
     ];
   }
 
   clone(): StateMachineAgent {
-    const cloned = new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount);
+    const cloned = new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount, this.projectRoot);
     cloned.fileCount = this.fileCount;
     return cloned;
   }

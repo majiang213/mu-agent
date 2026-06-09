@@ -72,7 +72,6 @@ describe('parseReasonSteps', () => {
         'ANSWER',
         'DIAGNOSE',
         'REVIEW',
-        'RUN',
         'RESEARCH',
         'SETUP',
         'TEST_WRITE',

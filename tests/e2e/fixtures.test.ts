@@ -33,7 +33,7 @@ try {
 
 const BASE_URL = config?.model.baseUrl ?? '';
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
-const TEST_TIMEOUT = 180_000; // 3 min — real LLM calls
+const TEST_TIMEOUT = 300_000; // 5 min — real LLM calls (Heavy Thinking + up to 2 VERIFY retries)
 
 async function isOllamaRunning(): Promise<boolean> {
   if (!config) return false;
@@ -73,9 +73,10 @@ function runCmd(cmd: string, args: string[], cwd: string): { ok: boolean; out: s
  * line to logPath. Errors are silently swallowed so logging never breaks tests.
  */
 function createEventLogger(logPath: string): (event: ExecutionEvent) => void {
+  const start = Date.now();
   return (event) => {
     try {
-      appendFileSync(logPath, JSON.stringify(event) + '\n');
+      appendFileSync(logPath, JSON.stringify({ ...event, _ts: Date.now(), _elapsed: Date.now() - start }) + '\n');
     } catch {
       // ignore
     }
@@ -501,7 +502,7 @@ describe.skipIf(config === null)('Fixture E2E Tests (requires Ollama)', () => {
 
   // ── 5. fixture-java ─────────────────────────────────────────────────────────
   it.skipIf(!isCommandAvailable('mvn'))(
-    'fixture-java: fix calculateDiscount NullPointerException so mvn test passes',
+    'fixture-java: fix OrderService NullPointerException so mvn test passes',
     async () => {
       const cwd = copyFixture('fixture-java');
       let result: { success: boolean; output: string } = { success: false, output: '' };

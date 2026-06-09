@@ -176,14 +176,6 @@ describe('StateMachineAgent', () => {
       expect(names).not.toContain('write');
     });
 
-    it('RUN → includes bash but NOT edit', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
-      agent.transitionTo(State.RUN);
-      const names = toolNames(agent);
-      expect(names).toContain('bash');
-      expect(names).not.toContain('edit');
-    });
-
     it('RESEARCH → includes read', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
       agent.transitionTo(State.RESEARCH);
