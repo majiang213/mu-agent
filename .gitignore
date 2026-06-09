@@ -49,3 +49,7 @@ collect.sh
 .omc/
 .omo
 *.review-report.md
+
+tests/fixtures/**/target/
+tests/fixtures/**/__pycache__/
+tests/fixtures/**/*.pyc
