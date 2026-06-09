@@ -1,7 +1,3 @@
-import type { ExecutedStep } from '../types.js';
-import type { StateResult } from '../types.js';
-import type { Mission } from '../agent/types.js';
-
 export interface StructuredSummary {
   action: string; // 'edit'|'fix'|'review'|'explain'|'check'|'create'|'answer'
   files: string[]; // MODIFY 修改的文件列表
@@ -50,5 +46,3 @@ export interface EpisodeRecord {
   userInput: string;
   verifyCommands?: string[];
 }
-
-export type { ExecutedStep, StateResult, Mission };

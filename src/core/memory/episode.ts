@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import type { EpisodeRow, EpisodeRecord, StructuredSummary } from './types.js';
-import type { ExecutedStep, StateResult, Mission } from './types.js';
+import type { ExecutedStep, StateResult } from '../types.js';
+import type { Mission } from '../agent/types.js';
 import { buildStructuredSummary, extractEntitiesForWrite } from './extractor.js';
 import { updateSemanticFacts } from './semantic.js';
 

@@ -1,6 +1,7 @@
 import { Value } from '@sinclair/typebox/value';
 import { Type } from '@sinclair/typebox';
 import { State, type ModelParams, type StateConfig } from './types.js';
+import { STATE_REGISTRY } from './state-registry.js';
 
 const STATE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
   [State.LOCATE]: Type.Object({ locations: Type.Array(Type.Unknown()) }),
@@ -45,106 +46,14 @@ export function detectModelParams(paramCount: number | null): ModelParams {
   }
 }
 
-/**
- * Get base state configurations
- */
 export function getBaseStateConfigs(): Record<State, StateConfig> {
-  return {
-    [State.LOCATE]: {
-      name: State.LOCATE,
-      allowedTools: ['read', 'ast_code_locator', 'complete'],
-      prompt: `Locate the exact positions in the code that need to be modified.
-Read the relevant files and identify specific functions, classes, or lines.
-
-Output:
-1. File paths and line numbers
-2. Current code snippets that will be changed
-3. Context around the changes`,
-    },
-    [State.MODIFY]: {
-      name: State.MODIFY,
-      allowedTools: ['read', 'edit', 'write', 'complete'],
-      prompt: `Make the necessary code changes.
-Use edit tool for small changes, write tool for new files.
-Always read the file first before editing.
-
-Rules:
-1. Make minimal, focused changes
-2. Preserve existing code style
-3. Do not modify unrelated code`,
-    },
-    [State.VERIFY]: {
-      name: State.VERIFY,
-      allowedTools: ['read', 'bash', 'complete'],
-      prompt: `Verify the changes are correct.
-Run tests, check syntax, review the modifications.
-
-Check:
-1. Syntax errors
-2. Test results
-3. Code review of changes`,
-    },
-    [State.DONE]: {
-      name: State.DONE,
-      allowedTools: [],
-      prompt: 'Task completed.',
-    },
-    [State.REASON]: {
-      name: State.REASON,
-      allowedTools: ['complete'],
-      prompt: 'Reason about the task.',
-    },
-    [State.CLARIFY]: {
-      name: State.CLARIFY,
-      allowedTools: ['complete'],
-      prompt: 'Ask the user for clarification.',
-    },
-    [State.ANSWER]: {
-      name: State.ANSWER,
-      allowedTools: ['complete'],
-      prompt: 'Answer the question directly.',
-    },
-    [State.DIAGNOSE]: {
-      name: State.DIAGNOSE,
-      allowedTools: ['read', 'grep', 'bash', 'complete'],
-      prompt: 'Diagnose the root cause of the issue.',
-    },
-    [State.REVIEW]: {
-      name: State.REVIEW,
-      allowedTools: ['read', 'grep', 'complete'],
-      prompt: 'Review the code and provide feedback.',
-    },
-    [State.TEST_WRITE]: {
-      name: State.TEST_WRITE,
-      allowedTools: ['read', 'write', 'edit', 'complete'],
-      prompt: 'Write tests for the code.',
-    },
-    [State.REFACTOR_PLAN]: {
-      name: State.REFACTOR_PLAN,
-      allowedTools: ['read', 'complete'],
-      prompt: 'Plan the refactoring steps.',
-    },
-    [State.ROLLBACK]: {
-      name: State.ROLLBACK,
-      allowedTools: ['read', 'write', 'bash', 'edit', 'complete'],
-      prompt: 'Restore files to their previous state.',
-    },
-    [State.RESEARCH]: {
-      name: State.RESEARCH,
-      allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch', 'complete'],
-      prompt: 'Research and investigate the topic. Read local files or search the web as needed.',
-    },
-    [State.SETUP]: {
-      name: State.SETUP,
-      allowedTools: ['read', 'bash', 'write', 'complete'],
-      prompt: 'Analyze the project and generate AGENTS.md.',
-    },
-  };
+  const entries = (Object.keys(STATE_REGISTRY) as State[]).map((state) => [
+    state,
+    { name: state, allowedTools: STATE_REGISTRY[state].allowedTools },
+  ]);
+  return Object.fromEntries(entries) as Record<State, StateConfig>;
 }
 
-/**
- * State transition rules
- */
 export function getNextState(currentState: State, success: boolean = true): State {
   const transitions: Record<State, State> = {
     [State.LOCATE]: State.MODIFY,
@@ -181,10 +90,6 @@ function extractJson(text: string): Record<string, unknown> | null {
   }
 }
 
-/**
- * Check whether the LLM output contains the expected JSON for the current state.
- * Used to drive state advancement deterministically.
- */
 export function hasStateCompletionJson(state: State, text: string): boolean {
   const json = extractJson(text);
   if (!json) return false;

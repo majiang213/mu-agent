@@ -51,7 +51,6 @@ export interface ModelParams {
 export interface StateConfig {
   name: State;
   allowedTools: string[];
-  prompt: string;
 }
 
 /** State context passed to LLM */
@@ -88,13 +87,6 @@ export interface StateMachineConfig {
   onToolCall?: (call: ToolCall) => void;
 }
 
-/** Exit condition check result */
-export interface ExitCheckResult {
-  shouldExit: boolean;
-  reason: string;
-  nextState: State;
-}
-
 /** A single execution step in the agent's dynamic plan (from REASON output) */
 export interface Step {
   state: State;
@@ -115,16 +107,6 @@ export interface ExecutedStep extends Step {
  * (multiple independent steps executed concurrently with isolated state machines).
  */
 export type StepDirective = Step | { parallel: Step[] };
-
-/** An item in the agent's agenda (step + its execution trajectory) */
-export interface AgendaItem {
-  step: Step;
-  trajectory: State[];
-  status: 'pending' | 'running' | 'done' | 'failed';
-  /** For multi-step agendas, the id used to track dependencies */
-  id?: string;
-  dependencies?: string[];
-}
 
 export const STATES_NEEDING_CODE_CONTEXT = new Set([
   State.LOCATE,

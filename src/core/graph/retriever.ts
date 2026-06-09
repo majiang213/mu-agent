@@ -1,11 +1,9 @@
 import Database from 'better-sqlite3';
 import { join, resolve } from 'node:path';
-
-const DB_DIRNAME = '.mu-agent';
-const DB_FILENAME = 'graph.db';
+import { GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME } from './constants.js';
 
 function getDbPath(projectRoot: string): string {
-  return join(projectRoot, DB_DIRNAME, DB_FILENAME);
+  return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
 }
 
 export interface RetrieveResult {

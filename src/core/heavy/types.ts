@@ -14,8 +14,3 @@ export interface DeliberationResult {
 export type DeliberateOutcome =
   | { type: 'selected'; result: DeliberationResult }
   | { type: 'needs_clarification'; question: string };
-
-export interface StepTrajectory extends Step {
-  toolCallSummary: string[];
-  chosenPath: string;
-}

@@ -4,12 +4,10 @@ import { join, relative, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { glob } from 'glob';
 import ts from 'typescript';
-
-const DB_DIRNAME = '.mu-agent';
-const DB_FILENAME = 'graph.db';
+import { GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME } from './constants.js';
 
 function getDbPath(projectRoot: string): string {
-  return join(projectRoot, DB_DIRNAME, DB_FILENAME);
+  return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
 }
 
 const SKIP_DIRS = new Set([
@@ -41,7 +39,7 @@ export interface GraphNode {
 
 function getDb(projectRoot: string): Database.Database {
   const dbPath = getDbPath(projectRoot);
-  mkdirSync(join(projectRoot, DB_DIRNAME), { recursive: true });
+  mkdirSync(join(projectRoot, GRAPH_DB_DIRNAME), { recursive: true });
   const db = new Database(dbPath);
   try {
     db.pragma('journal_mode = WAL');

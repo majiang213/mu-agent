@@ -20,21 +20,9 @@ import { samplePlans, deliberate, pickShortest, SAMPLING_BATCH_SIZE } from '../h
 import { State, STATES_NEEDING_CODE_CONTEXT } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
+import { STATE_REGISTRY } from '../state-registry.js';
 
 const MEMORY_STATES = new Set([State.REASON, State.ANSWER, State.RESEARCH, State.DIAGNOSE]);
-
-const REMINDER_FIELDS: Partial<Record<State, string>> = {
-  [State.ANSWER]: 'answer (string)',
-  [State.RESEARCH]: 'report (string)',
-  [State.VERIFY]: 'passed (boolean), issues (array), summary (string)',
-  [State.LOCATE]: 'locations (array of {file, startLine, endLine, snippet})',
-  [State.MODIFY]: 'edited (array of file paths), linesChanged (number)',
-  [State.DIAGNOSE]: 'rootCause (string), location (string), fix (string)',
-  [State.REVIEW]: 'issues (array), suggestions (array), verdict ("pass"|"fail")',
-  [State.ROLLBACK]: 'restored (array of file paths)',
-  [State.TEST_WRITE]: 'testFile (string), cases (number)',
-  [State.REFACTOR_PLAN]: 'refactorSteps (array of strings), estimatedFiles (number)',
-};
 
 export async function buildModel(
   modelName: string,
@@ -542,7 +530,7 @@ export async function runStep(
     if (capturedComplete === null) {
       agent.steer({
         role: 'steer',
-        content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${REMINDER_FIELDS[step.state] ?? 'see system prompt'}.`,
+        content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${STATE_REGISTRY[step.state]?.reminderFields ?? 'see system prompt'}.`,
         timestamp: Date.now(),
       });
       await runStepAgent(

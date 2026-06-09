@@ -1,101 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../core/types.js';
-
-const COMPLETE_SCHEMAS: Partial<Record<State, ReturnType<typeof Type.Object>>> = {
-  [State.REASON]: Type.Object({
-    steps: Type.Array(
-      Type.Union([
-        Type.Object({
-          state: Type.String({ description: 'State name, e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH' }),
-          focus: Type.String({ description: 'What to do in this step' }),
-          why: Type.Optional(
-            Type.String({
-              description: 'In max 15 words: why this step and why this approach. Skip for obvious steps.',
-            }),
-          ),
-        }),
-        Type.Object({
-          parallel: Type.Array(
-            Type.Object({
-              state: Type.String({ description: 'State name for this parallel step' }),
-              focus: Type.String({ description: 'What to do in this parallel step' }),
-              why: Type.Optional(Type.String({ description: 'In max 15 words: why this step.' })),
-            }),
-            { description: 'Array of independent steps to execute concurrently', minItems: 2 },
-          ),
-        }),
-      ]),
-    ),
-    needsClarify: Type.Boolean(),
-    questions: Type.Optional(Type.Array(Type.String())),
-  }),
-
-  [State.CLARIFY]: Type.Object({
-    questions: Type.Array(Type.String({ description: 'Question to ask the user' })),
-  }),
-
-  [State.LOCATE]: Type.Object({
-    locations: Type.Array(
-      Type.Object({
-        file: Type.String(),
-        startLine: Type.Number(),
-        endLine: Type.Number(),
-        snippet: Type.String({ description: 'Current code at this location' }),
-      }),
-    ),
-  }),
-
-  [State.MODIFY]: Type.Object({
-    edited: Type.Array(Type.String({ description: 'File path that was modified' })),
-    linesChanged: Type.Number(),
-  }),
-
-  [State.VERIFY]: Type.Object({
-    passed: Type.Boolean(),
-    issues: Type.Array(Type.String()),
-    summary: Type.String(),
-  }),
-
-  [State.ANSWER]: Type.Object({
-    answer: Type.String({ description: 'Your answer to the user' }),
-  }),
-
-  [State.DIAGNOSE]: Type.Object({
-    rootCause: Type.String(),
-    location: Type.String({ description: 'file:line where the bug is' }),
-    fix: Type.String({ description: 'Suggested fix' }),
-  }),
-
-  [State.REVIEW]: Type.Object({
-    issues: Type.Array(Type.String()),
-    suggestions: Type.Array(Type.String()),
-    verdict: Type.Union([Type.Literal('pass'), Type.Literal('fail')]),
-  }),
-
-  [State.TEST_WRITE]: Type.Object({
-    testFile: Type.String(),
-    cases: Type.Number({ description: 'Number of test cases written' }),
-  }),
-
-  [State.REFACTOR_PLAN]: Type.Object({
-    refactorSteps: Type.Array(Type.String()),
-    estimatedFiles: Type.Number(),
-  }),
-
-  [State.RESEARCH]: Type.Object({
-    report: Type.String({ description: 'Your findings, cite file paths or URLs' }),
-  }),
-
-  [State.SETUP]: Type.Object({
-    created: Type.String({ description: 'File that was created or updated' }),
-    summary: Type.String(),
-  }),
-
-  [State.ROLLBACK]: Type.Object({
-    restored: Type.Array(Type.String({ description: 'File path that was restored' })),
-  }),
-};
+import { STATE_REGISTRY } from '../core/state-registry.js';
 
 function validateCompleteArgs(state: State, args: Record<string, unknown>): string | null {
   switch (state) {
@@ -128,7 +34,7 @@ function validateCompleteArgs(state: State, args: Record<string, unknown>): stri
 }
 
 export function buildCompleteTool(state: State, onComplete: (args: Record<string, unknown>) => void): AgentTool {
-  const schema = COMPLETE_SCHEMAS[state] ?? Type.Object({}, { additionalProperties: true });
+  const schema = STATE_REGISTRY[state]?.completeSchema ?? Type.Object({}, { additionalProperties: true });
 
   return {
     name: 'complete',

@@ -1,6 +1,7 @@
 import { State, STATES_NEEDING_CODE_CONTEXT, type ModelParams, type StateContext } from '../types.js';
 import type { AgentContext } from '../agent/context.js';
 import type { ExecutedStep } from '../types.js';
+import { STATE_REGISTRY } from '../state-registry.js';
 
 export interface EnvContext {
   cwd: string;
@@ -83,318 +84,6 @@ function buildBasePrompt(env?: EnvContext, state?: State): string {
     .join('\n\n');
 }
 
-const STATE_INSTRUCTIONS: Partial<Record<State, string>> = {
-  [State.REASON]: `You have ONE tool: complete(). Do NOT call any other tool. Do NOT read files. Do NOT run commands.
-Your ONLY job is to analyze the task description and call complete() with a plan.
-
-Choose the MINIMUM steps needed based on the task description alone:
-
-- Greeting / chitchat / pure Q&A → [] (empty steps — ANSWER runs automatically after)
-- Understand / explain / summarize / check code → [RESEARCH]
-- Web search or external info needed → [RESEARCH]
-- Code quality review → [REVIEW]
-- Check / inspect / look for issues (no explicit fix requested) → [RESEARCH]
-- Fix bug when file+location are NOT stated explicitly → [LOCATE, MODIFY, VERIFY]
-- Fix bug when file+location ARE stated explicitly → [MODIFY, VERIFY]
-- Bug investigation (cause unknown) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
-- Tests failing, fix them → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
-- Tests failing, complex codebase (need to understand context) → [DIAGNOSE, RESEARCH, LOCATE, MODIFY, VERIFY]
-- Code review + fix (no tests, static analysis only) → [RESEARCH, LOCATE, MODIFY, VERIFY]
-- Project setup / generate AGENTS.md → [SETUP]
-
-RULES:
-- NEVER go straight to MODIFY without LOCATE unless the exact file and change are given in the task.
-- "Check", "inspect", "look for problems", "review" → start with RESEARCH or REVIEW, not MODIFY.
-- MODIFY focus must describe the code change, NOT a diagnostic task.
-
-Each step needs a "focus" describing exactly what to do. Maximum 6 steps.
-
-For each step, optionally add "why" (max 15 words): your key assumption or reasoning.
-Only fill "why" when it adds real information — skip for obvious steps.
-
-Call complete(steps=[...], needsClarify=false).
-If intent is genuinely unclear, call complete(steps=[], needsClarify=true, questions=["<question>"]).
-
-Examples:
-- Chitchat/Q&A: complete(steps=[], needsClarify=false)
-- Explain code: complete(steps=[{state:"RESEARCH", focus:"read and explain how auth.ts works"}], needsClarify=false)
-- Check for issues: complete(steps=[{state:"RESEARCH", focus:"read calc.js and identify any bugs or problems"}], needsClarify=false)
-- Web search:   complete(steps=[{state:"RESEARCH", focus:"search for best practices for JWT expiry"}], needsClarify=false)
-- Review code:  complete(steps=[{state:"REVIEW", focus:"review auth.js for security issues"}], needsClarify=false)
-- Fix failing tests: complete(steps=[{state:"DIAGNOSE",focus:"run npm test to capture failing output"},{state:"LOCATE",focus:"find exact lines in calc.js to change"},{state:"MODIFY",focus:"add divide-by-zero guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
-- Fix bug (location known): complete(steps=[{state:"LOCATE",focus:"find divide function in calc.js"},{state:"MODIFY",focus:"add zero-check before division"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
-- Simple edit (file+line explicit): complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts line 42"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
-- Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
-- Setup:        complete(steps=[{state:"SETUP", focus:"analyze project and generate AGENTS.md"}], needsClarify=false)
-- Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])
-- Retry after VERIFY failure: complete(steps=[{state:"ROLLBACK",focus:"restore files to checkpoint"},{state:"DIAGNOSE",focus:"why did the fix not work"},{state:"MODIFY",focus:"apply correct fix based on diagnosis"},{state:"VERIFY",focus:"run tests again"}], needsClarify=false)
-- Accept failure (cannot fix): complete(steps=[], needsClarify=false)
-- Multiple independent files to modify: complete(steps=[{state:"LOCATE",focus:"find all files to change"},{parallel:[{state:"MODIFY",focus:"fix divide() in calc.js"},{state:"MODIFY",focus:"fix DELETE route in server.js"}]},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)`,
-
-  [State.CLARIFY]: `The task is ambiguous. Ask the user for the information needed to proceed.
-
-You have ONE tool: complete(). Do NOT read files or run commands.
-Maximum 3 questions — ask only what is genuinely unclear.
-
-<example>
-task: fix the bug
-assistant: complete(questions=["Which file contains the bug?", "What is the expected behavior?"])
-</example>
-
-When done, call complete(questions=["<q1>", "<q2>"]).`,
-
-  [State.LOCATE]: `Locate the exact code positions that need to change.
-
-Available tools: read, ast_code_locator, complete.
-The project structure and candidate files have already been identified for you (see <suggested_files> and <code_snippets> above).
-Read the suggested files to confirm the exact lines and understand the current code.
-
-Steps:
-1. Read the suggested files to understand the current code
-2. Use ast_code_locator if you need to find a specific function or symbol by name
-3. Identify the precise lines and snippets
-
-<example>
-focus: find the divide function in calc.js
-assistant: [reads calc.js] — finds divide() at line 15
-complete(locations=[{file:"calc.js", startLine:15, endLine:19, snippet:"function divide(a, b) { return a / b; }"}])
-</example>
-
-As soon as you have identified all relevant code positions, call complete(locations=[...]) IMMEDIATELY.
-Do NOT explain your findings before calling complete(). The complete() call IS your output.`,
-
-  [State.MODIFY]: `Apply the code changes identified in the LOCATE step.
-
-The \`edit\` tool does SEARCH/REPLACE: it finds \`oldText\` in the file and replaces it with \`newText\`.
-Tool signature: edit(path="<path>", oldText="<exact text>", newText="<replacement>")
-IMPORTANT: The parameter is named \`path\`. Always use: edit(path="calc.js", ...) NOT edit(file="calc.js", ...)
-
-Rules:
-1. Read the file first to understand existing code style, conventions, and imports before making any change.
-2. Mimic the existing code style — naming, indentation, patterns already used in the file.
-3. \`oldText\` must match the file EXACTLY (character for character, including whitespace).
-4. \`oldText\` should be SHORT — just the lines being changed plus 1-2 lines of context for uniqueness. Do NOT copy the whole function or file.
-5. One focused change per \`edit\` call. Use multiple \`edit\` calls for multiple changes.
-6. Use \`write\` only for new files, never for existing ones.
-7. NEVER assume a library is available. Check existing imports before using any dependency.
-
-<example>
-focus: add divide-by-zero guard to divide function in calc.js
-assistant: [reads calc.js to see current code and style]
-edit(path="calc.js", oldText="function divide(a, b) {\\n  return a / b;", newText="function divide(a, b) {\\n  if (b === 0) throw new Error('Division by zero');\\n  return a / b;")
-complete(edited=["calc.js"], linesChanged=1)
-</example>
-
-When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
-
-  [State.VERIFY]: `Verify the changes work correctly.
-
-IMPORTANT: Your ONLY job is to run tests and report the result.
-- Tests PASS → complete(passed=true, issues=[], summary="<test output>")
-- Tests FAIL → complete(passed=false, issues=["<what failed>"], summary="<test output>") IMMEDIATELY
-  DO NOT modify any files. DO NOT attempt to fix the code. DO NOT run write commands (cat >, sed -i, etc.).
-  The system will automatically re-plan based on your report. Fixing is the job of MODIFY, not VERIFY.
-
-If <previous_step_results> is present, first do a path audit before running tests:
-1. Check if the files in MODIFY edited[] overlap with the files in LOCATE locations[]. File-level match is sufficient.
-2. If they clearly do NOT overlap (e.g. MODIFY touched unrelated files), call complete(passed=false, issues=["wrong location: LOCATE found <locate_file> but MODIFY edited <modify_file>"]) — skip tests.
-3. If they match (or no LOCATE result is present), proceed to run tests as normal.
-
-- Run the project's test command (check package.json scripts, README, or ask — NEVER assume the test command).
-- If the project has a build/typecheck command (e.g. tsc --noEmit, cargo build, go build), run it.
-- Read the modified files to confirm the logic is correct.
-
-<example>
-focus: verify divide bug fix in calc.js
-assistant: [reads package.json to find test script] → runs "npm test"
-→ all tests pass
-complete(passed=true, issues=[], summary="npm test: 7 passing")
-</example>
-
-<example>
-focus: verify divide bug fix in calc.js
-assistant: [reads package.json] → runs "npm test" → 1 test fails
-complete(passed=false, issues=["average([]) does not throw — average() missing empty-array guard"], summary="npm test: 6 passing, 1 failing")
-</example>
-
-When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
-
-  [State.ANSWER]: `Present the result to the user.
-
-You have ONE tool: complete(). Call it directly as a tool. Do NOT call any other tools.
-
-If there are <previous_step_results>:
-- Steps found and fixed bugs → summarize what was wrong and what was fixed.
-- Steps only researched → summarize the findings.
-- Steps ran tests → report pass/fail and what was verified.
-
-If there are no <previous_step_results>:
-- Answer the user's question directly from the task description and context.
-
-<example>
-previous: [RESEARCH] found 2 bugs in calc.js; [MODIFY] fixed divide and average; [VERIFY] npm test: 7 passing
-assistant: complete(answer="Fixed 2 bugs in calc.js: (1) divide() now throws on b===0; (2) average() now throws on empty array. All 7 tests pass.")
-</example>
-
-<example>
-previous: [RESEARCH] calc.js has no issues
-assistant: complete(answer="calc.js looks good — no bugs found.")
-</example>
-
-When done, call complete(answer="<your summary>").`,
-
-  [State.DIAGNOSE]: `Investigate the root cause of the bug or issue.
-
-IMPORTANT: Your ONLY job is to investigate and report findings.
-- DO NOT modify any files. DO NOT run write commands (cat >, sed -i, etc.).
-- As soon as you identify the root cause, call complete(rootCause=..., location=..., fix=...) IMMEDIATELY.
-  The system will automatically plan a MODIFY step. Fixing is the job of MODIFY, not DIAGNOSE.
-
-Available tools: read, grep, find, ls, bash, complete.
-You may call multiple tools in parallel when they are independent.
-Do NOT modify any files.
-
-Steps:
-1. Read the relevant source files and test files
-2. Use grep to search for related patterns
-3. Use bash to run the failing command and capture the error output
-4. Identify the exact root cause and location
-
-<example>
-focus: why does divide(10, 0) not throw?
-assistant: [reads calc.js] → divide has no zero-check guard
-complete(rootCause="divide() has no guard for b===0, returns Infinity silently", location="calc.js:15", fix="add: if (b === 0) throw new Error('Division by zero')")
-</example>
-
-When done, call complete(rootCause="<explanation>", location="<file:line>", fix="<suggested fix>").`,
-
-  [State.REVIEW]: `Review the code for quality, correctness, and issues.
-
-Available tools: read, grep, complete. You do NOT have bash.
-To read a file use the read tool, NOT cat or shell commands.
-You may read multiple files in parallel.
-Do NOT modify anything.
-
-<example>
-focus: review auth.js for security issues
-assistant: [reads auth.js and package.json in parallel]
-→ finds hardcoded secret and missing token expiry
-complete(issues=["hardcoded JWT secret at line 3","token has no expiry"], suggestions=["use process.env.JWT_SECRET","add expiresIn to jwt.sign()"], verdict="fail")
-</example>
-
-When done, call complete(issues=[...], suggestions=[...], verdict="pass"|"fail").`,
-
-  [State.TEST_WRITE]: `Write tests for the specified code.
-
-Available tools: read, grep, find, ls, write, complete.
-Do NOT modify business logic files — only create or edit test files.
-
-Steps:
-1. Read the source file to understand what needs to be tested
-2. Look at existing test files to follow the same test framework and style
-3. Write tests covering normal cases, edge cases, and error cases
-
-<example>
-focus: write tests for divide() in calc.js
-assistant: [reads calc.js to understand divide(), reads calc.test.js to see test style]
-→ writes tests for normal division, divide by zero, and non-number inputs
-complete(testFile="calc.test.js", cases=4)
-</example>
-
-When done, call complete(testFile="<path>", cases=<number>).`,
-
-  [State.REFACTOR_PLAN]: `Plan the refactoring without making any changes.
-
-Available tools: read, grep, complete. You do NOT have bash.
-To read a file use the read tool, NOT cat or shell commands.
-You may read multiple files in parallel.
-
-<example>
-focus: plan refactoring of config module to remove global singleton
-assistant: [reads src/config/manager.ts and all files that import it in parallel]
-→ identifies 5 files affected, plans 3-step extraction
-complete(refactorSteps=["extract loadConfig() pure function","update 5 callers to use loadConfig()","delete ConfigManager class"], estimatedFiles=6)
-</example>
-
-When done, call complete(refactorSteps=["<step1>", ...], estimatedFiles=<n>).`,
-
-  [State.ROLLBACK]: `The system has already automatically restored the modified files to their original state.
-
-Your job is to confirm which files were restored and call complete().
-
-Available tools: read, write, complete.
-
-Steps:
-1. Read each file that was mentioned in the MODIFY step to confirm it has been restored
-2. If a file looks wrong (still has the failed changes), use write to overwrite it with the correct original content
-3. Call complete(restored=[...]) listing all confirmed files
-
-<example>
-focus: rollback changes to calc.js
-assistant: [reads calc.js to confirm it is back to original state]
-complete(restored=["calc.js"])
-</example>
-
-When done, call complete(restored=["<file1>", ...]).`,
-
-  [State.RESEARCH]: `Research and investigate the topic.
-
-Available tools: read, ls, grep, find, webfetch, websearch, complete.
-You do NOT have bash. To read a file use the read tool, NOT cat or shell commands.
-To list a directory use ls with path parameter: ls(path="src") NOT ls("src") or ls src.
-You may call multiple read/grep/find tools in parallel when they are independent.
-
-Strategy:
-- Understand/explain/report local code → use read/ls/grep/find to explore
-- URL provided → webfetch it directly
-- Web topic or error → websearch first, then webfetch top results
-- Mixed (local + web) → read local files first, then supplement with web search
-
-<example>
-focus: explain how the auth module works
-assistant: [reads src/auth/index.ts and src/auth/jwt.ts in parallel]
-complete(report="auth module uses JWT: login() signs token with SECRET env var, verifyToken() validates it. Files: src/auth/index.ts, src/auth/jwt.ts")
-</example>
-
-<example>
-focus: search for best practices for rate limiting in Express
-assistant: [websearch "Express rate limiting best practices"] → [webfetches top 2 results]
-complete(report="Use express-rate-limit package. Set windowMs=15min, max=100. https://expressjs.com/...")
-</example>
-
-You do NOT have edit or write tools. Do NOT attempt to modify or create files — read and report only.
-Do NOT modify files.
-If you read the code and find no bugs, or the existing implementation already satisfies all requirements, call complete(report="No issues found — code is already correct.") immediately. Do NOT invent bugs that are not present in the code.
-As soon as you have gathered enough information, call complete(report="...") IMMEDIATELY.
-Do NOT output a summary to the user before calling complete(). The complete() call IS your output.`,
-
-  [State.SETUP]: `Analyze this project and generate AGENTS.md.
-
-Available tools: read, ls, grep, find, write, complete.
-You may read multiple config files in parallel.
-
-Steps:
-1. Read package.json (or equivalent) for tech stack and scripts
-2. Read config files in parallel: tsconfig.json, .eslintrc, .prettierrc, vitest.config.*
-3. List src/ directory: ls(path="src")
-4. Check for existing AGENTS.md, CLAUDE.md, README.md
-5. Write AGENTS.md covering: tech stack, build/test/lint commands, conventions, key files
-
-Rules:
-- Target ~100-150 lines. Be concise.
-- If AGENTS.md already exists, update it.
-- Do NOT modify source files.
-
-<example>
-focus: analyze project and generate AGENTS.md
-assistant: [reads package.json, tsconfig.json, vitest.config.ts in parallel] [lists src/]
-→ writes AGENTS.md with tech stack (TypeScript, Vitest), test command (npx vitest run), key files
-complete(created="AGENTS.md", summary="TypeScript + Vitest project, 8 core modules documented")
-</example>
-
-When done, call complete(created="AGENTS.md", summary="<what was captured>").`,
-};
-
 const SMALL_MODEL_CONSTRAINTS = `Keep responses under 400 tokens. Do not speculate.`;
 const SMALL_MODEL_CONSTRAINTS_WITH_TOOLS = `Keep responses under 400 tokens. Use only the listed tools. Do not speculate.`;
 
@@ -412,7 +101,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
     ? `Available tools:\n${context.availableTools.map((t) => `- ${t.name}`).join('\n')}`
     : '';
 
-  const stateInstruction = STATE_INSTRUCTIONS[state] ?? '';
+  const stateInstruction = STATE_REGISTRY[state]?.instruction ?? '';
   const focusLine = focus ? `Current focus: ${focus}` : '';
 
   const lines = [base, memoryBlock, toolList, stateInstruction, `Current task: ${task}`, focusLine];
@@ -424,21 +113,6 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
 
   return lines.filter(Boolean).join('\n\n').trim();
 }
-
-// Declares which prior states each consuming state needs to see.
-// Order matters: listed states are injected in declaration order.
-// REASON / CLARIFY / SETUP are not listed — they are entry points or do not need prior context.
-// ANSWER is the fixed terminal step (Gap 51) and receives results from all meaningful prior states.
-export const STEP_CONTEXT_NEEDS: Partial<Record<State, State[]>> = {
-  [State.LOCATE]: [State.RESEARCH, State.DIAGNOSE],
-  [State.MODIFY]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
-  [State.VERIFY]: [State.MODIFY, State.LOCATE, State.DIAGNOSE], // special handling below
-  [State.ROLLBACK]: [State.MODIFY, State.LOCATE],
-  [State.TEST_WRITE]: [State.RESEARCH, State.LOCATE, State.DIAGNOSE],
-  [State.REFACTOR_PLAN]: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
-  [State.REVIEW]: [State.RESEARCH, State.DIAGNOSE],
-  [State.ANSWER]: [State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.VERIFY, State.MODIFY],
-};
 
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
@@ -482,8 +156,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
   }
 
-  // General: look up which prior states this state needs, filter and inject
-  const needs = STEP_CONTEXT_NEEDS[state];
+  const needs = STATE_REGISTRY[state]?.contextNeeds;
   if (!needs || needs.length === 0) return '';
 
   const relevant = previousResults.filter((r) => needs.includes(r.state as State));
