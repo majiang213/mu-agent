@@ -262,7 +262,7 @@ IMPORTANT: Your ONLY job is to investigate and report findings.
 - As soon as you identify the root cause, call complete(rootCause=..., location=..., fix=...) IMMEDIATELY.
   The system will automatically plan a MODIFY step. Fixing is the job of MODIFY, not DIAGNOSE.
 
-Available tools: read, grep, find, ls, bash, complete.
+Available tools: read, grep, bash, complete.
 You may call multiple tools in parallel when they are independent.
 Do NOT modify any files.
 
@@ -317,7 +317,7 @@ When done, call complete(issues=[...], suggestions=[...], verdict="pass"|"fail")
     allowedTools: ['read', 'write', 'edit', 'complete'],
     instruction: `Write tests for the specified code.
 
-Available tools: read, grep, find, ls, write, complete.
+Available tools: read, write, edit, complete.
 Do NOT modify business logic files — only create or edit test files.
 
 Steps:
@@ -345,7 +345,7 @@ When done, call complete(testFile="<path>", cases=<number>).`,
     allowedTools: ['read', 'complete'],
     instruction: `Plan the refactoring without making any changes.
 
-Available tools: read, grep, complete. You do NOT have bash.
+Available tools: read, complete. You do NOT have bash.
 To read a file use the read tool, NOT cat or shell commands.
 You may read multiple files in parallel.
 

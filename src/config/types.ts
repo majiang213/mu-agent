@@ -4,7 +4,7 @@
 
 export interface ModelConfig {
   /** Provider type */
-  provider: 'ollama' | 'custom';
+  provider: 'ollama' | 'custom' | 'unsloth';
   /** Model name, e.g. "qwen2.5:7b" */
   name: string;
   /** Base URL for API, e.g. "http://localhost:11434" */

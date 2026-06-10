@@ -9,7 +9,7 @@ import { setImmediate } from 'node:timers/promises';
 
 import { saveConfig } from '../config/index.js';
 import { getLspStatus } from '../config/lsp-status.js';
-import { fetchOllamaModels, fetchCustomModels } from '../provider/model-info.js';
+import { fetchOllamaModels, fetchCustomModels, fetchUnslothModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
 import { C } from './theme.js';
 
@@ -110,20 +110,22 @@ export class SetupWizard {
     let provider: string = existing.provider ?? 'ollama';
     const providerItems: SelectItem[] = [
       { value: 'ollama', label: 'ollama', description: 'Local Ollama server' },
-      { value: 'custom', label: 'custom', description: 'Custom base URL' },
+      { value: 'unsloth', label: 'unsloth', description: 'Unsloth Studio (default: localhost:8888)' },
+      { value: 'custom', label: 'custom', description: 'OpenAI-compatible API' },
     ];
     const defaultProviderIdx = providerItems.findIndex((i) => i.value === provider);
     const selectedProvider = await this.waitForSelect(providerItems, defaultProviderIdx < 0 ? 0 : defaultProviderIdx);
     if (selectedProvider) provider = selectedProvider.value;
 
-    const baseUrlDefault = provider === 'ollama' ? 'http://localhost:11434' : '';
+    const baseUrlDefault =
+      provider === 'ollama' ? 'http://localhost:11434' : provider === 'unsloth' ? 'http://localhost:8888' : '';
     this.addStepText(`\n  Provider: ${C.ok(provider)}\n  Base URL:`);
     const baseUrl = await this.waitForInput(existing.baseUrl ?? baseUrlDefault);
 
     const modelName = await this.pickModel(provider, baseUrl, existing.name);
 
     let modelSize: number | undefined;
-    if (provider === 'custom') {
+    if (provider === 'custom' || provider === 'unsloth') {
       this.addStepText(
         `\n  模型大小（单位：B，如 7 表示 7B，影响 Heavy Thinking 和约束强度）\n  留空跳过（默认视为大模型）:\n  模型大小:`,
       );
@@ -135,7 +137,7 @@ export class SetupWizard {
 
     saveConfig({
       model: {
-        provider: provider as 'ollama' | 'custom',
+        provider: provider as 'ollama' | 'custom' | 'unsloth',
         name: modelName,
         baseUrl,
         ...(modelSize != null ? { modelSize } : {}),
@@ -156,7 +158,12 @@ export class SetupWizard {
     loader.start();
     this.tui.requestRender();
 
-    const models = provider === 'ollama' ? await fetchOllamaModels(baseUrl) : await fetchCustomModels(baseUrl);
+    const models =
+      provider === 'ollama'
+        ? await fetchOllamaModels(baseUrl)
+        : provider === 'unsloth'
+          ? await fetchUnslothModels(baseUrl)
+          : await fetchCustomModels(baseUrl);
 
     loader.stop();
     this.tui.removeChild(loader);
