@@ -32,13 +32,13 @@
 ### 安装
 
 ```bash
-npm install
+npm install -g @majiang213/mu-agent
 ```
 
 ### 初始化
 
 ```bash
-npx tsx src/cli.ts setup
+mu-agent setup
 ```
 
 交互式向导引导完成模型配置、LSP 安装和代码图构建。
@@ -48,10 +48,10 @@ npx tsx src/cli.ts setup
 **TUI 交互模式（推荐）**
 
 ```bash
-npx tsx src/cli.ts tui
+mu-agent tui
 
 # 恢复上次会话
-npx tsx src/cli.ts tui -c
+mu-agent tui -c
 ```
 
 | 快捷键 | 功能 |
@@ -65,14 +65,14 @@ npx tsx src/cli.ts tui -c
 **CLI 单次执行**
 
 ```bash
-npx tsx src/cli.ts run "修复 src/auth.ts 中的登录 bug"
+mu-agent run "修复 src/auth.ts 中的登录 bug"
 ```
 
 **查看和修改配置**
 
 ```bash
-npx tsx src/cli.ts config                      # 查看当前配置（含 LSP 状态）
-npx tsx src/cli.ts config -m gemma4:e4b  # 切换模型
+mu-agent config                      # 查看当前配置（含 LSP 状态）
+mu-agent config -m gemma4:e4b        # 切换模型
 ```
 
 ---
