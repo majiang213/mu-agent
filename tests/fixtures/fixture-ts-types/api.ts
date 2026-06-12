@@ -1,7 +1,7 @@
 import type { User, Post, ApiResponse } from './types';
 
 function getUser(id: number): ApiResponse<User> {
-  const user = {
+  const user: User = {
     id,
     name: 'Alice',
     email: 'alice@example.com',
