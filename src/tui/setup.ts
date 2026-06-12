@@ -327,7 +327,7 @@ export class SetupWizard {
     const graphLine = graphOk ? `\n  ${C.ok('✓')} 代码图已构建` : `\n  ${C.err('✗')} 代码图未构建`;
 
     const done = new Text(
-      `\n  ${C.ok('设置完成！')}` + lspLine + graphLine + `\n\n  开始使用:\n  ${C.dim('npx tsx src/cli.ts tui')}`,
+      `\n  ${C.ok('设置完成！')}` + lspLine + graphLine + `\n\n  开始使用:\n  ${C.dim('mu-agent tui')}`,
       0,
       0,
     );
