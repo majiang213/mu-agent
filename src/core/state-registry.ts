@@ -183,6 +183,10 @@ IMPORTANT: Your ONLY job is to run tests and report the result.
   DO NOT modify any files. DO NOT attempt to fix the code. DO NOT run write commands (cat >, sed -i, etc.).
   The system will automatically re-plan based on your report. Fixing is the job of MODIFY, not VERIFY.
 
+CRITICAL RULE: passed=true is ONLY allowed if you ran the test command and its output shows all tests passing.
+If the last test run showed ANY failure, you MUST call complete(passed=false) — even if you think you know the fix.
+You CANNOT set passed=true without running the tests again first. Guessing passed=true is FORBIDDEN.
+
 If <previous_step_results> is present, first do a path audit before running tests:
 1. Check if the files in MODIFY edited[] overlap with the files in LOCATE locations[]. File-level match is sufficient.
 2. If they clearly do NOT overlap (e.g. MODIFY touched unrelated files), call complete(passed=false, issues=["wrong location: LOCATE found <locate_file> but MODIFY edited <modify_file>"]) — skip tests.
@@ -206,7 +210,8 @@ complete(passed=false, issues=["average([]) does not throw — average() missing
 </example>
 
 When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
-    reminderFields: 'passed (boolean), issues (array), summary (string)',
+    reminderFields:
+      'passed (boolean — MUST be false if any test was failing; only true if you just ran tests and ALL passed), issues (array), summary (string with actual test output)',
     completeSchema: Type.Object({
       passed: Type.Boolean(),
       issues: Type.Array(Type.String()),

@@ -26,6 +26,7 @@ export class SafeModifier {
    * Create checkpoint before modification
    */
   async createCheckpoint(filePath: string): Promise<void> {
+    if (!existsSync(filePath)) return;
     const content = await readFile(filePath, 'utf-8');
 
     const checkpoint: Checkpoint = {
