@@ -9,7 +9,7 @@ const PROJECT_CONFIG_PATH = join('.mu-agent', 'config.json');
 
 export class ConfigNotFoundError extends Error {
   constructor() {
-    super('未找到配置文件。请先运行 setup 完成初始化：\n  npx tsx src/cli.ts setup');
+    super('未找到配置文件。请先运行 setup 完成初始化：\n  mu-agent setup');
     this.name = 'ConfigNotFoundError';
   }
 }
