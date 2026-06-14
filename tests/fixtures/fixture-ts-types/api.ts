@@ -16,8 +16,8 @@ function createPost(title: string, content: string, author: User): Post {
     title,
     content,
     authorId: author.id,
-    tags: [],
-    publishedAt: 'not-a-date',
+    tags: 'no-tags',
+    publishedAt: new Date(),
   };
 }
 
@@ -37,7 +37,8 @@ function isAdmin(user: User): boolean {
 function publishPost(post: Post): Post {
   return {
     ...post,
-    publishedAt: new Date().toISOString(),
+    id: 'wrong-id',
+    publishedAt: new Date(),
   };
 }
 
