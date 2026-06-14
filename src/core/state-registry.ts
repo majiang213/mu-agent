@@ -29,7 +29,7 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Tests failing, complex codebase (need to understand context) → [DIAGNOSE, RESEARCH, LOCATE, MODIFY, VERIFY]
 - TypeScript / compilation errors (tsc --noEmit fails) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
 - Code review + fix (no tests, static analysis only) → [RESEARCH, LOCATE, MODIFY, VERIFY]
-- Write/generate documentation (README, CHANGELOG, docs) → [RESEARCH, MODIFY, VERIFY]
+- Write/generate documentation (README, CHANGELOG, docs) → [RESEARCH, MODIFY]  ← NO VERIFY for pure writing tasks
 - Project setup / generate AGENTS.md → [SETUP]
 
 RULES:
@@ -53,7 +53,7 @@ Examples:
 - Review code:  complete(steps=[{state:"REVIEW", focus:"review auth.js for security issues"}], needsClarify=false)
 - Fix failing tests: complete(steps=[{state:"DIAGNOSE",focus:"run npm test to capture failing output"},{state:"LOCATE",focus:"find exact lines in calc.js to change"},{state:"MODIFY",focus:"add divide-by-zero guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
 - Fix TypeScript errors: complete(steps=[{state:"DIAGNOSE",focus:"run npx tsc --noEmit to capture all type errors"},{state:"LOCATE",focus:"identify specific lines in api.ts with type mismatches"},{state:"MODIFY",focus:"fix all type errors in api.ts"},{state:"VERIFY",focus:"run npx tsc --noEmit to confirm exit code 0"}], needsClarify=false)
-- Write README: complete(steps=[{state:"RESEARCH",focus:"read source files to understand what to document"},{state:"MODIFY",focus:"write the documentation file"},{state:"VERIFY",focus:"run tests to confirm file was created correctly"}], needsClarify=false)
+- Write README: complete(steps=[{state:"RESEARCH",focus:"read crawler.py and stats.py to understand their functions"},{state:"MODIFY",focus:"write README.md covering both modules with usage examples"}], needsClarify=false)
 - Fix bug (location known): complete(steps=[{state:"LOCATE",focus:"find divide function in calc.js"},{state:"MODIFY",focus:"add zero-check before division"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
 - Simple edit (file+line explicit): complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts line 42"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
 - Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
