@@ -175,43 +175,49 @@ When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
 
   [State.VERIFY]: {
     allowedTools: ['read', 'bash', 'complete'],
-    instruction: `Verify the changes work correctly.
+    instruction: `Your ONLY job: run the test command, read the output, call complete().
 
-IMPORTANT: Your ONLY job is to run tests and report the result.
-- Tests PASS → complete(passed=true, issues=[], summary="<test output>")
-- Tests FAIL → complete(passed=false, issues=["<what failed>"], summary="<test output>") IMMEDIATELY
-  DO NOT modify any files. DO NOT attempt to fix the code. DO NOT run write commands (cat >, sed -i, etc.).
-  The system will automatically re-plan based on your report. Fixing is the job of MODIFY, not VERIFY.
+━━━ WHAT bash IS FOR IN VERIFY ━━━
+bash is ONLY for running test/build commands:
+  ✓ npm test, python3 -m pytest, npx tsc --noEmit, mvn test, cargo test
+  ✗ NEVER use bash to edit files: no cat >, no sed -i, no echo >, no write operations of any kind.
+If you find yourself wanting to fix code — STOP. That is not your job here.
 
-CRITICAL RULE: passed=true is ONLY allowed if you ran the test command and its output shows all tests passing.
-If the last test run showed ANY failure, you MUST call complete(passed=false) — even if you think you know the fix.
-You CANNOT set passed=true without running the tests again first. Guessing passed=true is FORBIDDEN.
+━━━ HOW TO REPORT ━━━
+Run the test command. Then immediately call complete() with what you saw:
+- All tests pass → complete(passed=true, issues=[], summary="<exact test output>")
+- Any failure     → complete(passed=false, issues=["<what failed>"], summary="<exact test output>")
+
+━━━ CALLING passed=false IS CORRECT BEHAVIOR ━━━
+When tests fail, calling complete(passed=false) is the RIGHT and INTENDED action.
+It is NOT a failure on your part. The system will automatically re-plan and fix the issue.
+You do not need to fix anything. You do not need to apologize. Just report what you saw.
+
+━━━ NEVER DO THIS ━━━
+- Do not attempt to fix code with bash (sed, cat, etc.)
+- Do not call passed=true unless you literally just ran the test and saw all pass
+- Do not guess or assume — report only what the actual test output showed
 
 If <previous_step_results> is present, first do a path audit before running tests:
 1. Check if the files in MODIFY edited[] overlap with the files in LOCATE locations[]. File-level match is sufficient.
 2. If they clearly do NOT overlap (e.g. MODIFY touched unrelated files), call complete(passed=false, issues=["wrong location: LOCATE found <locate_file> but MODIFY edited <modify_file>"]) — skip tests.
 3. If they match (or no LOCATE result is present), proceed to run tests as normal.
 
-- Run the project's test command (check package.json scripts, README, or ask — NEVER assume the test command).
-- If the project has a build/typecheck command (e.g. tsc --noEmit, cargo build, go build), run it.
-- Read the modified files to confirm the logic is correct.
-
 <example>
 focus: verify divide bug fix in calc.js
-assistant: [reads package.json to find test script] → runs "npm test"
-→ all tests pass
+assistant: runs "npm test" → all pass
 complete(passed=true, issues=[], summary="npm test: 7 passing")
 </example>
 
 <example>
-focus: verify divide bug fix in calc.js
-assistant: [reads package.json] → runs "npm test" → 1 test fails
-complete(passed=false, issues=["average([]) does not throw — average() missing empty-array guard"], summary="npm test: 6 passing, 1 failing")
+focus: verify TypeScript fixes in api.ts
+assistant: runs "npx tsc --noEmit" → errors remain
+complete(passed=false, issues=["api.ts(8,5): Type 'superadmin' not assignable to 'user'|'admin'|'guest'"], summary="tsc: 3 errors")
 </example>
 
-When done, call complete(passed=true|false, issues=[...], summary="<result>").`,
+When done, call complete(passed=true|false, issues=[...], summary="<actual test output>").`,
     reminderFields:
-      'passed (boolean — MUST be false if any test was failing; only true if you just ran tests and ALL passed), issues (array), summary (string with actual test output)',
+      'passed (boolean — if tests failed, passed=false is CORRECT; do NOT try to fix code here), issues (array of what failed), summary (exact test output you saw)',
     completeSchema: Type.Object({
       passed: Type.Boolean(),
       issues: Type.Array(Type.String()),
