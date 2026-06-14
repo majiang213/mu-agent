@@ -27,9 +27,7 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Bug investigation (cause unknown) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
 - Tests failing, fix them → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
 - Tests failing, complex codebase (need to understand context) → [DIAGNOSE, RESEARCH, LOCATE, MODIFY, VERIFY]
-- TypeScript / compilation errors (tsc --noEmit fails) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
 - Code review + fix (no tests, static analysis only) → [RESEARCH, LOCATE, MODIFY, VERIFY]
-- Write/generate documentation (README, CHANGELOG, docs) → [RESEARCH, MODIFY]  ← NO VERIFY for pure writing tasks
 - Project setup / generate AGENTS.md → [SETUP]
 
 RULES:
@@ -52,8 +50,6 @@ Examples:
 - Web search:   complete(steps=[{state:"RESEARCH", focus:"search for best practices for JWT expiry"}], needsClarify=false)
 - Review code:  complete(steps=[{state:"REVIEW", focus:"review auth.js for security issues"}], needsClarify=false)
 - Fix failing tests: complete(steps=[{state:"DIAGNOSE",focus:"run npm test to capture failing output"},{state:"LOCATE",focus:"find exact lines in calc.js to change"},{state:"MODIFY",focus:"add divide-by-zero guard"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
-- Fix TypeScript errors: complete(steps=[{state:"DIAGNOSE",focus:"run npx tsc --noEmit to capture all type errors"},{state:"LOCATE",focus:"identify specific lines in api.ts with type mismatches"},{state:"MODIFY",focus:"fix all type errors in api.ts"},{state:"VERIFY",focus:"run npx tsc --noEmit to confirm exit code 0"}], needsClarify=false)
-- Write README: complete(steps=[{state:"RESEARCH",focus:"read crawler.py and stats.py to understand their functions"},{state:"MODIFY",focus:"write README.md covering both modules with usage examples"}], needsClarify=false)
 - Fix bug (location known): complete(steps=[{state:"LOCATE",focus:"find divide function in calc.js"},{state:"MODIFY",focus:"add zero-check before division"},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
 - Simple edit (file+line explicit): complete(steps=[{state:"MODIFY", focus:"rename variable foo to bar in utils.ts line 42"},{state:"VERIFY",focus:"run tsc to check no errors"}], needsClarify=false)
 - Investigate:  complete(steps=[{state:"DIAGNOSE",focus:"why does login fail for admin users"},{state:"LOCATE",focus:"find the bug location"},{state:"MODIFY",focus:"fix root cause"},{state:"VERIFY",focus:"run tests"}], needsClarify=false)
@@ -199,12 +195,6 @@ If <previous_step_results> is present, first do a path audit before running test
 - Run the project's test command (check package.json scripts, README, or ask — NEVER assume the test command).
 - If the project has a build/typecheck command (e.g. tsc --noEmit, cargo build, go build), run it.
 - Read the modified files to confirm the logic is correct.
-
-SPECIAL CASE — no test command exists (writing/documentation tasks):
-If you cannot find any test command (no package.json, no pytest files, no Makefile), AND the task was writing a file (README, docs, etc.):
-  1. Read the created file with the read tool
-  2. If the file exists and has reasonable content, call complete(passed=true, issues=[], summary="File created successfully — no test command for this project")
-  Do NOT call passed=false just because there are no tests. Absence of tests ≠ failure.
 
 <example>
 focus: verify divide bug fix in calc.js
