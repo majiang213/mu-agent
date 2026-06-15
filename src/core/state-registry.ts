@@ -28,7 +28,8 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Tests failing, fix them → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
 - Tests failing, complex codebase (need to understand context) → [DIAGNOSE, RESEARCH, LOCATE, MODIFY, VERIFY]
 - Code review + fix (no tests, static analysis only) → [RESEARCH, LOCATE, MODIFY, VERIFY]
-- Project setup / generate AGENTS.md → [SETUP]
+- Generate or update AGENTS.md documentation file → [SETUP]
+  (NEVER use SETUP for running tests, diagnosing bugs, or fixing code — use DIAGNOSE for that)
 
 RULES:
 - NEVER go straight to MODIFY without LOCATE unless the exact file and change are given in the task.
@@ -156,6 +157,7 @@ Rules:
 5. One focused change per \`edit\` call. Use multiple \`edit\` calls for multiple changes.
 6. Use \`write\` only for new files, never for existing ones.
 7. NEVER assume a library is available. Check existing imports before using any dependency.
+8. Call complete() ONLY after you have successfully called edit or write. If you have not yet modified any files, call edit or write FIRST — calling complete() without any prior edit/write call is wrong.
 
 <example>
 focus: add divide-by-zero guard to divide function in calc.js
@@ -454,7 +456,7 @@ Steps:
 Rules:
 - Target ~100-150 lines. Be concise.
 - If AGENTS.md already exists, update it.
-- Do NOT modify source files.
+- The \`write\` tool is ONLY for creating or updating AGENTS.md. NEVER use write on source files (*.js, *.ts, *.py, *.java, etc.).
 
 <example>
 focus: analyze project and generate AGENTS.md
