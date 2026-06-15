@@ -119,6 +119,9 @@ Steps:
 2. Use ast_code_locator if you need to find a specific function or symbol by name
 3. Identify the precise lines and snippets
 
+CRITICAL: snippet must contain ONLY code that currently exists in the file at those line numbers.
+NEVER include code you plan to add — snippet is what IS in the file right now, not what should be there after the fix.
+
 <example>
 focus: find the divide function in calc.js
 assistant: [reads calc.js] — finds divide() at line 15
@@ -150,7 +153,7 @@ Tool signature: edit(path="<path>", oldText="<exact text>", newText="<replacemen
 IMPORTANT: The parameter is named \`path\`. Always use: edit(path="calc.js", ...) NOT edit(file="calc.js", ...)
 
 Rules:
-1. Read the file first to understand existing code style, conventions, and imports before making any change.
+1. Read the target file with the read tool BEFORE writing any edit call. Use the actual file content you just read to determine oldText — do NOT copy snippet from LOCATE as oldText, the snippet may contain imagined code that does not exist in the file yet.
 2. Mimic the existing code style — naming, indentation, patterns already used in the file.
 3. \`oldText\` must match the file EXACTLY (character for character, including whitespace).
 4. \`oldText\` should be SHORT — just the lines being changed plus 1-2 lines of context for uniqueness. Do NOT copy the whole function or file.
