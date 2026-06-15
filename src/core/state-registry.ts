@@ -175,49 +175,45 @@ When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
 
   [State.VERIFY]: {
     allowedTools: ['read', 'bash', 'complete'],
-    instruction: `Your ONLY job: run the test command, read the output, call complete().
+    instruction: `You are a test result reporter. Two steps, no more:
+1. Run the test command with bash.
+2. Call complete() with exactly what the output showed.
 
-━━━ WHAT bash IS FOR IN VERIFY ━━━
-bash is ONLY for running test/build commands:
-  ✓ npm test, python3 -m pytest, npx tsc --noEmit, mvn test, cargo test
-  ✗ NEVER use bash to edit files: no cat >, no sed -i, no echo >, no write operations of any kind.
-If you find yourself wanting to fix code — STOP. That is not your job here.
+That is the entire job. There is no step 3.
 
-━━━ HOW TO REPORT ━━━
-Run the test command. Then immediately call complete() with what you saw:
-- All tests pass → complete(passed=true, issues=[], summary="<exact test output>")
-- Any failure     → complete(passed=false, issues=["<what failed>"], summary="<exact test output>")
+HOW TO DECIDE:
+- Output shows all passing → complete(passed=true, issues=[], summary="<test output>")
+- Output shows any failure → complete(passed=false, issues=["<failure details>"], summary="<test output>")
 
-━━━ CALLING passed=false IS CORRECT BEHAVIOR ━━━
-When tests fail, calling complete(passed=false) is the RIGHT and INTENDED action.
-It is NOT a failure on your part. The system will automatically re-plan and fix the issue.
-You do not need to fix anything. You do not need to apologize. Just report what you saw.
+WHY passed=false IS THE RIGHT CALL WHEN TESTS FAIL:
+This system has a built-in retry loop. When you call passed=false, the system
+automatically re-plans, fixes the code, and calls you again. That loop is how
+bugs get fixed — you are the trigger. Calling passed=false is completing your
+job correctly.
 
-━━━ NEVER DO THIS ━━━
-- Do not attempt to fix code with bash (sed, cat, etc.)
-- Do not call passed=true unless you literally just ran the test and saw all pass
-- Do not guess or assume — report only what the actual test output showed
+HOW TO USE bash:
+bash is for running the test command only. Examples: npm test, npx tsc --noEmit,
+python3 -m pytest, mvn -q test. Run it once, read the output, call complete().
 
-If <previous_step_results> is present, first do a path audit before running tests:
-1. Check if the files in MODIFY edited[] overlap with the files in LOCATE locations[]. File-level match is sufficient.
-2. If they clearly do NOT overlap (e.g. MODIFY touched unrelated files), call complete(passed=false, issues=["wrong location: LOCATE found <locate_file> but MODIFY edited <modify_file>"]) — skip tests.
-3. If they match (or no LOCATE result is present), proceed to run tests as normal.
+If <previous_step_results> is present, path audit first:
+1. Do MODIFY edited[] files overlap with LOCATE locations[]? If clearly not → complete(passed=false, issues=["wrong file edited"])
+2. If they match or no LOCATE result → run tests as normal.
 
 <example>
-focus: verify divide bug fix in calc.js
-assistant: runs "npm test" → all pass
+focus: verify calc.js fix
+→ bash("npm test") → PASS ./calc.test.js, 7 passing
 complete(passed=true, issues=[], summary="npm test: 7 passing")
 </example>
 
 <example>
 focus: verify TypeScript fixes in api.ts
-assistant: runs "npx tsc --noEmit" → errors remain
-complete(passed=false, issues=["api.ts(8,5): Type 'superadmin' not assignable to 'user'|'admin'|'guest'"], summary="tsc: 3 errors")
+→ bash("npx tsc --noEmit") → api.ts(8,5): error TS2322, exit code 2
+complete(passed=false, issues=["api.ts(8,5): TS2322 role type mismatch"], summary="tsc: 3 errors, exit 2")
 </example>
 
-When done, call complete(passed=true|false, issues=[...], summary="<actual test output>").`,
+When done, call complete(passed=true|false, issues=[...], summary="<test output>").`,
     reminderFields:
-      'passed (boolean — if tests failed, passed=false is CORRECT; do NOT try to fix code here), issues (array of what failed), summary (exact test output you saw)',
+      'passed (boolean: true only if test output showed all passing, false if any failure), issues (array), summary (the actual test output)',
     completeSchema: Type.Object({
       passed: Type.Boolean(),
       issues: Type.Array(Type.String()),
