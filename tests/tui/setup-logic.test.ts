@@ -38,7 +38,7 @@ vi.mock('../../src/config/index.js', () => ({
 }));
 
 vi.mock('../../src/config/lsp-status.js', () => ({
-  getLspStatus: vi.fn(),
+  getLspStatuses: vi.fn(),
 }));
 
 vi.mock('../../src/provider/model-info.js', () => ({
@@ -127,13 +127,10 @@ describe('stepDone graphOk logic', () => {
     mkdirSync(join(dir, '.mu-agent'), { recursive: true });
     writeFileSync(join(dir, '.mu-agent', 'graph.db'), '');
 
-    const { getLspStatus } = await import('../../src/config/lsp-status.js');
-    vi.mocked(getLspStatus).mockReturnValue({
-      status: 'active',
-      detectedLanguage: 'typescript',
-      server: 'typescript-language-server',
-      installCommand: null,
-    });
+    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    vi.mocked(getLspStatuses).mockReturnValue([
+      { lang: 'typescript', lspServer: 'typescript-language-server', lspStatus: 'active', lspInstallCmd: null },
+    ]);
 
     const origCwd = process.cwd;
     process.cwd = () => dir;
@@ -163,13 +160,8 @@ describe('stepDone graphOk logic', () => {
     const dir = join(tmpdir(), `setup-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
 
-    const { getLspStatus } = await import('../../src/config/lsp-status.js');
-    vi.mocked(getLspStatus).mockReturnValue({
-      status: 'not_detected',
-      detectedLanguage: null,
-      server: null,
-      installCommand: null,
-    });
+    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    vi.mocked(getLspStatuses).mockReturnValue([]);
 
     const origCwd = process.cwd;
     process.cwd = () => dir;
@@ -200,13 +192,8 @@ describe('stepDone graphOk logic', () => {
     mkdirSync(join(dir, '.mu-agent'), { recursive: true });
     writeFileSync(join(dir, '.mu-agent', 'graph.db'), '');
 
-    const { getLspStatus } = await import('../../src/config/lsp-status.js');
-    vi.mocked(getLspStatus).mockReturnValue({
-      status: 'not_detected',
-      detectedLanguage: null,
-      server: null,
-      installCommand: null,
-    });
+    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    vi.mocked(getLspStatuses).mockReturnValue([]);
 
     const origCwd = process.cwd;
     process.cwd = () => dir;

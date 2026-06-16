@@ -1,6 +1,5 @@
 import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@earendil-works/pi-tui';
 import type { SelectItem } from '@earendil-works/pi-tui';
-import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -8,7 +7,7 @@ import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 
 import { saveConfig } from '../config/index.js';
-import { getLspStatus } from '../config/lsp-status.js';
+import { getLspStatuses } from '../config/lsp-status.js';
 import { fetchOllamaModels, fetchCustomModels, fetchUnslothModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
 import { C } from './theme.js';
@@ -199,61 +198,30 @@ export class SetupWizard {
     this.addStepText('\n  ' + C.ok('LSP 诊断'));
     this.tui.requestRender();
 
-    const lspStatus = getLspStatus(process.cwd());
+    const statuses = getLspStatuses(process.cwd());
 
-    if (lspStatus.status === 'not_detected') {
+    if (statuses.length === 0) {
       this.clearStep();
       return;
     }
 
-    const langLabel = lspStatus.detectedLanguage ?? '';
-    const serverLabel = lspStatus.server ?? '';
-    const statusMark = lspStatus.status === 'active' ? C.ok('✓ 已安装') : C.err('✗ 未安装');
+    const lines = statuses.map((s) => {
+      const langLabel = C.ok(s.lang.padEnd(12));
+      const serverLabel = C.dim((s.lspServer ?? '(无 LSP server)').padEnd(36));
+      const statusPart =
+        s.lspStatus === 'active'
+          ? C.ok('✓ 已安装')
+          : s.lspStatus === 'not_installed'
+            ? C.err('✗ 未安装') + (s.lspInstallCmd ? `  安装: ${C.dim(s.lspInstallCmd)}` : '')
+            : C.dim('无 LSP');
+      return `\n  ${langLabel}  ${serverLabel}  ${statusPart}`;
+    });
 
-    this.addStepText(`\n  检测到 ${C.ok(langLabel)} 项目\n\n  ${serverLabel}   ${statusMark}`);
+    this.addStepText(
+      '\n  检测到以下语言：' + lines.join('') + '\n\n  未安装的 language server 需手动安装，详见各 server 文档。',
+    );
     this.tui.requestRender();
-
-    if (lspStatus.status === 'active') {
-      this.clearStep();
-      return;
-    }
-
-    this.addStepText(`\n  安装命令: ${C.dim(lspStatus.installCommand ?? '')}\n\n  是否现在安装？`);
-
-    const choice = await this.waitForSelect([
-      { value: 'yes', label: '是，立即安装' },
-      { value: 'no', label: '否，跳过' },
-    ]);
-
     this.clearStep();
-
-    if (choice?.value === 'yes' && lspStatus.installCommand) {
-      const loader = new Loader(
-        this.tui,
-        (s) => C.pending(s),
-        (s) => C.dim(s),
-        `正在安装 ${serverLabel}...`,
-      );
-      this.tui.addChild(loader);
-      loader.start();
-      this.tui.requestRender();
-
-      let installError: string | null = null;
-      try {
-        execSync(lspStatus.installCommand, { stdio: 'ignore' });
-      } catch (e) {
-        installError = e instanceof Error ? e.message : String(e);
-      }
-
-      loader.stop();
-      this.tui.removeChild(loader);
-
-      const resultText = installError
-        ? `\n  ${C.err(`✗ 安装失败: ${installError}`)}`
-        : `\n  ${C.ok(`✓ ${serverLabel} 已安装`)}`;
-      this.addStepText(resultText);
-      this.tui.requestRender();
-    }
   }
 
   // ─── Step 3: 代码图 ───────────────────────────────────────────────────────
@@ -313,15 +281,16 @@ export class SetupWizard {
     this.step = 4;
     this.renderHeader();
 
-    const lspStatus = getLspStatus(process.cwd());
+    const statuses = getLspStatuses(process.cwd());
     const dbPath = join(process.cwd(), '.mu-agent', 'graph.db');
 
+    const notInstalled = statuses.filter((s) => s.lspStatus === 'not_installed');
     const lspLine =
-      lspStatus.status === 'active'
-        ? `\n  ${C.ok('✓')} ${lspStatus.server ?? 'LSP'} 已安装`
-        : lspStatus.status === 'not_installed'
-          ? `\n  ${C.err('✗')} LSP: ${lspStatus.server} 未安装`
-          : '';
+      statuses.length === 0
+        ? ''
+        : notInstalled.length === 0
+          ? `\n  ${C.ok('✓')} LSP 已就绪`
+          : notInstalled.map((s) => `\n  ${C.err('✗')} LSP: ${s.lspServer} 未安装`).join('');
 
     const graphOk = this.graphBuilt ?? existsSync(dbPath);
     const graphLine = graphOk ? `\n  ${C.ok('✓')} 代码图已构建` : `\n  ${C.err('✗')} 代码图未构建`;

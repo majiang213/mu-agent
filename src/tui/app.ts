@@ -20,7 +20,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
 import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import type { Config } from '../config/types.js';
-import { getLspStatus } from '../config/lsp-status.js';
+import { getLspStatuses } from '../config/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
 
 export interface TuiAppOptions {
@@ -740,9 +740,10 @@ export class TuiApp {
     this.tui.setFocus(this.editor);
     this.tui.start();
 
-    const lspStatus = getLspStatus(process.cwd());
-    if (lspStatus.status === 'not_installed') {
-      this.insertBefore(new Text(C.err(`  ✗ LSP: ${lspStatus.server} 未安装（运行 mu-agent setup 安装）`), 0, 0));
+    for (const s of getLspStatuses(process.cwd())) {
+      if (s.lspStatus === 'not_installed') {
+        this.insertBefore(new Text(C.err(`  ✗ LSP: ${s.lspServer} 未安装（运行 mu-agent setup 安装）`), 0, 0));
+      }
     }
 
     this.insertBefore(new Text(C.dim('  准备就绪，输入任务后按 Enter 执行'), 0, 0));

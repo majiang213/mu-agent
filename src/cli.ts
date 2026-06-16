@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { loadConfig, saveConfig, ConfigNotFoundError } from './config/index.js';
-import { getLspStatus } from './config/lsp-status.js';
+import { getLspStatuses } from './config/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
 import { SessionStore } from './core/session/store.js';
@@ -70,7 +70,7 @@ program
     try {
       applyCliOverrides(options);
       const config = loadConfig();
-      const lsp = getLspStatus(process.cwd());
+      const lsp = getLspStatuses(process.cwd());
       const safe = {
         ...config,
         model: { ...config.model, apiKey: config.model.apiKey ? '***' : undefined },
