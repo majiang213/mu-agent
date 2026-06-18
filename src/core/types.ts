@@ -33,6 +33,7 @@ export enum State {
   ROLLBACK = 'ROLLBACK',
   RESEARCH = 'RESEARCH',
   SETUP = 'SETUP',
+  WRITE = 'WRITE',
 }
 
 /** Model capability tiers */

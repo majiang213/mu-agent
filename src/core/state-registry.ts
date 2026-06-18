@@ -7,6 +7,7 @@ export interface StateDefinition {
   reminderFields?: string;
   completeSchema: ReturnType<typeof Type.Object>;
   contextNeeds?: State[];
+  contextFilter?: Partial<Record<State, string[]>>;
 }
 
 export const STATE_REGISTRY: Record<State, StateDefinition> = {
@@ -22,6 +23,7 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Web search or external info needed → [RESEARCH]
 - Code quality review → [REVIEW]
 - Check / inspect / look for issues (no explicit fix requested) → [RESEARCH]
+- Create, generate, or write a new file (README, config, documentation) → [RESEARCH, WRITE]
 - Fix bug when file+location are NOT stated explicitly → [LOCATE, MODIFY, VERIFY]
 - Fix bug when file+location ARE stated explicitly → [MODIFY, VERIFY]
 - Bug investigation (cause unknown) → [DIAGNOSE, LOCATE, MODIFY, VERIFY]
@@ -470,5 +472,34 @@ When done, call complete(created="AGENTS.md", summary="<what was captured>").`,
       created: Type.String({ description: 'File that was created or updated' }),
       summary: Type.String(),
     }),
+  },
+
+  [State.WRITE]: {
+    allowedTools: ['read', 'write', 'complete'],
+    instruction: `Create a new file. Use read to understand context, then write to create the file.
+
+Available tools: read, write, complete.
+You do NOT have edit, bash, or any other tools.
+
+Rules:
+1. Read relevant context files first (package.json, existing README, config files).
+2. Write the ENTIRE file in ONE write call. Do NOT try to edit a non-existent file.
+3. The file path must be relative to the project root.
+4. Mimic existing code style and conventions found in the project.
+
+<example>
+focus: create a README.md based on package.json
+assistant: [reads package.json] → understands project is a CLI tool named "mu-agent"
+write(path="README.md", content="# mu-agent\\n\\nCLI tool for code analysis...")
+complete(createdFiles=["README.md"], linesWritten=45)
+</example>
+
+When done, call complete(createdFiles=["<path>", ...], linesWritten=<n>).`,
+    reminderFields: 'createdFiles (array of file paths), linesWritten (number)',
+    completeSchema: Type.Object({
+      createdFiles: Type.Array(Type.String({ description: 'File path that was created' })),
+      linesWritten: Type.Number(),
+    }),
+    contextNeeds: [State.RESEARCH],
   },
 };
