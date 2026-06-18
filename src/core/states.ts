@@ -55,6 +55,7 @@ export function getNextState(currentState: State, success: boolean = true): Stat
     [State.ROLLBACK]: State.DONE,
     [State.RESEARCH]: State.DONE,
     [State.SETUP]: State.DONE,
+    [State.WRITE]: State.DONE,
   };
 
   return transitions[currentState];

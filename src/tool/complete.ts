@@ -29,6 +29,10 @@ function validateCompleteArgs(state: State, args: Record<string, unknown>): stri
       if (!args['report'] || typeof args['report'] !== 'string' || !(args['report'] as string).trim())
         return 'report must be a non-empty string.';
       break;
+    case State.WRITE:
+      if (!Array.isArray(args['createdFiles']) || (args['createdFiles'] as unknown[]).length === 0)
+        return 'createdFiles must be a non-empty array. Call write() to create the file first.';
+      break;
   }
   return null;
 }
