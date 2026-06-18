@@ -114,6 +114,18 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   return lines.filter(Boolean).join('\n\n').trim();
 }
 
+function projectOutput(receiverState: State, sourceState: State, rawOutput: string): string {
+  const allowedFields = STATE_REGISTRY[receiverState]?.contextFilter?.[sourceState];
+  if (!allowedFields) return rawOutput;
+  try {
+    const parsed = JSON.parse(rawOutput) as Record<string, unknown>;
+    const filtered = Object.fromEntries(Object.entries(parsed).filter(([k]) => allowedFields.includes(k)));
+    return JSON.stringify(filtered);
+  } catch {
+    return rawOutput;
+  }
+}
+
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
   const trunc = (s: string) => (s.length > 600 ? s.slice(0, 600) + '…' : s);
@@ -140,14 +152,16 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     const locateDiag = previousResults.filter((r) => r.state === State.LOCATE || r.state === State.DIAGNOSE);
     const lines: string[] = [];
     if (lastModify) {
-      lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(lastModify.output)}`);
+      const out = projectOutput(State.VERIFY, State.MODIFY, lastModify.output);
+      lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(out)}`);
     }
     const uniqueEdited = [...new Set(allEdited)];
     if (uniqueEdited.length > 1) {
       lines.push(`[MODIFY] all edited files: ${uniqueEdited.join(', ')}`);
     }
     for (const r of locateDiag) {
-      lines.push(`[${r.state}] ${r.focus}\n${trunc(r.output)}`);
+      const out = projectOutput(State.VERIFY, r.state as State, r.output);
+      lines.push(`[${r.state}] ${r.focus}\n${trunc(out)}`);
     }
     if (lines.length === 0) return '';
     return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
@@ -159,7 +173,10 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   const relevant = previousResults.filter((r) => needs.includes(r.state as State));
   if (relevant.length === 0) return '';
 
-  const allLines = relevant.map((r) => `[${r.state}] ${r.focus}\n${trunc(r.output)}`);
+  const allLines = relevant.map((r) => {
+    const out = projectOutput(state, r.state as State, r.output);
+    return `[${r.state}] ${r.focus}\n${trunc(out)}`;
+  });
 
   const BUDGET = 8000;
   const kept: string[] = [];
@@ -184,6 +201,8 @@ export function buildUserPrompt(state: State, task: string, focus?: string, prev
       return `Locate the code positions for: ${target}${context}`;
     case State.MODIFY:
       return `Apply the changes for: ${target}${context}`;
+    case State.WRITE:
+      return `Create new files for: ${target}${context}`;
     case State.VERIFY:
       return `Verify the changes are correct for: ${target}${context}`;
     default:
