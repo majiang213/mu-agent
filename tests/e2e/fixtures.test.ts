@@ -33,7 +33,7 @@ try {
 
 const BASE_URL = config?.model.baseUrl ?? '';
 const FIXTURES_DIR = resolve(__dirname, '../fixtures');
-const TEST_TIMEOUT = 300_000; // 5 min — real LLM calls (Heavy Thinking + up to 2 VERIFY retries)
+const TEST_TIMEOUT = 600_000; // 10 min — Heavy Thinking samples + up to 2 VERIFY retries + LLM queue wait
 
 async function isOllamaRunning(): Promise<boolean> {
   if (!config) return false;

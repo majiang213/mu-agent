@@ -232,21 +232,21 @@ describe('Bug 21: VERIFY retry with steps=[] misreported as success', () => {
 
   it('returns success:false when VERIFY fails and retry produces empty steps', async () => {
     // Arrange:
-    // First round: executeSteps returns VERIFY with passed=false
+    // First round includes VERIFY with passed=false; verify-retry REASON returns empty steps
     const verifyFail: ExecutedStep = {
       state: State.VERIFY,
       focus: 'run tests',
       output: JSON.stringify({ passed: false, issues: ['test failed'], summary: 'Tests failed' }),
     };
 
-    // After retry, runReasonStep returns empty steps (model couldn't plan)
     vi.mocked(runReasonStep)
-      .mockResolvedValueOnce({ steps: [{ state: State.MODIFY, focus: 'fix code' }] }) // initial REASON
-      .mockResolvedValueOnce({ steps: [] }); // retry REASON returns empty
+      .mockResolvedValueOnce({ steps: [{ state: State.MODIFY, focus: 'fix code' }] })
+      .mockResolvedValueOnce({ steps: [] });
 
-    vi.mocked(executeSteps)
-      .mockResolvedValueOnce([{ state: State.MODIFY, focus: 'fix code', output: '{}' }]) // first round
-      .mockResolvedValueOnce([verifyFail]); // second round (VERIFY fails)
+    vi.mocked(executeSteps).mockResolvedValueOnce([
+      { state: State.MODIFY, focus: 'fix code', output: '{}' },
+      verifyFail,
+    ]);
 
     // ANSWER step
     vi.mocked(runStep).mockResolvedValue({
@@ -289,23 +289,21 @@ describe('Bug 22: retry plan without VERIFY returns success:true', () => {
       output: JSON.stringify({ passed: false, issues: ['test failed'], summary: 'Tests failed' }),
     };
 
-    // Retry round: REASON plans [ROLLBACK, MODIFY] (no VERIFY)
     vi.mocked(runReasonStep)
-      .mockResolvedValueOnce({ steps: [{ state: State.MODIFY, focus: 'fix code' }] }) // initial
+      .mockResolvedValueOnce({ steps: [{ state: State.MODIFY, focus: 'fix code' }] })
       .mockResolvedValueOnce({
         steps: [
           { state: State.ROLLBACK, focus: 'rollback' },
           { state: State.MODIFY, focus: 're-fix' },
         ],
-      }); // retry
+      });
 
     vi.mocked(executeSteps)
-      .mockResolvedValueOnce([{ state: State.MODIFY, focus: 'fix code', output: '{}' }]) // first round
-      .mockResolvedValueOnce([verifyFail]) // VERIFY fails
+      .mockResolvedValueOnce([{ state: State.MODIFY, focus: 'fix code', output: '{}' }, verifyFail])
       .mockResolvedValueOnce([
         { state: State.ROLLBACK, focus: 'rollback', output: '{}' },
         { state: State.MODIFY, focus: 're-fix', output: '{}' },
-      ]); // retry round
+      ]);
 
     // ANSWER step
     vi.mocked(runStep).mockResolvedValue({
