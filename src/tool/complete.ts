@@ -33,6 +33,10 @@ function validateCompleteArgs(state: State, args: Record<string, unknown>): stri
       if (!Array.isArray(args['createdFiles']) || (args['createdFiles'] as unknown[]).length === 0)
         return 'createdFiles must be a non-empty array. Call write() to create the file first.';
       break;
+    case State.PLAN:
+      if (!Array.isArray(args['steps']) || (args['steps'] as unknown[]).length === 0)
+        return 'steps must be a non-empty array. Inspect the codebase first, then plan at least one step.';
+      break;
   }
   return null;
 }

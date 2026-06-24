@@ -34,6 +34,12 @@ export enum State {
   RESEARCH = 'RESEARCH',
   SETUP = 'SETUP',
   WRITE = 'WRITE',
+  PLAN = 'PLAN',
+}
+
+export interface SubplanSpec {
+  analyzerState: State;
+  focus: string;
 }
 
 /** Model capability tiers */
@@ -100,7 +106,7 @@ export interface ExecutedStep extends Step {
  * Either a single Step (sequential execution) or a parallel group
  * (multiple independent steps executed concurrently with isolated state machines).
  */
-export type StepDirective = Step | { parallel: Step[] };
+export type StepDirective = Step | { parallel: Step[] } | { subplan: SubplanSpec };
 
 export const STATES_NEEDING_CODE_CONTEXT = new Set([
   State.LOCATE,

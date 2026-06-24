@@ -32,11 +32,13 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Code review + fix (no tests, static analysis only) → [RESEARCH, LOCATE, MODIFY, VERIFY]
 - Generate or update AGENTS.md documentation file → [SETUP]
   (NEVER use SETUP for running tests, diagnosing bugs, or fixing code — use DIAGNOSE for that)
+- Steps cannot be determined without runtime inspection (commit split, fix-all-tests, refactor scope) → [{subplan:{analyzerState:"PLAN", focus:"<inspect X, plan Y>"}}]
 
 RULES:
 - NEVER go straight to MODIFY without LOCATE unless the exact file and change are given in the task.
 - "Check", "inspect", "look for problems", "review" → start with RESEARCH or REVIEW, not MODIFY.
 - MODIFY focus must describe the code change, NOT a diagnostic task.
+- Use subplan ONLY when step count/targets are unknown until runtime. Its focus must say what to inspect AND what plan to produce.
 
 Each step needs a "focus" describing exactly what to do. Maximum 6 steps.
 
@@ -60,7 +62,10 @@ Examples:
 - Need info:    complete(steps=[], needsClarify=true, questions=["Which file should I edit?"])
 - Retry after VERIFY failure: complete(steps=[{state:"ROLLBACK",focus:"restore files to checkpoint"},{state:"DIAGNOSE",focus:"why did the fix not work"},{state:"MODIFY",focus:"apply correct fix based on diagnosis"},{state:"VERIFY",focus:"run tests again"}], needsClarify=false)
 - Accept failure (cannot fix): complete(steps=[], needsClarify=false)
-- Multiple independent files to modify: complete(steps=[{state:"LOCATE",focus:"find all files to change"},{parallel:[{state:"MODIFY",focus:"fix divide() in calc.js"},{state:"MODIFY",focus:"fix DELETE route in server.js"}]},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)`,
+- Multiple independent files to modify: complete(steps=[{state:"LOCATE",focus:"find all files to change"},{parallel:[{state:"MODIFY",focus:"fix divide() in calc.js"},{state:"MODIFY",focus:"fix DELETE route in server.js"}]},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
+- Commit (split unknown): complete(steps=[{subplan:{analyzerState:"PLAN",focus:"analyze git changes, plan atomic commits by logical concern"}}], needsClarify=false)
+- Fix all failing tests: complete(steps=[{subplan:{analyzerState:"PLAN",focus:"run all tests, identify failures, plan a MODIFY step per failure"}}], needsClarify=false)
+- Fix code then commit: complete(steps=[{state:"LOCATE",focus:"find the bug"},{state:"MODIFY",focus:"fix it"},{state:"VERIFY",focus:"run tests"},{subplan:{analyzerState:"PLAN",focus:"analyze changed files, plan atomic commits"}}], needsClarify=false)`,
     completeSchema: Type.Object({
       steps: Type.Array(
         Type.Union([
@@ -82,6 +87,12 @@ Examples:
               }),
               { description: 'Array of independent steps to execute concurrently', minItems: 2 },
             ),
+          }),
+          Type.Object({
+            subplan: Type.Object({
+              analyzerState: Type.String({ description: 'State to use as sub-planner, use "PLAN"' }),
+              focus: Type.String({ description: 'What to inspect and what kind of plan to produce' }),
+            }),
           }),
         ]),
       ),
@@ -501,5 +512,76 @@ When done, call complete(createdFiles=["<path>", ...], linesWritten=<n>).`,
       linesWritten: Type.Number(),
     }),
     contextNeeds: [State.RESEARCH],
+  },
+
+  [State.PLAN]: {
+    allowedTools: ['bash', 'read', 'complete'],
+    instruction: `Analyze the current situation and produce a detailed execution plan.
+
+Available tools: bash, read, complete.
+Use bash and read to inspect the codebase or run commands BEFORE planning.
+Do NOT modify any files. Your ONLY output is complete(steps=[...]).
+
+RULES:
+1. Always inspect first, then plan. Never plan without evidence.
+2. Each step must be atomic and independently executable.
+3. Steps must be in dependency order (foundations before dependents).
+4. Group tightly coupled changes (same file, same feature) into one step.
+5. Split independent concerns into separate steps.
+6. You may use { parallel: [...] } for genuinely independent steps.
+7. Minimum ceil(N_items / 3) steps.
+8. Each step's "focus" must be specific — include filenames, commit messages, or exact actions.
+
+<example>
+focus: analyze git changes and plan atomic commits
+assistant: [bash("git status")] → 6 files changed in src/core/, 2 docs files
+  [bash("git diff --stat")] → 134 insertions src/core/, 45 insertions docs
+  [bash("git log --oneline -5")] → semantic style, English
+complete(steps=[
+  {state:"GIT", focus:"stage src/core/types.ts src/core/state-registry.ts, commit: 'feat(state): add State.GIT core'"},
+  {state:"GIT", focus:"stage src/core/agent/builder.ts, commit: 'feat(state): add harness git guard'"},
+  {state:"GIT", focus:"stage src/core/states.ts src/tool/complete.ts src/core/prompts/agent.ts, commit: 'feat(state): wire GIT state'"},
+  {state:"GIT", focus:"stage src/tui/theme.ts, commit: 'feat(state): add GIT TUI theme'"},
+  {state:"GIT", focus:"stage AGENTS.md .claude/PRPs/GAPS.md, commit: 'docs: sync Gap 79 GIT state'"},
+], rationale="types+registry inseparable; builder guard independent safety layer; wiring trio depends on types; theme UI-only; docs separate")
+</example>
+
+<example>
+focus: run all tests and plan fix steps for each failure
+assistant: [bash("npx vitest run --exclude tests/e2e 2>&1")] → 2 failures: session.test.ts:45, prompt.test.ts:189
+  [read("tests/core/session.test.ts")] → mock structure mismatch
+  [read("tests/core/prompt.test.ts")]  → missing text in VERIFY prompt
+complete(steps=[
+  {state:"MODIFY", focus:"fix session.test.ts:45 — update mock to use single executeSteps call"},
+  {state:"MODIFY", focus:"fix prompt.test.ts:189 — restore missing text to VERIFY instruction"},
+], rationale="two independent test fixes; sequential to avoid duplicate test runs")
+</example>
+
+When done, call complete(steps=[...], rationale="<why this grouping>").`,
+    reminderFields: 'steps (non-empty array of step objects), rationale (string)',
+    completeSchema: Type.Object({
+      steps: Type.Array(
+        Type.Union([
+          Type.Object({
+            state: Type.String({ description: 'State name, e.g. GIT, MODIFY, VERIFY' }),
+            focus: Type.String({ description: 'Specific action including filenames/messages' }),
+            why: Type.Optional(Type.String()),
+          }),
+          Type.Object({
+            parallel: Type.Array(
+              Type.Object({
+                state: Type.String(),
+                focus: Type.String(),
+                why: Type.Optional(Type.String()),
+              }),
+              { minItems: 2 },
+            ),
+          }),
+        ]),
+        { minItems: 1 },
+      ),
+      rationale: Type.String({ description: 'Why this grouping and ordering' }),
+    }),
+    contextNeeds: [State.RESEARCH, State.MODIFY, State.DIAGNOSE, State.WRITE, State.VERIFY],
   },
 };
