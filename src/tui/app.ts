@@ -530,7 +530,7 @@ class SampleTurn implements Component {
   private index: number;
   private total: number;
   private thinking = '';
-  private steps: import('../core/types.js').Step[] | null = null;
+  private steps: import('../core/types.js').StepDirective[] | null = null;
   private failed = false;
   private streaming = true;
   expanded = false;
@@ -544,7 +544,7 @@ class SampleTurn implements Component {
     this.thinking = content;
   }
 
-  complete(steps: import('../core/types.js').Step[]): void {
+  complete(steps: import('../core/types.js').StepDirective[]): void {
     this.steps = steps;
     this.streaming = false;
   }
@@ -578,7 +578,16 @@ class SampleTurn implements Component {
     } else if (this.streaming) {
       status = C.dim('⠿');
     } else if (this.steps !== null) {
-      const chain = this.steps.length > 0 ? this.steps.map((s) => s.state).join(' → ') : '直接回答';
+      const chain =
+        this.steps.length > 0
+          ? this.steps
+              .map((d) => {
+                if ('parallel' in d) return `P[${d.parallel.map((s) => s.state).join(',')}]`;
+                if ('subplan' in d) return 'PLAN';
+                return d.state;
+              })
+              .join(' → ')
+          : '直接回答';
       status = C.ok('✓') + C.dim('  ' + chain);
     } else {
       status = C.dim('?');
@@ -903,6 +912,14 @@ export class TuiApp {
         void event;
       } else if (event.type === 'sampling_expand') {
         this.currentSamplingBlock?.addLine(`  ↻ 第${event.round}轮分歧，扩展采样`);
+      } else if (event.type === 'subplan_start') {
+        this.header.setState(`◎ ${event.analyzerState}（两级规划）`, undefined, undefined);
+      } else if (event.type === 'subplan_complete') {
+        void event;
+      } else if (event.type === 'plan_parse_error') {
+        const errBlock = new ToolExecutionBlock('PLAN', { analyzerState: event.analyzerState });
+        errBlock.setResult(true, event.output.slice(0, 300));
+        this.insertBefore(errBlock);
       } else if (event.type === 'sampling_stopped') {
         const labels: Record<typeof event.reason, string> = {
           converged: '收敛',
