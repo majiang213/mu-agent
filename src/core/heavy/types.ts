@@ -1,13 +1,13 @@
-import type { Step } from '../types.js';
+import type { StepDirective } from '../types.js';
 
 export interface PlanCandidate {
   id: string;
-  steps: Step[];
+  steps: StepDirective[];
   sampledAt: number;
 }
 
 export interface DeliberationResult {
-  synthesizedSteps: Step[];
+  synthesizedSteps: StepDirective[];
   deliberationSummary: string;
 }
 

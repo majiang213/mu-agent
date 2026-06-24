@@ -4,7 +4,7 @@ import { buildSystemPrompt } from '../prompts/index.js';
 import { buildStepAgent, subscribeStepEvents } from '../agent/builder.js';
 import { runStepAgent, parseReasonSteps } from '../agent/step-runner.js';
 import { State } from '../types.js';
-import type { Step } from '../types.js';
+import type { StepDirective } from '../types.js';
 import type { RunConfig, Mission, ExecutionEvent } from '../agent/types.js';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { PlanCandidate } from './types.js';
@@ -22,8 +22,26 @@ export interface SamplerConfig {
   samplingTemperature?: number;
 }
 
+/**
+ * Fingerprint a candidate's step sequence for dedup / convergence.
+ * - single step  → "STATE:focus" (focus included so genuinely different focuses differ)
+ * - parallel     → "P:<sorted member states>" (order-independent; member focuses ignored)
+ * - subplan      → "PLAN:<focus>" (subplans stay distinct across samples — Gap 81)
+ * The full directive list is joined by '|'.
+ */
 function stateSeq(candidate: PlanCandidate): string {
-  return candidate.steps.map((s) => s.state).join(',');
+  return candidate.steps
+    .map((d) => {
+      if ('parallel' in d) {
+        const states = d.parallel.map((s) => s.state).sort();
+        return `P:${states.join(',')}`;
+      }
+      if ('subplan' in d) {
+        return `PLAN:${d.subplan.focus}`;
+      }
+      return `${d.state}:${d.focus}`;
+    })
+    .join('|');
 }
 
 function roundConverged(roundCandidates: PlanCandidate[]): boolean {
@@ -169,7 +187,7 @@ async function runBareReasonSample(
   conversationHistory: AgentMessage[],
   sampleIndex: number,
   onEvent?: (event: ExecutionEvent) => void,
-): Promise<{ steps: PlanCandidate['steps'] }> {
+): Promise<{ steps: StepDirective[] }> {
   const isolatedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone() };
   isolatedCfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
@@ -211,7 +229,6 @@ async function runBareReasonSample(
   if (directives.length === 0 && !modelReturnedEmptySteps) {
     throw new Error(`bare sample: invalid plan — ${error ?? 'empty steps'}`);
   }
-  const steps: Step[] = directives.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
 
-  return { steps };
+  return { steps: directives };
 }
