@@ -288,4 +288,171 @@ describe('executeSteps', () => {
       expect(types).toContain('task_end');
     });
   });
+
+  describe('subplan directives (Gap 80)', () => {
+    const mission = { id: 't1', description: 'task', state: 'running' as const };
+
+    it('emits subplan_start event when encountering a subplan directive', async () => {
+      const events: ExecutionEvent[] = [];
+      const directives: StepDirective[] = [
+        { subplan: { analyzerState: State.PLAN, focus: 'analyze changes and plan commits' } },
+      ];
+
+      await executeSteps(directives, mission, [], makeCfg(), (e) => events.push(e));
+
+      const types = events.map((e) => e.type);
+      expect(types).toContain('subplan_start');
+    });
+
+    it('includes PLAN step result in returned results', async () => {
+      const directives: StepDirective[] = [{ subplan: { analyzerState: State.PLAN, focus: 'analyze and plan' } }];
+
+      const results = await executeSteps(directives, mission, [], makeCfg());
+
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      expect(results[0]!.state).toBe(State.PLAN);
+    });
+
+    it('executes sub-steps produced by PLAN output', async () => {
+      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+        name: 'complete',
+        label: 'Complete',
+        description: '',
+        parameters: {} as never,
+        execute: async () => {
+          onComplete({
+            steps: [{ state: 'MODIFY', focus: 'fix the bug in math.js' }],
+            rationale: 'bug found',
+          });
+          return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
+        },
+      }));
+
+      const directives: StepDirective[] = [
+        { subplan: { analyzerState: State.PLAN, focus: 'run tests and plan fixes' } },
+      ];
+
+      const results = await executeSteps(directives, mission, [], makeCfg());
+
+      expect(results).toHaveLength(2);
+      expect(results[0]!.state).toBe(State.PLAN);
+      expect(results[1]!.state).toBe(State.MODIFY);
+    });
+
+    it('emits subplan_complete with correct sub-step count', async () => {
+      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+        name: 'complete',
+        label: 'Complete',
+        description: '',
+        parameters: {} as never,
+        execute: async () => {
+          onComplete({
+            steps: [
+              { state: 'MODIFY', focus: 'fix bug A' },
+              { state: 'MODIFY', focus: 'fix bug B' },
+            ],
+            rationale: 'two bugs',
+          });
+          return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
+        },
+      }));
+
+      const events: ExecutionEvent[] = [];
+      const directives: StepDirective[] = [
+        { subplan: { analyzerState: State.PLAN, focus: 'run tests and plan two fixes' } },
+      ];
+
+      await executeSteps(directives, mission, [], makeCfg(), (e) => events.push(e));
+
+      const completeEv = events.find((e) => e.type === 'subplan_complete');
+      expect(completeEv).toBeDefined();
+      if (completeEv?.type === 'subplan_complete') {
+        expect(completeEv.subStepCount).toBe(2);
+      }
+    });
+
+    it('returns only PLAN result when PLAN output contains no valid steps', async () => {
+      const directives: StepDirective[] = [{ subplan: { analyzerState: State.PLAN, focus: 'plan something' } }];
+
+      const results = await executeSteps(directives, mission, [], makeCfg());
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.state).toBe(State.PLAN);
+    });
+
+    it('filters nested subplan from PLAN output to prevent infinite recursion', async () => {
+      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+        name: 'complete',
+        label: 'Complete',
+        description: '',
+        parameters: {} as never,
+        execute: async () => {
+          onComplete({
+            steps: [{ subplan: { analyzerState: 'PLAN', focus: 'nested — should be filtered' } }],
+            rationale: 'nested subplan test',
+          });
+          return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
+        },
+      }));
+
+      const directives: StepDirective[] = [{ subplan: { analyzerState: State.PLAN, focus: 'top-level plan' } }];
+
+      const results = await executeSteps(directives, mission, [], makeCfg());
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.state).toBe(State.PLAN);
+    });
+
+    it('marks PLAN step as failed when output is unparseable (Gap 82-A)', async () => {
+      // PLAN returns non-JSON garbage → parse fails → planResult output rewritten to failure marker,
+      // no sub-steps executed, plan_parse_error event emitted.
+      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+        name: 'complete',
+        label: 'Complete',
+        description: '',
+        parameters: {} as never,
+        execute: async () => {
+          // call complete with valid steps arg so execute() captures it, but the *output*
+          // string (llmText) is what executeSteps parses — make it unparseable.
+          onComplete({ steps: [], rationale: '' });
+          return { content: [{ type: 'text' as const, text: 'this is not json at all' }], details: undefined };
+        },
+      }));
+
+      const directives: StepDirective[] = [
+        { subplan: { analyzerState: State.PLAN, focus: 'plan that fails to parse' } },
+      ];
+
+      const results = await executeSteps(directives, mission, [], makeCfg());
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.state).toBe(State.PLAN);
+      const parsed = JSON.parse(results[0]!.output) as { failed?: boolean; error?: string };
+      expect(parsed.failed).toBe(true);
+      expect(parsed.error).toContain('unparseable');
+    });
+
+    it('marks PLAN step as failed when steps is empty (Gap 82-A)', async () => {
+      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+        name: 'complete',
+        label: 'Complete',
+        description: '',
+        parameters: {} as never,
+        execute: async () => {
+          onComplete({ steps: [], rationale: 'empty' });
+          return { content: [{ type: 'text' as const, text: 'empty plan' }], details: undefined };
+        },
+      }));
+
+      const directives: StepDirective[] = [
+        { subplan: { analyzerState: State.PLAN, focus: 'plan that returns no steps' } },
+      ];
+
+      const results = await executeSteps(directives, mission, [], makeCfg());
+
+      expect(results).toHaveLength(1);
+      const parsed = JSON.parse(results[0]!.output) as { failed?: boolean };
+      expect(parsed.failed).toBe(true);
+    });
+  });
 });

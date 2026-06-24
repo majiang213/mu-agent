@@ -229,4 +229,89 @@ describe('parseReasonSteps', () => {
       expect('state' in steps[2]!).toBe(true);
     });
   });
+
+  describe('subplan directives (Gap 80)', () => {
+    it('parses a valid subplan directive', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [{ subplan: { analyzerState: 'PLAN', focus: 'analyze git changes and plan commits' } }],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(1);
+      const first = steps[0]!;
+      expect('subplan' in first).toBe(true);
+      if ('subplan' in first) {
+        expect(first.subplan.analyzerState).toBe(State.PLAN);
+        expect(first.subplan.focus).toBe('analyze git changes and plan commits');
+      }
+    });
+
+    it('rejects subplan with empty focus', () => {
+      const { steps } = parseReasonSteps({
+        steps: [{ subplan: { analyzerState: 'PLAN', focus: '' } }],
+      });
+      expect(steps).toHaveLength(0);
+    });
+
+    it('rejects subplan with non-string analyzerState', () => {
+      const { steps } = parseReasonSteps({
+        steps: [{ subplan: { analyzerState: 123, focus: 'do something' } }],
+      });
+      expect(steps).toHaveLength(0);
+    });
+
+    it('mixes subplan with regular sequential steps', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [
+          { state: 'VERIFY', focus: 'run tests' },
+          { subplan: { analyzerState: 'PLAN', focus: 'plan atomic commits' } },
+        ],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(2);
+      expect('state' in steps[0]!).toBe(true);
+      expect('subplan' in steps[1]!).toBe(true);
+    });
+
+    it('mixes subplan with parallel directive', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [
+          {
+            parallel: [
+              { state: 'MODIFY', focus: 'fix A' },
+              { state: 'MODIFY', focus: 'fix B' },
+            ],
+          },
+          { subplan: { analyzerState: 'PLAN', focus: 'plan commits after fix' } },
+        ],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(2);
+      expect('parallel' in steps[0]!).toBe(true);
+      expect('subplan' in steps[1]!).toBe(true);
+    });
+
+    it('counts subplan toward the 6-directive cap', () => {
+      const { steps } = parseReasonSteps({
+        steps: [
+          { state: 'LOCATE', focus: 'f1' },
+          { state: 'MODIFY', focus: 'f2' },
+          { state: 'VERIFY', focus: 'f3' },
+          { state: 'RESEARCH', focus: 'f4' },
+          { state: 'DIAGNOSE', focus: 'f5' },
+          { state: 'ANSWER', focus: 'f6' },
+          { subplan: { analyzerState: 'PLAN', focus: 'truncated' } },
+        ],
+      });
+      expect(steps).toHaveLength(6);
+      expect(steps.every((d) => !('subplan' in d))).toBe(true);
+    });
+
+    it('accepts PLAN as a valid analyzerState (State enum value)', () => {
+      const { steps, error } = parseReasonSteps({
+        steps: [{ subplan: { analyzerState: 'PLAN', focus: 'run tests and plan fix steps' } }],
+      });
+      expect(error).toBeNull();
+      expect(steps).toHaveLength(1);
+    });
+  });
 });

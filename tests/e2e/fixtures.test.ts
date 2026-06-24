@@ -597,4 +597,34 @@ describe.skipIf(config === null)('Fixture E2E Tests (requires Ollama)', () => {
     },
     TEST_TIMEOUT,
   );
+
+  // ── 8. fixture-multi-bug (Gap 80: subplan StepDirective) ────────────────────
+  it(
+    'fixture-multi-bug: use subplan to run tests, identify two bugs, fix both',
+    async () => {
+      const cwd = copyFixture('fixture-multi-bug');
+      let result: { success: boolean; output: string } = { success: false, output: '' };
+      let logPath = join(cwd, 'agent-run.log');
+      let verifyOut: string | undefined;
+
+      try {
+        const pre = runCmd('node', ['test.js'], cwd);
+        expect(pre.ok).toBe(false); // pre-condition: both bugs must exist
+
+        ({ result, logPath } = await runAgent(
+          'All tests in this project are failing. ' +
+            'Run `npm test` to see the failures, then diagnose and fix every bug so all tests pass.',
+          cwd,
+        ));
+        expect(result.success).toBe(true);
+
+        const post = runCmd('node', ['test.js'], cwd);
+        if (!post.ok) verifyOut = post.out;
+        expect(post.ok, `npm test still failing:\n${post.out}`).toBe(true);
+      } finally {
+        finalise({ fixtureName: 'fixture-multi-bug', cwd, logPath, result, verifyOut });
+      }
+    },
+    TEST_TIMEOUT,
+  );
 });

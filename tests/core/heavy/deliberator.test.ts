@@ -122,7 +122,10 @@ describe('deliberate', () => {
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
       expect(result.result.synthesizedSteps).toHaveLength(3);
-      expect(result.result.synthesizedSteps[0]!.state).toBe(State.LOCATE);
+      expect('state' in result.result.synthesizedSteps[0]!).toBe(true);
+      if ('state' in result.result.synthesizedSteps[0]!) {
+        expect(result.result.synthesizedSteps[0]!.state).toBe(State.LOCATE);
+      }
     }
   });
 
@@ -138,8 +141,75 @@ describe('deliberate', () => {
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
-      expect(result.result.synthesizedSteps[0]!.why).toBe('error likely in auth layer');
-      expect(result.result.synthesizedSteps[1]!.why).toBeUndefined();
+      expect('state' in result.result.synthesizedSteps[0]!).toBe(true);
+      expect('state' in result.result.synthesizedSteps[1]!).toBe(true);
+      if ('state' in result.result.synthesizedSteps[0]! && 'state' in result.result.synthesizedSteps[1]!) {
+        expect(result.result.synthesizedSteps[0]!.why).toBe('error likely in auth layer');
+        expect(result.result.synthesizedSteps[1]!.why).toBeUndefined();
+      }
+    }
+  });
+
+  it('preserves subplan directive through synthesis (Gap 81)', async () => {
+    // Deliberation LLM returns a subplan entry → parseDirectivesJson keeps it,
+    // synthesizedSteps carries the subplan verbatim (not flattened to pseudo-PLAN).
+    const stepsWithSubplan = JSON.stringify([
+      { state: State.LOCATE, focus: 'find bug' },
+      { subplan: { analyzerState: 'PLAN', focus: 'analyze commits and plan atomic splits' } },
+    ]);
+    vi.mocked(completeSimple)
+      .mockResolvedValueOnce(makeAssistantMessage(stepsWithSubplan) as any)
+      .mockResolvedValue(makeAssistantMessage('SAME') as any);
+    const plans = [makePlan('plan-0', [State.LOCATE]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
+    expect(result.type).toBe('selected');
+    if (result.type === 'selected') {
+      expect(result.result.synthesizedSteps).toHaveLength(2);
+      expect('subplan' in result.result.synthesizedSteps[1]!).toBe(true);
+      if ('subplan' in result.result.synthesizedSteps[1]!) {
+        expect(result.result.synthesizedSteps[1]!.subplan.analyzerState).toBe(State.PLAN);
+        expect(result.result.synthesizedSteps[1]!.subplan.focus).toContain('commits');
+      }
+    }
+  });
+
+  it('preserves parallel directive through synthesis (Gap 81)', async () => {
+    const stepsWithParallel = JSON.stringify([
+      { state: State.LOCATE, focus: 'find files' },
+      {
+        parallel: [
+          { state: 'MODIFY', focus: 'fix a' },
+          { state: 'MODIFY', focus: 'fix b' },
+        ],
+      },
+    ]);
+    vi.mocked(completeSimple)
+      .mockResolvedValueOnce(makeAssistantMessage(stepsWithParallel) as any)
+      .mockResolvedValue(makeAssistantMessage('SAME') as any);
+    const plans = [makePlan('plan-0', [State.LOCATE]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
+    expect(result.type).toBe('selected');
+    if (result.type === 'selected') {
+      expect('parallel' in result.result.synthesizedSteps[1]!).toBe(true);
+      if ('parallel' in result.result.synthesizedSteps[1]!) {
+        expect(result.result.synthesizedSteps[1]!.parallel).toHaveLength(2);
+      }
+    }
+  });
+
+  it('keeps subplan-only candidates distinct (no false merge via pickShortest)', async () => {
+    // Two subplan candidates with different focuses are NOT similar → deliberation runs.
+    // Single-candidate path also must return the subplan directive verbatim.
+    const subplanPlan: PlanCandidate = {
+      id: 'plan-0',
+      steps: [{ subplan: { analyzerState: State.PLAN, focus: 'plan atomic commits' } }],
+      sampledAt: 0,
+    };
+    const result = await deliberate([subplanPlan], { id: 't', description: 'task', state: 'running' }, makeCfg());
+    expect(result.type).toBe('selected');
+    if (result.type === 'selected') {
+      expect(result.result.synthesizedSteps).toHaveLength(1);
+      expect('subplan' in result.result.synthesizedSteps[0]!).toBe(true);
     }
   });
 
@@ -289,7 +359,10 @@ describe('deliberate', () => {
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
       expect(result.result.synthesizedSteps).toHaveLength(2);
-      expect(result.result.synthesizedSteps[0]!.focus).toBe('find [auth] and [session] modules');
+      expect('state' in result.result.synthesizedSteps[0]!).toBe(true);
+      if ('state' in result.result.synthesizedSteps[0]!) {
+        expect(result.result.synthesizedSteps[0]!.focus).toBe('find [auth] and [session] modules');
+      }
     }
   });
 
@@ -394,7 +467,7 @@ describe('deliberate', () => {
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     const allCalls = vi.mocked(completeSimple).mock.calls;
     const judgeCallIdx = allCalls.findIndex((call) => {
-      const ctx = call[1] as Record<string, unknown>;
+      const ctx = call[1] as unknown as Record<string, unknown>;
       return (
         typeof ctx['systemPrompt'] === 'string' && (ctx['systemPrompt'] as string).includes('BETTER, WORSE, or SAME')
       );
