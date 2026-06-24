@@ -23,7 +23,7 @@ export type ExecutionEvent =
   | { type: 'deliberation_start'; candidateCount: number }
   | { type: 'sample_start'; index: number; total: number }
   | { type: 'sample_thinking'; index: number; content: string }
-  | { type: 'sample_complete'; index: number; steps: import('../types.js').Step[] }
+  | { type: 'sample_complete'; index: number; steps: import('../types.js').StepDirective[] }
   | { type: 'sample_failed'; index: number }
   | { type: 'sampling_progress'; completed: number; total: number }
   | { type: 'deliberation_refinement'; round: number; verdict: 'BETTER' | 'WORSE' | 'SAME' | 'converged' }
@@ -33,7 +33,10 @@ export type ExecutionEvent =
   | { type: 'parallel_start'; stepCount: number }
   | { type: 'parallel_complete'; stepCount: number }
   | { type: 'sampling_expand'; round: number; reason: 'divergent' }
-  | { type: 'sampling_stopped'; reason: 'converged' | 'max_count' | 'max_rounds' | 'no_new_info' };
+  | { type: 'sampling_stopped'; reason: 'converged' | 'max_count' | 'max_rounds' | 'no_new_info' }
+  | { type: 'subplan_start'; analyzerState: string; focus: string }
+  | { type: 'subplan_complete'; subStepCount: number }
+  | { type: 'plan_parse_error'; analyzerState: string; output: string };
 
 export interface Mission {
   id: string;

@@ -54,7 +54,9 @@ async function rollbackEditedFiles(
 
 function stepsSignature(directives: StepDirective[]): string {
   return directives
-    .flatMap((d) => ('parallel' in d ? d.parallel : [d]))
+    .flatMap((d): Step[] =>
+      'parallel' in d ? d.parallel : 'subplan' in d ? [{ state: State.PLAN, focus: d.subplan.focus }] : [d],
+    )
     .map((s) => `${s.state}:${s.focus}`)
     .join('|');
 }
@@ -193,9 +195,11 @@ export async function runWithVerifyRetry(
       }
       prevStepsSignature = verifySig;
 
-      const flatVerifyRetry = verifyRetrySteps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
-      const verifyRetryHasModify = flatVerifyRetry.some((s: Step) => s.state === State.MODIFY);
-      const verifyRetryHasRollback = flatVerifyRetry.some((s: Step) => s.state === State.ROLLBACK);
+      const flatVerifyRetry = verifyRetrySteps.flatMap((d): Step[] =>
+        'parallel' in d ? d.parallel : 'subplan' in d ? [{ state: State.PLAN, focus: d.subplan.focus }] : [d],
+      );
+      const verifyRetryHasModify = flatVerifyRetry.some((s) => s.state === State.MODIFY);
+      const verifyRetryHasRollback = flatVerifyRetry.some((s) => s.state === State.ROLLBACK);
       if (verifyRetryHasModify && !verifyRetryHasRollback) {
         await rollbackEditedFiles(allStepResults, cfg.safeModifier, onEvent);
       }

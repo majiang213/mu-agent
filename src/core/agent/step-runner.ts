@@ -22,7 +22,7 @@ import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 
-const MEMORY_STATES = new Set([State.REASON, State.ANSWER, State.RESEARCH, State.DIAGNOSE]);
+const MEMORY_STATES = new Set([State.REASON, State.ANSWER, State.RESEARCH, State.DIAGNOSE, State.PLAN]);
 
 export async function buildModel(
   modelName: string,
@@ -65,6 +65,27 @@ export async function compressConversationHistory(
 ): Promise<AgentMessage[]> {
   if (messages.length === 0) return [];
   return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
+}
+
+/**
+ * Flatten a StepDirective[] into Step[] for signature/duplicate/match checks.
+ * A subplan collapses to a single pseudo-step { state: PLAN, focus } so it
+ * contributes to signatures (preventing false "identical retry" dedup) and
+ * is NOT mistaken for a MODIFY (preventing false rollback skips).
+ * Pure subplan-only plans thus surface as `[PLAN:...]`, not `""`.
+ */
+function flattenDirectives(directives: StepDirective[]): Step[] {
+  const out: Step[] = [];
+  for (const d of directives) {
+    if ('parallel' in d) {
+      out.push(...d.parallel);
+    } else if ('subplan' in d) {
+      out.push({ state: State.PLAN, focus: d.subplan.focus });
+    } else {
+      out.push(d);
+    }
+  }
+  return out;
 }
 
 function isValidStep(s: unknown, validStates: Set<string>, invalid: string[]): s is Step {
@@ -111,6 +132,17 @@ export function parseReasonSteps(json: Record<string, unknown> | null): {
       }
       if (parallelSteps.length > 0) {
         directives.push({ parallel: parallelSteps });
+      }
+    } else if (typeof r['subplan'] === 'object' && r['subplan'] !== null) {
+      const sp = r['subplan'] as Record<string, unknown>;
+      // Gap 80: analyzerState MUST be PLAN — only the read-only sub-planner is allowed.
+      // Any other state would let a subplan masquerade as MODIFY/etc and bypass state guards.
+      if (sp['analyzerState'] === State.PLAN && typeof sp['focus'] === 'string' && (sp['focus'] as string).length > 0) {
+        directives.push({
+          subplan: { analyzerState: State.PLAN, focus: sp['focus'] as string },
+        });
+      } else {
+        invalid.push('subplan must have analyzerState "PLAN" and a non-empty focus string');
       }
     } else if (isValidStep(item, validStates, invalid)) {
       directives.push(item);
@@ -220,15 +252,15 @@ export async function runReasonStep(
       memoryIndex,
       memorySearchTool,
     );
-    const flatSteps = phase0Result.steps.flatMap((d) => ('parallel' in d ? d.parallel : [d]));
+    const flatSteps = flattenDirectives(phase0Result.steps);
     if (flatSteps.length <= 1) {
       return phase0Result;
     }
     onEvent?.({ type: 'state_change', from: State.REASON, to: 'SAMPLING' });
     onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE + 1 });
     onEvent?.({ type: 'sample_start', index: 0, total: SAMPLING_BATCH_SIZE + 1 });
-    onEvent?.({ type: 'sample_complete', index: 0, steps: flatSteps });
-    phase0Candidate = { id: 'plan-phase0', steps: flatSteps, sampledAt: Date.now() };
+    onEvent?.({ type: 'sample_complete', index: 0, steps: phase0Result.steps });
+    phase0Candidate = { id: 'plan-phase0', steps: phase0Result.steps, sampledAt: Date.now() };
   } catch (_) {
     void _;
     onEvent?.({ type: 'state_change', from: State.REASON, to: 'SAMPLING' });
@@ -588,7 +620,75 @@ export async function executeSteps(
   for (let i = 0; i < total; i++) {
     const directive = directives[i]!;
 
-    if ('parallel' in directive) {
+    if ('subplan' in directive) {
+      const spec = directive.subplan;
+      const planStep: Step = { state: spec.analyzerState, focus: spec.focus };
+
+      onEvent?.({ type: 'subplan_start', analyzerState: spec.analyzerState, focus: spec.focus });
+
+      const subplanSnapshot = [...allStepResults, ...thisRoundResults];
+      const planResult = await runStep(
+        planStep,
+        i,
+        total,
+        mission,
+        subplanSnapshot,
+        cfg,
+        onEvent,
+        memoryIndex,
+        memorySearchTool,
+      );
+      thisRoundResults.push(planResult);
+
+      let subDirectives: StepDirective[] = [];
+      let parseFailed = false;
+      let parseError = '';
+      try {
+        const parsed = JSON.parse(planResult.output) as Record<string, unknown>;
+        const { steps: parsedSteps, error } = parseReasonSteps(parsed);
+        if (error || parsedSteps.length === 0) {
+          parseFailed = true;
+          parseError = error ?? 'empty steps';
+        } else {
+          subDirectives = parsedSteps.filter((d) => !('subplan' in d));
+        }
+      } catch (e) {
+        parseFailed = true;
+        parseError = e instanceof Error ? e.message : String(e);
+      }
+
+      if (parseFailed) {
+        // Gap 82-A: subplan output unparseable — mark the PLAN step as failed so the
+        // task surfaces failure instead of silently reporting "success" with no work done.
+        // Skip sub-step expansion; the top-level ANSWER will present the failure.
+        onEvent?.({ type: 'plan_parse_error', analyzerState: spec.analyzerState, output: planResult.output });
+        const failedIdx = thisRoundResults.indexOf(planResult);
+        if (failedIdx >= 0) {
+          thisRoundResults[failedIdx] = {
+            ...planResult,
+            output: JSON.stringify({
+              failed: true,
+              error: `subplan output unparseable: ${parseError}`,
+              rawOutput: planResult.output.slice(0, 500),
+            }),
+          };
+        }
+      }
+
+      if (subDirectives.length > 0) {
+        onEvent?.({ type: 'subplan_complete', subStepCount: subDirectives.length });
+        const subResults = await executeSteps(
+          subDirectives,
+          mission,
+          [...allStepResults, ...thisRoundResults],
+          cfg,
+          onEvent,
+          memoryIndex,
+          memorySearchTool,
+        );
+        thisRoundResults.push(...subResults);
+      }
+    } else if ('parallel' in directive) {
       const parallelSteps = directive.parallel;
 
       if (parallelSteps.length === 1) {
