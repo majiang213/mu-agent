@@ -1,5 +1,5 @@
 import { Agent } from '@earendil-works/pi-agent-core';
-import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
+import type { AgentEvent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import { streamSimple } from '@earendil-works/pi-ai';
 import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 
@@ -9,6 +9,57 @@ import { StagnationDetector } from '../cognitive/index.js';
 import { ContextCompactor } from '../compaction/index.js';
 import type { ExecutionEvent, RunConfig } from './types.js';
 import { State } from '../types.js';
+
+/**
+ * Patterns for git operations that are permanently forbidden at the harness
+ * level (cannot be bypassed by the model). Mirrors Claude Code's default-branch
+ * push guard: the guard runs BEFORE the command reaches the shell, so the
+ * instruction prompt cannot be tricked into executing these.
+ */
+export const GIT_HARD_DENY: RegExp[] = [
+  /git\s+push\s+.*--force/i,
+  /git\s+push\s+-f\b/i,
+  /git\s+push\s+--force-with-lease/i,
+  /git\s+push\s+[^\s]*\s+(main|master|HEAD)\b/i,
+  /git\s+reset\s+--hard/i,
+  /git\s+rebase\b/i,
+  /git\s+clean\s+-[a-z]*f/i,
+  /git\s+stash\s+(drop|clear)/i,
+  /git\s+branch\s+-D\b/i,
+  /git\s+commit\s+--no-verify/i,
+  /git\s+reflog\s+expire/i,
+];
+
+const GIT_GUARD_MESSAGE =
+  '[GIT GUARD] Blocked: forbidden git operation.\n' +
+  'Forbidden: push --force / -f / --force-with-lease, push to main/master/HEAD, ' +
+  'reset --hard, rebase, clean -f, stash drop/clear, branch -D, commit --no-verify.';
+
+/**
+ * Wrap a bash tool so that git commands matching GIT_HARD_DENY are blocked
+ * before execution. Used only for State.GIT steps (see step-runner.ts).
+ */
+export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
+  const originalExecute = bashTool.execute.bind(bashTool);
+  return {
+    ...bashTool,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      const cmd =
+        typeof (params as Record<string, unknown>)?.['command'] === 'string'
+          ? ((params as Record<string, unknown>)['command'] as string)
+          : '';
+      for (const pattern of GIT_HARD_DENY) {
+        if (pattern.test(cmd)) {
+          return {
+            content: [{ type: 'text' as const, text: `${GIT_GUARD_MESSAGE}\nBlocked command: "${cmd}"` }],
+            details: undefined,
+          };
+        }
+      }
+      return originalExecute(toolCallId, params, signal, onUpdate);
+    },
+  };
+}
 
 export function buildStepAgent(
   systemPrompt: string,

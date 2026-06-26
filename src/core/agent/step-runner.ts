@@ -15,7 +15,7 @@ import { buildCompleteTool } from '../../tool/complete.js';
 import { ContextCompactor, compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
 import { advanceState } from '../states.js';
-import { buildStepAgent, subscribeStepEvents } from './builder.js';
+import { buildStepAgent, subscribeStepEvents, wrapWithGitGuard } from './builder.js';
 import { samplePlans, deliberate, pickShortest, SAMPLING_BATCH_SIZE } from '../heavy/index.js';
 import { State, STATES_NEEDING_CODE_CONTEXT } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
@@ -507,7 +507,10 @@ export async function runStep(
     memoryIndex: injectMemory,
   });
 
-  const allowedTools = cfg.stateMachine.getAllowedTools().filter((t) => t.name !== 'complete');
+  const allowedTools = cfg.stateMachine
+    .getAllowedTools()
+    .filter((t) => t.name !== 'complete')
+    .map((t) => (step.state === State.GIT && t.name === 'bash' ? wrapWithGitGuard(t) : t));
   const READ_ONLY_STATES = new Set([State.RESEARCH, State.REVIEW, State.DIAGNOSE, State.REFACTOR_PLAN]);
   const stagnationDetector = new StagnationDetector({
     checkNoProgress: !READ_ONLY_STATES.has(step.state),
