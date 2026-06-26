@@ -46,8 +46,16 @@
     "llm",
     "coding"
   ],
-  "author": "MJ",
+  "author": "MJ <majiang219@gmail.com>",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/majiang213/mu-agent.git"
+  },
+  "homepage": "https://github.com/majiang213/mu-agent#readme",
+  "bugs": {
+    "url": "https://github.com/majiang213/mu-agent/issues"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.9.2",

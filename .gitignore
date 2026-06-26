@@ -3,6 +3,10 @@ dist/
 .local-agent/
 .sisyphus/
 .test-safety/
+
+# Personal study notes — do not publish
+docs/学习指南.md
+
 *.log
 .DS_Store
 *.tsbuildinfo
@@ -46,6 +50,7 @@ plans/
 .pi/hf-sessions-backup/
 collect.sh
 .mu-agent/
+# config.example.json is force-added as a template; the real config.json stays ignored.
 .omc/
 .omo
 *.review-report.md

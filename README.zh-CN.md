@@ -1,5 +1,7 @@
 # µagent
 
+> [English](./README.md) | 简体中文
+
 基于 [pi](https://github.com/earendil-works/pi) 框架的本地 ReAct Coding Agent，专为 7B/8B 小模型设计。
 
 让本地小模型也能可靠地完成真实编程任务——不依赖 GPT，不需要 API Key，完全在你的机器上运行。
@@ -211,10 +213,16 @@ REASON → [{subplan:PLAN, focus:"分析 git 改动，规划原子提交"}]
 
 git 操作走专用 `State.GIT` 状态（bash+read+complete），避免借用 MODIFY/VERIFY 的 bash 造成语义错位。REASON 路由：查看 git 历史/diff → `[GIT]`，提交改动 → `[GIT]`，修完代码再提交 → `[..., MODIFY, VERIFY, GIT]`。
 
-**harness 层硬拦截**（不可被 instruction 绕过）：bash 执行前由 `wrapWithGitGuard()` 匹配 11 类危险命令并阻断——`push --force/-f/--force-with-lease`、`push to main/master/HEAD`、`reset --hard`、`rebase`、`clean -f`、`stash drop/clear`、`branch -D`、`commit --no-verify`、`reflog expire`。
+**harness 层硬白名单（default-deny，不可被 instruction 绕过）**：bash 执行前由 `wrapWithGitGuard()` 检查，仅允许明确安全的 git 子命令（read-ops / add / 安全 commit / branch -d / checkout / stash push/pop/apply / tag / fetch / cherry-pick / revert / merge / push 到非默认分支），其余一律拒绝。具体拒绝：
+- shell 元字符（`&`/`;`/`|`/换行/`$`/backtick/`()` 等）— 防 chaining/命令替换绕过
+- 非 `git` 首 token（`/usr/bin/git`、`bash -c`、`sudo git`）
+- force-push（`--force`/`-f`/`--force-with-lease`/`+refspec`）、`push to main/master/HEAD`、`--mirror`/`--all`/`--delete` refspec
+- 历史重写：`reset --hard`、`rebase`、`commit --amend`、`filter-branch`、`replace`、`fast-import`、`update-ref`、`symbolic-ref`
+- `clean -f`、`stash drop/clear`、`branch -D`、`commit --no-verify/-n`、`reflog expire`、`config alias.*` 写入
 
-- merge 产生冲突 → `complete(operation="merge", conflicts=[...])` 立即退出，触发 re-REASON 重新规划冲突解决
+- merge 产生冲突 → `git merge --abort` 后 `complete(operation="merge", conflicts=[...])` 报告（harness 无冲突 re-REASON 路径，故要求 abort 后报告）
 - push 仅允许非默认分支，永远不 push 到 main/master
+- guard 在所有暴露 bash 的 state 都生效（非仅 GIT），防误路由绕过
 
 ---
 
