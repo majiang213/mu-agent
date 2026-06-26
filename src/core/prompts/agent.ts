@@ -205,6 +205,8 @@ export function buildUserPrompt(state: State, task: string, focus?: string, prev
       return `Create new files for: ${target}${context}`;
     case State.PLAN:
       return `Analyze and plan execution steps for: ${target}${context}`;
+    case State.GIT:
+      return `Execute the git operation: ${target}${context}`;
     case State.VERIFY:
       return `Verify the changes are correct for: ${target}${context}`;
     default:

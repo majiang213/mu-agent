@@ -60,6 +60,7 @@ export const C = {
   stateSetup: (s: string) => bold(fg(160, 214, 102)(s)),
   stateWrite: (s: string) => bold(fg(255, 145, 164)(s)),
   statePlan: (s: string) => bold(fg(147, 197, 253)(s)),
+  stateGit: (s: string) => bold(fg(232, 168, 124)(s)),
   stateSampling: (s: string) => bold(fg(255, 184, 108)(s)),
   stateIdle: fg(110, 118, 129),
   headerCwd: fg(110, 118, 129),
@@ -99,6 +100,7 @@ export const STATE_FN: Record<string, (s: string) => string> = {
   SETUP: C.stateSetup,
   WRITE: C.stateWrite,
   PLAN: C.statePlan,
+  GIT: C.stateGit,
   IDLE: C.stateIdle,
   SAMPLING: C.stateSampling,
 };
