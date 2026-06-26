@@ -1,0 +1,19 @@
+{
+  "model": {
+    "provider": "ollama",
+    "name": "qwen2.5:7b",
+    "baseUrl": "http://localhost:11434",
+    "temperature": 0.1,
+    "contextRatio": 0.75
+  },
+  "safety": {
+    "enableCheckpoint": true,
+    "maxLinesPerEdit": 50,
+    "maxFilesPerTask": 5
+  },
+  "heavyThinking": {
+    "enabled": true,
+    "planCount": 4,
+    "samplingTemperature": 0.7
+  }
+}
