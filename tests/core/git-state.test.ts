@@ -5,14 +5,24 @@ import { State } from '../../src/core/types.js';
 import { getNextState, getBaseStateConfigs } from '../../src/core/states.js';
 import { STATE_REGISTRY } from '../../src/core/state-registry.js';
 import { GIT_HARD_DENY, wrapWithGitGuard } from '../../src/core/agent/builder.js';
+import type { GitGuardSpec } from '../../src/core/agent/builder.js';
 import { buildCompleteTool } from '../../src/tool/complete.js';
 
 /**
- * Gap 79: State.GIT — git-specific state with harness-level guard.
+ * Gap 79 / Gap 83: State.GIT — git-specific state with harness-level guard.
+ *
+ * Gap 83 (stage 1) rewrote the guard from a fragile `RegExp[]` array to an
+ * argv-tokenizing `GitGuardSpec` (`{ summary, isForbidden }`). The guard now
+ * defeats chaining (split on &&/||/;/|), skips global options (`-C`, `-c`,
+ * `--git-dir`, ...), and uses case-sensitive flag logic so `-d` (safe) is not
+ * confused with `-D` (force-delete).
  *
  * Tests cover:
- *   - git guard blocks all forbidden operations (push --force, reset --hard, etc.)
- *   - git guard allows safe read/write operations through
+ *   - GIT_HARD_DENY export shape (GitGuardSpec, not RegExp[])
+ *   - git guard blocks all forbidden operations (the full B/D verified matrix)
+ *   - git guard allows safe read/write operations through (no false positives)
+ *   - block message omits the verbatim command (F1)
+ *   - chaining defeat (any forbidden segment blocks the whole command)
  *   - complete() schema validation (operation enum + result non-empty)
  *   - state transition GIT → DONE
  *   - registry configuration (allowedTools, contextNeeds)
@@ -44,92 +54,136 @@ async function runGuard(cmd: string): Promise<{ blocked: boolean; output: string
   return { blocked, output: text, executed: calls.length === 1 };
 }
 
-describe('Gap 79: State.GIT — git guard (GIT_HARD_DENY)', () => {
-  it('blocks push --force', async () => {
+describe('Gap 83: GIT_HARD_DENY export shape (argv-tokenizing spec, not RegExp[])', () => {
+  it('is a GitGuardSpec object with summary + isForbidden', () => {
+    expect(GIT_HARD_DENY).not.toBeNull();
+    expect(typeof GIT_HARD_DENY).toBe('object');
+    expect(GIT_HARD_DENY).not.toBeInstanceOf(Array);
+    expect(typeof (GIT_HARD_DENY as GitGuardSpec).summary).toBe('string');
+    expect((GIT_HARD_DENY as GitGuardSpec).summary.length).toBeGreaterThan(0);
+    expect(typeof (GIT_HARD_DENY as GitGuardSpec).isForbidden).toBe('function');
+  });
+
+  it('isForbidden returns a reason string for forbidden, null for allowed', () => {
+    const spec = GIT_HARD_DENY as GitGuardSpec;
+    expect(spec.isForbidden('git push --force origin main')).not.toBeNull();
+    expect(spec.isForbidden('git status')).toBeNull();
+  });
+});
+
+describe('Gap 83: git guard — blocks all forbidden operations', () => {
+  // Each command is verified individually so a regression names the exact
+  // bypass that re-opened. Comments cite the Gap 83 case id (B/D/F).
+  const BLOCKED: Array<{ cmd: string; case: string }> = [
+    { cmd: 'git push --force origin main', case: 'force flag' },
+    { cmd: 'git push -f', case: 'force flag' },
+    { cmd: 'git push --force-with-lease', case: 'force flag' },
+    { cmd: 'git push origin main', case: 'default-branch dest' },
+    { cmd: 'git push origin master', case: 'default-branch dest' },
+    { cmd: 'git push origin HEAD', case: 'default-branch dest' },
+    { cmd: 'git -C /tmp push --force', case: 'B1 global -C prefix' },
+    { cmd: 'git -c x=y reset --hard', case: 'B1 global -c prefix' },
+    { cmd: 'git push origin +main', case: 'B2 force refspec' },
+    { cmd: 'git push origin +refs/heads/main', case: 'B2 force refspec' },
+    { cmd: 'git push origin :main', case: 'B3 refspec delete' },
+    { cmd: 'git push origin --delete main', case: 'B3 --delete flag' },
+    { cmd: 'git push origin refs/heads/main', case: 'B3 refs/heads dest' },
+    { cmd: 'git reset --hard', case: 'reset --hard' },
+    { cmd: 'git reset --merge --hard', case: 'D3 flag-between-args' },
+    { cmd: 'git reset --quiet --hard', case: 'D3 flag-between-args' },
+    { cmd: 'git rebase main', case: 'rebase' },
+    { cmd: 'git clean -f', case: 'clean -f' },
+    { cmd: 'git clean -fd', case: 'clean -fd' },
+    { cmd: 'git clean -xfd', case: 'clean -xfd' },
+    { cmd: 'git stash drop', case: 'stash drop' },
+    { cmd: 'git stash clear', case: 'stash clear' },
+    { cmd: 'git branch -D feature', case: 'branch -D' },
+    { cmd: 'git commit --no-verify -m x', case: 'commit --no-verify' },
+    { cmd: 'git commit -n -m x', case: 'D2 short -n' },
+    { cmd: 'git commit -nm x', case: 'D2 combined -nm' },
+    { cmd: 'git reflog expire --all', case: 'reflog expire' },
+    { cmd: 'git update-ref refs/heads/main x', case: 'D4 update-ref' },
+    { cmd: 'git symbolic-ref HEAD refs/heads/main', case: 'D4 symbolic-ref' },
+    { cmd: "git config alias.fp 'push --force'", case: 'D4 config alias' },
+  ];
+
+  it.each(BLOCKED)('blocks: $cmd ($case)', async ({ cmd }) => {
+    const r = await runGuard(cmd);
+    expect(r.blocked).toBe(true);
+    expect(r.executed).toBe(false);
+    expect(r.output).toContain('[GIT GUARD]');
+  });
+
+  it('block message does NOT echo the verbatim blocked command (F1)', async () => {
     const r = await runGuard('git push --force origin main');
+    expect(r.output).toContain('[GIT GUARD]');
+    // F1: the bypass string must not be telegraphed back to the model.
+    expect(r.output).not.toContain('push --force origin main');
+    expect(r.output).not.toMatch(/Blocked command:/);
+  });
+});
+
+describe('Gap 83: git guard — allows safe operations (no false positives)', () => {
+  const ALLOWED: Array<{ cmd: string; note: string }> = [
+    { cmd: 'git status', note: 'read' },
+    { cmd: 'git log --oneline -10', note: 'read' },
+    { cmd: 'git diff --staged', note: 'read' },
+    { cmd: 'git branch -a', note: 'read' },
+    { cmd: 'git add calc.js', note: 'staging' },
+    { cmd: "git commit -m 'fix: x'", note: 'safe commit' },
+    { cmd: 'git checkout -b feature/auth', note: 'branch switch' },
+    { cmd: 'git push origin feature/auth', note: 'push feature branch' },
+    { cmd: 'git push origin feature/main', note: 'NOT main (prefix only)' },
+    { cmd: 'git push origin main-feature', note: 'NOT main (suffix only)' },
+    { cmd: 'git push origin maintenance', note: 'NOT main (substring only)' },
+    { cmd: 'git merge feature/auth', note: 'merge' },
+    { cmd: 'git stash push -m wip', note: 'stash push' },
+    { cmd: 'git stash apply', note: 'stash apply' },
+    { cmd: 'git stash list', note: 'stash list' },
+    { cmd: 'git branch -d feature', note: 'D1 safe lowercase -d' },
+    { cmd: 'git branch --delete feature', note: 'D1 safe --delete long form' },
+    { cmd: 'git revert HEAD', note: 'revert' },
+    { cmd: 'git cherry-pick abc', note: 'cherry-pick' },
+    { cmd: 'git fetch origin', note: 'fetch' },
+    { cmd: 'git tag v1.0', note: 'tag' },
+  ];
+
+  it.each(ALLOWED)('allows: $cmd ($note)', async ({ cmd }) => {
+    const r = await runGuard(cmd);
+    expect(r.blocked).toBe(false);
+    expect(r.executed).toBe(true);
+  });
+});
+
+describe('Gap 83: git guard — chaining defeat', () => {
+  it('blocks when a forbidden segment is chained after a safe one (&&)', async () => {
+    const r = await runGuard('git status && git push --force origin main');
     expect(r.blocked).toBe(true);
     expect(r.executed).toBe(false);
   });
 
-  it('blocks push -f', async () => {
-    const r = await runGuard('git push -f origin feature');
+  it('blocks when a forbidden segment is chained with ||', async () => {
+    const r = await runGuard('git push --force origin main || git status');
     expect(r.blocked).toBe(true);
+    expect(r.executed).toBe(false);
   });
 
-  it('blocks push --force-with-lease', async () => {
-    const r = await runGuard('git push --force-with-lease origin feature');
+  it('blocks when a forbidden segment is chained with ;', async () => {
+    const r = await runGuard('git status; git reset --hard');
     expect(r.blocked).toBe(true);
+    expect(r.executed).toBe(false);
   });
 
-  it('blocks push to main/master/HEAD', async () => {
-    for (const branch of ['main', 'master', 'HEAD']) {
-      const r = await runGuard(`git push origin ${branch}`);
-      expect(r.blocked).toBe(true);
-    }
-  });
-
-  it('blocks reset --hard', async () => {
-    const r = await runGuard('git reset --hard HEAD~1');
+  it('blocks when a forbidden segment is piped (|)', async () => {
+    const r = await runGuard('git log | git push --force origin main');
     expect(r.blocked).toBe(true);
+    expect(r.executed).toBe(false);
   });
 
-  it('blocks rebase', async () => {
-    const r = await runGuard('git rebase main');
-    expect(r.blocked).toBe(true);
-  });
-
-  it('blocks clean -f / -fd', async () => {
-    expect((await runGuard('git clean -f')).blocked).toBe(true);
-    expect((await runGuard('git clean -fd')).blocked).toBe(true);
-  });
-
-  it('blocks stash drop / clear', async () => {
-    expect((await runGuard('git stash drop')).blocked).toBe(true);
-    expect((await runGuard('git stash clear')).blocked).toBe(true);
-  });
-
-  it('blocks branch -D', async () => {
-    const r = await runGuard('git branch -D feature/old');
-    expect(r.blocked).toBe(true);
-  });
-
-  it('blocks commit --no-verify', async () => {
-    const r = await runGuard("git commit --no-verify -m 'skip hooks'");
-    expect(r.blocked).toBe(true);
-  });
-
-  it('blocks reflog expire', async () => {
-    const r = await runGuard('git reflog expire --expire=now --all');
-    expect(r.blocked).toBe(true);
-  });
-
-  it('allows safe read operations (status, log, diff)', async () => {
-    for (const cmd of ['git status', 'git log --oneline -10', 'git diff --staged', 'git branch -a']) {
-      const r = await runGuard(cmd);
-      expect(r.blocked).toBe(false);
-      expect(r.executed).toBe(true);
-    }
-  });
-
-  it('allows safe write operations (add, commit, branch, push to feature)', async () => {
-    for (const cmd of [
-      'git add calc.js',
-      "git commit -m 'fix: divide by zero'",
-      'git checkout -b feature/auth',
-      'git push origin feature/auth',
-      'git merge feature/auth',
-      'git stash push -m "wip"',
-    ]) {
-      const r = await runGuard(cmd);
-      expect(r.blocked).toBe(false);
-      expect(r.executed).toBe(true);
-    }
-  });
-
-  it('every GIT_HARD_DENY pattern is a RegExp', () => {
-    for (const p of GIT_HARD_DENY) {
-      expect(p).toBeInstanceOf(RegExp);
-    }
+  it('allows a fully-safe chained command', async () => {
+    const r = await runGuard('git status && git log --oneline -5');
+    expect(r.blocked).toBe(false);
+    expect(r.executed).toBe(true);
   });
 });
 

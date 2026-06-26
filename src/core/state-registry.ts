@@ -627,8 +627,9 @@ RULES:
 1. Run git status first.
 2. Before commit: git diff --staged to verify staged content.
 3. Commit messages: semantic style (feat/fix/docs/refactor/test/chore).
-4. If git merge produces conflicts → complete(operation="merge", conflicts=[...]) IMMEDIATELY.
-   Do NOT try to resolve conflicts here. REASON will re-plan.
+4. If git merge produces conflicts → run \`git merge --abort\` to cancel, then
+   complete(operation="merge", result="<conflict summary>"). Do NOT try to
+   resolve conflicts here. Do NOT expect REASON to re-plan — abort and report.
 5. Push ONLY to non-default branches. Never push to main/master.
 
 <example>
@@ -643,8 +644,9 @@ complete(operation="commit", result="[main abc1234] fix: divide by zero\\n 1 fil
 <example>
 focus: merge branch feature/auth
 assistant: [bash("git status")] → clean
-  [bash("git merge feature/auth")] → CONFLICT in src/auth.ts
-complete(operation="merge", result="CONFLICT (content): Merge conflict in src/auth.ts", conflicts=["src/auth.ts"])
+  [bash("git merge feature/auth")] → CONFLICT (content): Merge conflict in src/auth.ts
+  [bash("git merge --abort")] → merge cancelled, tree restored to clean state
+complete(operation="merge", result="CONFLICT in src/auth.ts; merge aborted", conflicts=["src/auth.ts"])
 </example>
 
 When done, call complete(operation="...", result="actual git output").`,

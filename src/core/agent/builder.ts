@@ -11,33 +11,314 @@ import type { ExecutionEvent, RunConfig } from './types.js';
 import { State } from '../types.js';
 
 /**
- * Patterns for git operations that are permanently forbidden at the harness
- * level (cannot be bypassed by the model). Mirrors Claude Code's default-branch
- * push guard: the guard runs BEFORE the command reaches the shell, so the
- * instruction prompt cannot be tricked into executing these.
+ * Git operations permanently forbidden at the harness level (cannot be
+ * bypassed by the model). The guard runs BEFORE the command reaches the
+ * shell, so the instruction prompt cannot be tricked into executing these.
+ *
+ * Gap 83 (B+D): rewritten from a fragile regex array (which admitted
+ * systematic bypasses: global-flag prefixes like `git -C /tmp push --force`,
+ * force refspecs `git push origin +main`, refspec deletes `git push origin
+ * :main`, false positives on `branch -d` from the case-insensitive `-D`
+ * match, short `commit -n`, flag-between-args `reset --merge --hard`, and
+ * plumbing/alias `update-ref`/`symbolic-ref`/`config alias.*`) to an
+ * argv-tokenizing checker. The command is split into shell segments on
+ * `&&`/`||`/`;`/`|`, each segment is tokenized (whitespace + simple quotes),
+ * the `git` subcommand is located after skipping global options, and the
+ * subcommand + its flags/args are inspected with case-sensitive flag logic.
+ *
+ * `GIT_HARD_DENY` is exported (kept for tests / introspection) but is no
+ * longer a `RegExp[]`; it now carries the human-readable summary used in the
+ * block message plus the checker function itself.
  */
-export const GIT_HARD_DENY: RegExp[] = [
-  /git\s+push\s+.*--force/i,
-  /git\s+push\s+-f\b/i,
-  /git\s+push\s+--force-with-lease/i,
-  /git\s+push\s+[^\s]*\s+(main|master|HEAD)\b/i,
-  /git\s+reset\s+--hard/i,
-  /git\s+rebase\b/i,
-  /git\s+clean\s+-[a-z]*f/i,
-  /git\s+stash\s+(drop|clear)/i,
-  /git\s+branch\s+-D\b/i,
-  /git\s+commit\s+--no-verify/i,
-  /git\s+reflog\s+expire/i,
-];
+export interface GitGuardSpec {
+  /** Human-readable summary of forbidden operations, embedded in the block message. */
+  summary: string;
+  /** Returns a reason string when the command is forbidden, or null when allowed. */
+  isForbidden: (command: string) => string | null;
+}
 
-const GIT_GUARD_MESSAGE =
-  '[GIT GUARD] Blocked: forbidden git operation.\n' +
-  'Forbidden: push --force / -f / --force-with-lease, push to main/master/HEAD, ' +
-  'reset --hard, rebase, clean -f, stash drop/clear, branch -D, commit --no-verify.';
+const GIT_GUARD_SUMMARY =
+  'Forbidden: push --force / -f / --force-with-lease / +refspec, push to main/master/HEAD ' +
+  '(incl. :delete, --delete, refs/heads/main), reset --hard, rebase, clean -f, ' +
+  'stash drop/clear, branch -D, commit --no-verify/-n, reflog expire, ' +
+  'update-ref, symbolic-ref, config alias.*.';
+
+/**
+ * Tokenize a shell segment into argv tokens. Splits on whitespace but keeps
+ * single-quoted and double-quoted substrings together (quotes stripped). This
+ * is a deliberately simple tokenizer: it does not handle nested quotes or
+ * shell escapes, which is sufficient for git CLI invocations the model emits.
+ */
+function tokenize(segment: string): string[] {
+  const tokens: string[] = [];
+  let i = 0;
+  const n = segment.length;
+  while (i < n) {
+    // skip whitespace
+    while (i < n && /\s/.test(segment.charAt(i))) i++;
+    if (i >= n) break;
+    let current = '';
+    while (i < n && !/\s/.test(segment.charAt(i))) {
+      const ch = segment.charAt(i);
+      if (ch === "'" || ch === '"') {
+        const quote = ch;
+        i++; // consume opening quote
+        while (i < n && segment.charAt(i) !== quote) {
+          current += segment.charAt(i);
+          i++;
+        }
+        if (i < n) i++; // consume closing quote (if present)
+      } else {
+        current += ch;
+        i++;
+      }
+    }
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+/**
+ * Split a full command string into shell segments on the chaining operators
+ * `&&`, `||`, `;`, and `|`. A forbidden git op in ANY segment blocks the
+ * whole command (chaining must not bypass the guard).
+ */
+function splitSegments(command: string): string[] {
+  // Split on `&&`, `||`, `;`, `|` (single pipe, not `||`).
+  // Do this with a single regex that matches any of the operators.
+  return command
+    .split(/\s*(?:&&|\|\||;|\|)\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** Default-branch ref names that must never be the push destination. */
+const DEFAULT_BRANCH_REFS = new Set(['main', 'master', 'HEAD']);
+
+/**
+ * Resolve a refspec token to its destination branch name, or null if it is
+ * not a recognizable ref to a default branch.
+ *
+ * Handles: bare `main`, `:main` (delete), `src:main`, `+main` (force),
+ * `refs/heads/main`, `+refs/heads/main`. Returns null for branch names that
+ * merely START with a default name (e.g. `main-feature`, `maintenance`).
+ */
+function resolveRefDest(token: string): string | null {
+  // Strip a single leading `+` (force-push prefix on the refspec).
+  let t = token;
+  if (t.startsWith('+')) t = t.slice(1);
+  // Strip refs/heads/ prefix.
+  if (t.startsWith('refs/heads/')) t = t.slice('refs/heads/'.length);
+  // A refspec `src:dst` — only the dst side matters for default-branch protection.
+  const colonIdx = t.indexOf(':');
+  if (colonIdx >= 0) {
+    t = t.slice(colonIdx + 1);
+  }
+  // Exact-match against default branch refs. `main-feature` etc. are NOT matches.
+  if (t.length === 0) return null;
+  return DEFAULT_BRANCH_REFS.has(t) ? t : null;
+}
+
+/** True if `flag` (a short-flag bundle like `-fd`, `-nm`) contains the letter `c`. */
+function shortFlagHas(flag: string, letter: string): boolean {
+  // flag looks like `-xyz`; check each char after the leading dash(es).
+  const body = flag.replace(/^-+/, '');
+  return body.indexOf(letter) >= 0;
+}
+
+/**
+ * Inspect a single tokenized git invocation (tokens[0] === 'git', after global
+ * option skipping the subcommand follows). Returns a reason string if the
+ * invocation is forbidden, or null if it is allowed.
+ */
+function inspectGitInvocation(tokens: string[]): string | null {
+  if (tokens.length === 0 || tokens[0] !== 'git') return null;
+
+  // Skip global options that appear before the subcommand: -C <path>, -c <k=v>,
+  // --git-dir <path>, --work-tree <path>, --namespace <ns>, --exec-path [path],
+  // --bare, --no-pager, --literal-pathspecs, etc. Anything starting with `-`
+  // before the subcommand is treated as a global option; if it is one of the
+  // known value-taking options, also consume the following token as its value.
+  const VALUE_TAKING_GLOBALS = new Set([
+    '-C',
+    '-c',
+    '--git-dir',
+    '--work-tree',
+    '--namespace',
+    '--exec-path',
+    '--config-env',
+    '-P', // --no-pager takes no value; left here for completeness only
+  ]);
+  // Note: -P/--no-pager/etc. take no value; only the set above consume a value.
+  const NO_VALUE_GLOBALS = new Set([
+    '--bare',
+    '--no-pager',
+    '-p', // pager
+    '--literal-pathspecs',
+    '--glob-pathspecs',
+    '--no-replace-objects',
+    '--no-lazy-fetch',
+  ]);
+
+  let i = 1;
+  while (i < tokens.length) {
+    const g = tokens[i];
+    if (g === undefined || !g.startsWith('-')) break;
+    if (VALUE_TAKING_GLOBALS.has(g)) {
+      i += 2; // consume option + its value
+    } else if (NO_VALUE_GLOBALS.has(g)) {
+      i += 1;
+    } else {
+      // Unknown global flag (e.g. --git-dir=x attached form, or any other).
+      // Treat as a no-value option; do not skip the next token.
+      i += 1;
+    }
+  }
+  if (i >= tokens.length) return null; // `git` with no subcommand — nothing to block.
+
+  const subcommand = tokens[i];
+  const args = tokens.slice(i + 1); // flags + positional args after subcommand
+
+  switch (subcommand) {
+    case 'push': {
+      let sawDeleteFlag = false;
+      for (const a of args) {
+        // Force-push flags. `--force=<arg>` and `--force-with-lease[=<ref>]`
+        // are attached-equals forms of the same flags — match by prefix so the
+        // `=...` value form cannot slip through.
+        if (
+          a === '--force' ||
+          a === '-f' ||
+          a === '--force-with-lease' ||
+          a.startsWith('--force=') ||
+          a.startsWith('--force-with-lease')
+        ) {
+          return 'push --force / -f / --force-with-lease';
+        }
+        if (a === '--delete' || a === '-d') {
+          sawDeleteFlag = true;
+          continue;
+        }
+        // Force refspec: any refspec token starting with `+` (e.g. +main, +refs/heads/main).
+        if (a.startsWith('+')) {
+          return 'push +refspec (force)';
+        }
+        // Default-branch destination: bare main/master/HEAD, :main (delete),
+        // src:main, refs/heads/main, +main — but NOT main-feature / maintenance.
+        if (resolveRefDest(a) !== null) {
+          return `push to default branch (${resolveRefDest(a)})`;
+        }
+        // `--delete main` form: a default-branch ref appearing as a positional
+        // arg after the --delete flag.
+        if (sawDeleteFlag && DEFAULT_BRANCH_REFS.has(a.replace(/^refs\/heads\//, ''))) {
+          return `push --delete to default branch (${a})`;
+        }
+      }
+      return null;
+    }
+    case 'reset': {
+      // --hard anywhere in reset args (e.g. `reset --merge --hard`, `reset --quiet --hard`).
+      for (const a of args) {
+        if (a === '--hard') return 'reset --hard';
+      }
+      return null;
+    }
+    case 'rebase': {
+      // Any rebase rewrites history.
+      return 'rebase';
+    }
+    case 'clean': {
+      // -f, -fd, -xfd, --force.
+      for (const a of args) {
+        if (a === '--force') return 'clean --force';
+        if (a.startsWith('-') && !a.startsWith('--') && shortFlagHas(a, 'f')) {
+          return 'clean -f';
+        }
+      }
+      return null;
+    }
+    case 'stash': {
+      const sub = args[0];
+      if (sub === 'drop' || sub === 'clear') return `stash ${sub}`;
+      return null;
+    }
+    case 'branch': {
+      // -D (uppercase) is force-delete; -d (lowercase) is safe delete — ALLOWED.
+      // `--delete` long form is the same as -d (safe delete) — ALLOWED.
+      for (const a of args) {
+        if (a === '-D') return 'branch -D';
+        // Combined short bundle containing uppercase D (e.g. -Dm). Lowercase -d is safe.
+        if (a.startsWith('-') && !a.startsWith('--') && shortFlagHas(a, 'D')) {
+          return 'branch -D';
+        }
+      }
+      return null;
+    }
+    case 'commit': {
+      for (const a of args) {
+        if (a === '--no-verify') return 'commit --no-verify';
+        // Standalone -n short flag, or combined short bundle containing n (e.g. -nm).
+        if (a === '-n') return 'commit -n (no-verify)';
+        if (a.startsWith('-') && !a.startsWith('--') && shortFlagHas(a, 'n')) {
+          return 'commit -n (no-verify)';
+        }
+      }
+      return null;
+    }
+    case 'reflog': {
+      const sub = args[0];
+      if (sub === 'expire') return 'reflog expire';
+      return null;
+    }
+    case 'update-ref': {
+      // Direct ref rewrite — any invocation.
+      return 'update-ref';
+    }
+    case 'symbolic-ref': {
+      // Moves HEAD — any invocation.
+      return 'symbolic-ref';
+    }
+    case 'config': {
+      // alias.* registration that could hide a force-push.
+      const key = args[0] ?? '';
+      if (key === 'alias' || key.startsWith('alias.')) {
+        return `config ${key} (alias registration)`;
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Check a full command string for forbidden git operations. Returns a reason
+ * string if forbidden (the command must NOT be executed), or null if allowed.
+ */
+function checkGitCommand(command: string): string | null {
+  for (const segment of splitSegments(command)) {
+    const tokens = tokenize(segment);
+    // Find a `git` token anywhere in the segment (e.g. `sudo git ...`, or just `git ...`).
+    const gitIdx = tokens.indexOf('git');
+    if (gitIdx < 0) continue;
+    const reason = inspectGitInvocation(tokens.slice(gitIdx));
+    if (reason !== null) return reason;
+  }
+  return null;
+}
+
+export const GIT_HARD_DENY: GitGuardSpec = {
+  summary: GIT_GUARD_SUMMARY,
+  isForbidden: checkGitCommand,
+};
 
 /**
  * Wrap a bash tool so that git commands matching GIT_HARD_DENY are blocked
  * before execution. Used only for State.GIT steps (see step-runner.ts).
+ *
+ * On block, returns a `[GIT GUARD]` text block WITHOUT echoing the verbatim
+ * blocked command (F1: omitting the command avoids telegraphing the exact
+ * bypass string the model tried).
  */
 export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
   const originalExecute = bashTool.execute.bind(bashTool);
@@ -48,13 +329,17 @@ export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
         typeof (params as Record<string, unknown>)?.['command'] === 'string'
           ? ((params as Record<string, unknown>)['command'] as string)
           : '';
-      for (const pattern of GIT_HARD_DENY) {
-        if (pattern.test(cmd)) {
-          return {
-            content: [{ type: 'text' as const, text: `${GIT_GUARD_MESSAGE}\nBlocked command: "${cmd}"` }],
-            details: undefined,
-          };
-        }
+      const reason = GIT_HARD_DENY.isForbidden(cmd);
+      if (reason !== null) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: `[GIT GUARD] Blocked: forbidden git operation (${reason}).\n${GIT_HARD_DENY.summary}`,
+            },
+          ],
+          details: undefined,
+        };
       }
       return originalExecute(toolCallId, params, signal, onUpdate);
     },

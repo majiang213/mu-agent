@@ -510,7 +510,7 @@ export async function runStep(
   const allowedTools = cfg.stateMachine
     .getAllowedTools()
     .filter((t) => t.name !== 'complete')
-    .map((t) => (step.state === State.GIT && t.name === 'bash' ? wrapWithGitGuard(t) : t));
+    .map((t) => (t.name === 'bash' ? wrapWithGitGuard(t) : t));
   const READ_ONLY_STATES = new Set([State.RESEARCH, State.REVIEW, State.DIAGNOSE, State.REFACTOR_PLAN]);
   const stagnationDetector = new StagnationDetector({
     checkNoProgress: !READ_ONLY_STATES.has(step.state),
