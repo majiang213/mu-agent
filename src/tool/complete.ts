@@ -37,6 +37,26 @@ function validateCompleteArgs(state: State, args: Record<string, unknown>): stri
       if (!Array.isArray(args['steps']) || (args['steps'] as unknown[]).length === 0)
         return 'steps must be a non-empty array. Inspect the codebase first, then plan at least one step.';
       break;
+    case State.GIT: {
+      const op = args['operation'];
+      const validOps = [
+        'status',
+        'commit',
+        'branch',
+        'stash',
+        'cherry-pick',
+        'revert',
+        'merge',
+        'push',
+        'log',
+        'diff',
+        'other',
+      ];
+      if (typeof op !== 'string' || !validOps.includes(op)) return `operation must be one of: ${validOps.join(', ')}.`;
+      if (!args['result'] || typeof args['result'] !== 'string' || !(args['result'] as string).trim())
+        return 'result must be a non-empty string (the actual git command output).';
+      break;
+    }
   }
   return null;
 }

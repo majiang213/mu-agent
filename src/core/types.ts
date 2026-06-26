@@ -35,6 +35,7 @@ export enum State {
   SETUP = 'SETUP',
   WRITE = 'WRITE',
   PLAN = 'PLAN',
+  GIT = 'GIT',
 }
 
 export interface SubplanSpec {

@@ -33,12 +33,25 @@ Choose the MINIMUM steps needed based on the task description alone:
 - Generate or update AGENTS.md documentation file → [SETUP]
   (NEVER use SETUP for running tests, diagnosing bugs, or fixing code — use DIAGNOSE for that)
 - Steps cannot be determined without runtime inspection (commit split, fix-all-tests, refactor scope) → [{subplan:{analyzerState:"PLAN", focus:"<inspect X, plan Y>"}}]
+- View git status / history / diff / blame → [GIT]
+- Commit changes (no code fix needed, split known) → [GIT]
+- Create / switch / delete a branch → [GIT]
+- Stash changes or restore from stash → [GIT]
+- Push branch to remote (non-default) → [GIT]
+- Cherry-pick a specific commit → [GIT]
+- Revert a commit (creates revert commit, safe) → [GIT]
+- Merge a branch → [GIT]
+- Fix code then commit (split known) → [..., MODIFY, VERIFY, GIT]
+- Fix code, commit, and push (split known) → [..., MODIFY, VERIFY, GIT]
+- Create file then commit → [RESEARCH, WRITE, GIT]
 
 RULES:
 - NEVER go straight to MODIFY without LOCATE unless the exact file and change are given in the task.
 - "Check", "inspect", "look for problems", "review" → start with RESEARCH or REVIEW, not MODIFY.
 - MODIFY focus must describe the code change, NOT a diagnostic task.
 - Use subplan ONLY when step count/targets are unknown until runtime. Its focus must say what to inspect AND what plan to produce.
+- GIT focus must include the specific operation AND key argument (commit message, branch name, stash message, SHA to cherry-pick).
+- "Is there uncommitted work?" → steps=[] (ANSWER handles directly, no GIT needed).
 
 Each step needs a "focus" describing exactly what to do. Maximum 6 steps.
 
@@ -64,6 +77,12 @@ Examples:
 - Accept failure (cannot fix): complete(steps=[], needsClarify=false)
 - Multiple independent files to modify: complete(steps=[{state:"LOCATE",focus:"find all files to change"},{parallel:[{state:"MODIFY",focus:"fix divide() in calc.js"},{state:"MODIFY",focus:"fix DELETE route in server.js"}]},{state:"VERIFY",focus:"run npm test"}], needsClarify=false)
 - Commit (split unknown): complete(steps=[{subplan:{analyzerState:"PLAN",focus:"analyze git changes, plan atomic commits by logical concern"}}], needsClarify=false)
+- Check git:   complete(steps=[{state:"GIT", focus:"run git status and git log --oneline -10"}], needsClarify=false)
+- Commit:      complete(steps=[{state:"GIT", focus:"stage all and commit: 'feat: add WRITE state'"}], needsClarify=false)
+- Branch:      complete(steps=[{state:"GIT", focus:"create branch feature/auth and switch to it"}], needsClarify=false)
+- Push:        complete(steps=[{state:"GIT", focus:"push current branch to origin (not main)"}], needsClarify=false)
+- Merge:       complete(steps=[{state:"GIT", focus:"merge branch feature/auth into current branch"}], needsClarify=false)
+- Fix+commit:  complete(steps=[{state:"LOCATE",focus:"find the bug"},{state:"MODIFY",focus:"fix it"},{state:"VERIFY",focus:"run tests"},{state:"GIT",focus:"commit: 'fix: divide by zero'"}], needsClarify=false)
 - Fix all failing tests: complete(steps=[{subplan:{analyzerState:"PLAN",focus:"run all tests, identify failures, plan a MODIFY step per failure"}}], needsClarify=false)
 - Fix code then commit: complete(steps=[{state:"LOCATE",focus:"find the bug"},{state:"MODIFY",focus:"fix it"},{state:"VERIFY",focus:"run tests"},{subplan:{analyzerState:"PLAN",focus:"analyze changed files, plan atomic commits"}}], needsClarify=false)`,
     completeSchema: Type.Object({
@@ -583,5 +602,73 @@ When done, call complete(steps=[...], rationale="<why this grouping>").`,
       rationale: Type.String({ description: 'Why this grouping and ordering' }),
     }),
     contextNeeds: [State.RESEARCH, State.MODIFY, State.DIAGNOSE, State.WRITE, State.VERIFY],
+  },
+
+  [State.GIT]: {
+    allowedTools: ['bash', 'read', 'complete'],
+    instruction: `Execute git operations. ONLY run git commands via bash. No other shell commands.
+
+ALLOWED operations:
+  Read: status, log, diff, diff --staged, show, blame, branch -a, stash list, remote -v
+  Write: add, commit, branch, checkout, switch, stash push/pop/apply, tag, fetch,
+         cherry-pick, revert, merge, push (to non-default branches ONLY)
+
+FORBIDDEN (system will block these before execution):
+  push --force / -f / --force-with-lease
+  push to main / master / HEAD
+  reset --hard
+  rebase
+  clean -f / -fd
+  stash drop / stash clear
+  branch -D
+  commit --no-verify
+
+RULES:
+1. Run git status first.
+2. Before commit: git diff --staged to verify staged content.
+3. Commit messages: semantic style (feat/fix/docs/refactor/test/chore).
+4. If git merge produces conflicts → complete(operation="merge", conflicts=[...]) IMMEDIATELY.
+   Do NOT try to resolve conflicts here. REASON will re-plan.
+5. Push ONLY to non-default branches. Never push to main/master.
+
+<example>
+focus: stage all changes and commit: 'fix: divide by zero'
+assistant: [bash("git status")] → calc.js modified
+  [bash("git add calc.js")]
+  [bash("git diff --staged")] → confirms the guard change
+  [bash("git commit -m 'fix: divide by zero'")] → [main abc1234]
+complete(operation="commit", result="[main abc1234] fix: divide by zero\\n 1 file changed", commitSha="abc1234", filesAffected=["calc.js"])
+</example>
+
+<example>
+focus: merge branch feature/auth
+assistant: [bash("git status")] → clean
+  [bash("git merge feature/auth")] → CONFLICT in src/auth.ts
+complete(operation="merge", result="CONFLICT (content): Merge conflict in src/auth.ts", conflicts=["src/auth.ts"])
+</example>
+
+When done, call complete(operation="...", result="actual git output").`,
+    reminderFields: 'operation (string), result (string)',
+    completeSchema: Type.Object({
+      operation: Type.Union([
+        Type.Literal('status'),
+        Type.Literal('commit'),
+        Type.Literal('branch'),
+        Type.Literal('stash'),
+        Type.Literal('cherry-pick'),
+        Type.Literal('revert'),
+        Type.Literal('merge'),
+        Type.Literal('push'),
+        Type.Literal('log'),
+        Type.Literal('diff'),
+        Type.Literal('other'),
+      ]),
+      result: Type.String({ description: 'Actual git command output' }),
+      branch: Type.Optional(Type.String()),
+      commitSha: Type.Optional(Type.String()),
+      filesAffected: Type.Optional(Type.Array(Type.String())),
+      conflicts: Type.Optional(Type.Array(Type.String({ description: 'Conflicted file paths on merge failure' }))),
+    }),
+    contextNeeds: [State.MODIFY, State.RESEARCH, State.WRITE],
   },
 };
