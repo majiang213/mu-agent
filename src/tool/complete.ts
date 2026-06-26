@@ -1,7 +1,7 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../core/types.js';
-import { STATE_REGISTRY } from '../core/state-registry.js';
+import { STATE_REGISTRY, GIT_OPERATIONS } from '../core/state-registry.js';
 
 function validateCompleteArgs(state: State, args: Record<string, unknown>): string | null {
   switch (state) {
@@ -39,19 +39,7 @@ function validateCompleteArgs(state: State, args: Record<string, unknown>): stri
       break;
     case State.GIT: {
       const op = args['operation'];
-      const validOps = [
-        'status',
-        'commit',
-        'branch',
-        'stash',
-        'cherry-pick',
-        'revert',
-        'merge',
-        'push',
-        'log',
-        'diff',
-        'other',
-      ];
+      const validOps = GIT_OPERATIONS as readonly string[];
       if (typeof op !== 'string' || !validOps.includes(op)) return `operation must be one of: ${validOps.join(', ')}.`;
       if (!args['result'] || typeof args['result'] !== 'string' || !(args['result'] as string).trim())
         return 'result must be a non-empty string (the actual git command output).';

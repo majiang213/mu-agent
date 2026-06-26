@@ -1,6 +1,25 @@
 import { Type } from '@sinclair/typebox';
 import { State } from './types.js';
 
+/**
+ * The single source of truth for valid GIT complete() `operation` values.
+ * Shared by the TypeBox schema (below) and complete.ts validation so the two
+ * can never drift (Gap 83-F4).
+ */
+export const GIT_OPERATIONS = [
+  'status',
+  'commit',
+  'branch',
+  'stash',
+  'cherry-pick',
+  'revert',
+  'merge',
+  'push',
+  'log',
+  'diff',
+  'other',
+] as const;
+
 export interface StateDefinition {
   allowedTools: string[];
   instruction: string;
@@ -652,19 +671,7 @@ complete(operation="merge", result="CONFLICT in src/auth.ts; merge aborted", con
 When done, call complete(operation="...", result="actual git output").`,
     reminderFields: 'operation (string), result (string)',
     completeSchema: Type.Object({
-      operation: Type.Union([
-        Type.Literal('status'),
-        Type.Literal('commit'),
-        Type.Literal('branch'),
-        Type.Literal('stash'),
-        Type.Literal('cherry-pick'),
-        Type.Literal('revert'),
-        Type.Literal('merge'),
-        Type.Literal('push'),
-        Type.Literal('log'),
-        Type.Literal('diff'),
-        Type.Literal('other'),
-      ]),
+      operation: Type.Union(GIT_OPERATIONS.map((op) => Type.Literal(op))),
       result: Type.String({ description: 'Actual git command output' }),
       branch: Type.Optional(Type.String()),
       commitSha: Type.Optional(Type.String()),

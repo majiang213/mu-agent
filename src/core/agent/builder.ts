@@ -339,6 +339,9 @@ export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
             },
           ],
           details: undefined,
+          // F1: terminate the turn so the model cannot iterate obfuscated
+          // variants against the guard within the same step.
+          terminate: true,
         };
       }
       return originalExecute(toolCallId, params, signal, onUpdate);
