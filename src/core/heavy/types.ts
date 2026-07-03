@@ -12,5 +12,4 @@ export interface DeliberationResult {
 }
 
 export type DeliberateOutcome =
-  | { type: 'selected'; result: DeliberationResult }
-  | { type: 'needs_clarification'; question: string };
+  { type: 'selected'; result: DeliberationResult } | { type: 'needs_clarification'; question: string };

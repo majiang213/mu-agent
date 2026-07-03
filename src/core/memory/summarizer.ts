@@ -50,8 +50,7 @@ export async function processPendingSummaries(
   projectRoot: string,
 ): Promise<void> {
   const lastRun = db.prepare(`SELECT value FROM meta WHERE key = 'last_summary_at'`).get() as
-    | { value: string }
-    | undefined;
+    { value: string } | undefined;
   if (lastRun) {
     const elapsed = Math.floor(Date.now() / 1000) - parseInt(lastRun.value, 10);
     if (elapsed < 60) return;
@@ -90,8 +89,7 @@ export async function processPendingSummaries(
         ).run(summary.description, JSON.stringify(summary.keywords), row.episode_id);
 
         const ep = db.prepare(`SELECT rowid, user_input FROM episodes WHERE id = ?`).get(row.episode_id) as
-          | { rowid: number; user_input: string }
-          | undefined;
+          { rowid: number; user_input: string } | undefined;
         if (ep) {
           const newContent = [
             ep.user_input,

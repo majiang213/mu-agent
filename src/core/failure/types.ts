@@ -3,12 +3,7 @@
  */
 
 /** Failure types */
-export type FailureType =
-  | 'tool_execution'
-  | 'llm_error'
-  | 'timeout'
-  | 'validation'
-  | 'unknown';
+export type FailureType = 'tool_execution' | 'llm_error' | 'timeout' | 'validation' | 'unknown';
 
 /** Recovery level */
 export type RecoveryLevel = 1 | 2 | 3 | 4;

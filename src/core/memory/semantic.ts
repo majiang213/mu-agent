@@ -66,8 +66,7 @@ export function updateSemanticFacts(db: Database.Database, episode: EpisodeRecor
 
 export function decaySemanticFacts(db: Database.Database, projectRoot: string): void {
   const lastDecay = db.prepare(`SELECT value FROM meta WHERE key = 'last_decay_at'`).get() as
-    | { value: string }
-    | undefined;
+    { value: string } | undefined;
 
   if (lastDecay) {
     const elapsed = Math.floor(Date.now() / 1000) - parseInt(lastDecay.value, 10);

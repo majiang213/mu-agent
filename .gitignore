@@ -3,6 +3,7 @@ dist/
 .local-agent/
 .sisyphus/
 .test-safety/
+**/.pytest_cache/
 
 # Personal study notes — do not publish
 docs/学习指南.md

@@ -96,8 +96,7 @@ export class GraphBuilder {
     try {
       const db = getDb(this.projectRoot);
       const meta = db.prepare('SELECT last_commit FROM graph_meta WHERE project_root=?').get(this.projectRoot) as
-        | { last_commit: string }
-        | undefined;
+        { last_commit: string } | undefined;
       db.close();
       if (!meta) return true;
       const currentCommit = this.getCurrentCommit();

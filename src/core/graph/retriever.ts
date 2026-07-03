@@ -44,8 +44,7 @@ export class GraphRetriever {
     try {
       const db = this.getDb();
       const meta = db.prepare('SELECT node_count FROM graph_meta WHERE project_root=?').get(this.projectRoot) as
-        | { node_count: number }
-        | undefined;
+        { node_count: number } | undefined;
       return (meta?.node_count ?? 0) > 0;
     } catch {
       return false;
