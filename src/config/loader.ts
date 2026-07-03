@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Config } from './types.js';
-import { mergeWithDefaults } from './defaults.js';
+import { mergeWithDefaults, VALID_LOG_LEVELS } from './defaults.js';
 
 const GLOBAL_CONFIG_PATH = join(homedir(), '.config', 'mu-agent', 'config.json');
 const PROJECT_CONFIG_PATH = join('.mu-agent', 'config.json');
@@ -39,6 +39,9 @@ function validateConfig(cfg: Config, source: string): void {
   }
   if (!['ollama', 'custom', 'unsloth'].includes(model.provider)) {
     throw new Error(`${source}: model.provider must be one of: ollama, custom, unsloth`);
+  }
+  if (cfg.logLevel !== undefined && !VALID_LOG_LEVELS.includes(cfg.logLevel)) {
+    throw new Error(`${source}: logLevel must be one of: ${VALID_LOG_LEVELS.join(', ')} (got "${cfg.logLevel}")`);
   }
 }
 

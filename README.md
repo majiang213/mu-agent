@@ -43,6 +43,17 @@ small model.**
 npm install -g @majiang213/mu-agent
 ```
 
+> The npm package may not yet be published. If `npm install` 404s, install from
+> source:
+>
+> ```bash
+> git clone https://github.com/majiang213/mu-agent.git
+> cd mu-agent
+> pnpm install
+> pnpm build
+> npm link   # makes `mu-agent` available globally
+> ```
+
 ### Initialize
 
 ```bash
@@ -67,8 +78,9 @@ mu-agent tui -c
 |-----|--------|
 | `Enter` | Run task |
 | `Esc` | Interrupt current run |
-| `Tab` | Expand/collapse thinking |
-| `d` | Toggle debug mode |
+| `Ctrl+T` | Expand/collapse thinking blocks |
+| `Ctrl+O` | Expand/collapse tool blocks |
+| `Ctrl+D` | Toggle debug mode |
 | `Ctrl+C` | Quit |
 
 **CLI one-shot**

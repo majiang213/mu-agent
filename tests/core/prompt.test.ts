@@ -184,10 +184,14 @@ describe('buildSystemPrompt', () => {
       expect(p).toContain('edited');
     });
 
-    it('path audit instructs to skip tests on mismatch', () => {
+    // After 16271ef ("rewrite VERIFY instruction with correct prompt engineering"),
+    // the path-audit mismatch wording changed from "wrong location: ... — skip tests"
+    // to the shorter "wrong file edited". Both phrases describe the same
+    // complete(passed=false)-on-mismatch behavior; assert the current wording.
+    it('path audit instructs to fail on mismatch (skip running tests)', () => {
       const p = prompt(State.VERIFY);
-      expect(p).toContain('wrong location');
-      expect(p).toContain('skip tests');
+      expect(p).toContain('wrong file edited');
+      expect(p).toContain('passed=false');
     });
   });
 
@@ -624,9 +628,14 @@ describe('VERIFY state — no misleading type-skip instruction', () => {
     expect(p.toLowerCase()).not.toContain('do not re-check');
   });
 
-  it('says to check for build/typecheck command', () => {
+  // After 16271ef the VERIFY instruction was rewritten to a minimal "run test,
+  // call complete()" protocol and dropped the explicit "if the project has a
+  // build/typecheck command, run it" sentence. The instruction still surfaces
+  // typecheck/build tooling via its bash examples (e.g. "npx tsc --noEmit"),
+  // so assert that tooling example remains rather than the retired sentence.
+  it('mentions typecheck/build tooling in bash examples', () => {
     const p = prompt(State.VERIFY);
-    expect(p.toLowerCase()).toContain('build');
+    expect(p.toLowerCase()).toContain('tsc');
   });
 
   it('contains example block', () => {

@@ -38,9 +38,14 @@ export interface HeavyThinkingConfig {
   deliberationModel?: string;
 }
 
+/** Valid logging verbosity levels for the agent runtime. */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
+
 export interface Config {
   $schema?: string;
   model: ModelConfig;
   safety?: SafetyConfig;
   heavyThinking?: HeavyThinkingConfig;
+  /** Logging verbosity, default 'info'. */
+  logLevel?: LogLevel;
 }

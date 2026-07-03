@@ -37,6 +37,16 @@
 npm install -g @majiang213/mu-agent
 ```
 
+> npm 包可能尚未发布。若 `npm install` 报 404，从源码安装：
+>
+> ```bash
+> git clone https://github.com/majiang213/mu-agent.git
+> cd mu-agent
+> pnpm install
+> pnpm build
+> npm link   # 全局可用 mu-agent 命令
+> ```
+
 ### 初始化
 
 ```bash
@@ -60,8 +70,9 @@ mu-agent tui -c
 |--------|------|
 | `Enter` | 执行任务 |
 | `Esc` | 中断当前执行 |
-| `Tab` | 展开/折叠思考过程 |
-| `d` | 切换调试模式 |
+| `Ctrl+T` | 展开/折叠思考块 |
+| `Ctrl+O` | 展开/折叠工具块 |
+| `Ctrl+D` | 切换调试模式 |
 | `Ctrl+C` | 退出 |
 
 **CLI 单次执行**
