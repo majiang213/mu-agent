@@ -266,17 +266,18 @@ src/
 │   ├── websearch.ts
 │   └── safety/               # Checkpoint、行数限制、语法检查
 └── tui/
-    ├── app.ts                # 主 TUI（14 states、ESC 中断、调试模式、会话持久化）
+    ├── app.ts                # 主 TUI（16 states、ESC 中断、调试模式、会话持久化）
     ├── metrics.ts            # MetricsCollector（token/耗时统计）
     ├── setup.ts              # 交互式初始化向导（4步）
-    └── theme.ts              # 颜色主题（14个状态各自颜色）
+    └── theme.ts              # 颜色主题（16个状态各自颜色）
 ```
 
 ## 开发
 
 ```bash
-npx vitest run        # 运行所有测试
-npx tsc --noEmit      # 类型检查
+pnpm test            # 运行所有测试（vitest）
+pnpm build           # 编译 TypeScript（tsc）
+# 仅类型检查（不产出）：npx tsc --noEmit
 ```
 
 真实 Ollama 集成测试（需要 Ollama 运行且模型已加载）：

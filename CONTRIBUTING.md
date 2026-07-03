@@ -13,9 +13,10 @@ Requirements: Node.js 20+, pnpm 9+, and (for e2e tests) a running
 git clone https://github.com/majiang213/mu-agent.git
 cd mu-agent
 pnpm install
-pnpm build        # tsc --noEmit equivalent via build script
+pnpm build        # compile TypeScript to dist/ (tsc)
 pnpm test         # vitest (excludes e2e by default in CI)
 pnpm lint
+# type-check only (no emit): npx tsc --noEmit
 ```
 
 ## Workflow
