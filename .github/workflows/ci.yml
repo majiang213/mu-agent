@@ -14,8 +14,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -36,5 +34,5 @@ jobs:
         run: pnpm format:check
 
       - name: Test
-        # e2e tests require a running Ollama instance; exclude them in CI.
-        run: pnpm test -- --exclude tests/e2e
+        # e2e tests require a running Ollama instance; excluded via vitest.config.ts.
+        run: pnpm test

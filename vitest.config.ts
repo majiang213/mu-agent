@@ -8,6 +8,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       'tests/fixtures/**',
+      'tests/e2e/**',
     ],
   },
   resolve: {
