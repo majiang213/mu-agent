@@ -25,7 +25,8 @@ export default [
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-floating-promises': 'error',
-      'no-console': 'warn',
+      // CLI tool: console is the legitimate logging/stdout channel.
+      'no-console': 'off',
     },
   },
   {
