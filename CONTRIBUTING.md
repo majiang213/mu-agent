@@ -7,7 +7,7 @@ deterministic, state-machine-driven pipeline.
 ## Development Setup
 
 Requirements: Node.js 20+, pnpm 9+, and (for e2e tests) a running
-[Ollama](https://ollama.ai) instance.
+[Ollama](https://ollama.com) instance.
 
 ```bash
 git clone https://github.com/majiang213/mu-agent.git

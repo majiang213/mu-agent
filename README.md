@@ -34,7 +34,7 @@ small model.**
 ### Requirements
 
 - Node.js 20+
-- [Ollama](https://ollama.ai), [Unsloth Studio](https://unsloth.ai) (local model
+- [Ollama](https://ollama.com), [Unsloth Studio](https://unsloth.ai) (local model
   runtimes), or an OpenAI-compatible API
 
 ### Install
