@@ -149,7 +149,7 @@ describe('stepDone graphOk logic', () => {
       (wizard as unknown as { stepDone: () => void }).stepDone();
 
       const combined = textContents.join('');
-      expect(combined).toContain('代码图未构建');
+      expect(combined).toContain('Code graph not built');
     } finally {
       process.cwd = origCwd;
       rmSync(dir, { recursive: true });
@@ -180,7 +180,7 @@ describe('stepDone graphOk logic', () => {
       (wizard as unknown as { stepDone: () => void }).stepDone();
 
       const combined = textContents.join('');
-      expect(combined).toContain('代码图已构建');
+      expect(combined).toContain('Code graph built');
     } finally {
       process.cwd = origCwd;
       rmSync(dir, { recursive: true });
@@ -211,7 +211,7 @@ describe('stepDone graphOk logic', () => {
       (wizard as unknown as { stepDone: () => void }).stepDone();
 
       const combined = textContents.join('');
-      expect(combined).toContain('代码图已构建');
+      expect(combined).toContain('Code graph built');
     } finally {
       process.cwd = origCwd;
       rmSync(dir, { recursive: true });

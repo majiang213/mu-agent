@@ -36,21 +36,21 @@ class HintLine implements Component {
   }
   invalidate(): void {}
   render(width: number): string[] {
-    const debugLabel = this.debugMode ? C.ok(' [调试开]') : C.dim(' 调试');
+    const debugLabel = this.debugMode ? C.ok(' [debug on]') : C.dim(' debug');
     const line =
       '  ' +
       C.hintKey('Ctrl+C') +
-      C.dim(' 退出') +
-      '   ' +
+      C.dim(' quit') +
+      '  ' +
       C.hintKey('Esc') +
-      C.dim(' 中断') +
-      '   ' +
+      C.dim(' interrupt') +
+      '  ' +
       C.hintKey('Ctrl+T') +
-      C.dim(' 思考') +
-      '   ' +
+      C.dim(' thinking') +
+      '  ' +
       C.hintKey('Ctrl+O') +
-      C.dim(' 工具') +
-      '   ' +
+      C.dim(' tools') +
+      '  ' +
       C.hintKey('Ctrl+D') +
       debugLabel;
     return [truncateToWidth(line, width)];
@@ -256,7 +256,7 @@ class DebugBlock implements Component {
   render(width: number): string[] {
     if (!this.visible) return [];
     const arrow = this.expanded ? '▾' : '▸';
-    const header = '  ' + C.dimItalic(arrow + ' 调试: 原始输入');
+    const header = '  ' + C.dimItalic(arrow + ' debug: raw input');
     if (!this.expanded) return [header];
 
     const lines: string[] = [header];
@@ -570,7 +570,7 @@ class SampleTurn implements Component {
 
   render(width: number): string[] {
     const branch = this.isLast() ? '└' : '├';
-    const label = C.dim(`  ${branch} 方案 ${this.index + 1}`);
+    const label = C.dim(`  ${branch} plan ${this.index + 1}`);
 
     let status: string;
     if (this.failed) {
@@ -587,7 +587,7 @@ class SampleTurn implements Component {
                 return d.state;
               })
               .join(' → ')
-          : '直接回答';
+          : 'direct answer';
       status = C.ok('✓') + C.dim('  ' + chain);
     } else {
       status = C.dim('?');
@@ -751,11 +751,11 @@ export class TuiApp {
 
     for (const s of getLspStatuses(process.cwd())) {
       if (s.lspStatus === 'not_installed') {
-        this.insertBefore(new Text(C.err(`  ✗ LSP: ${s.lspServer} 未安装（运行 mu-agent setup 安装）`), 0, 0));
+        this.insertBefore(new Text(C.err(`  ✗ LSP: ${s.lspServer} not installed (run mu-agent setup)`), 0, 0));
       }
     }
 
-    this.insertBefore(new Text(C.dim('  准备就绪，输入任务后按 Enter 执行'), 0, 0));
+    this.insertBefore(new Text(C.dim('  Ready — type a task and press Enter'), 0, 0));
     this.tui.requestRender();
   }
 
@@ -867,7 +867,7 @@ export class TuiApp {
         void event;
       } else if (event.type === 'clarification_needed') {
         const questions = event.questions.map((q, i) => `  ${i + 1}. ${q}`).join('\n');
-        this.insertBefore(new Text(C.dim('  需要确认以下信息：\n') + questions, 0, 0));
+        this.insertBefore(new Text(C.dim('  Please confirm:\n') + questions, 0, 0));
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       } else if (event.type === 'deliberation_start') {
@@ -891,12 +891,12 @@ export class TuiApp {
       } else if (event.type === 'deliberation_refinement') {
         const label =
           event.verdict === 'converged'
-            ? '收敛'
+            ? 'converged'
             : event.verdict === 'BETTER'
-              ? '更优'
+              ? 'better'
               : event.verdict === 'SAME'
-                ? '相同'
-                : '较差';
+                ? 'same'
+                : 'worse';
         this.currentSamplingBlock?.addLine(`  ↻ Refinement ${event.round}: ${label}`);
       } else if (event.type === 'deliberation_complete') {
         void event;
@@ -907,13 +907,13 @@ export class TuiApp {
         this.pendingClarificationAgent = this.currentAgent;
         this.editor.disableSubmit = false;
       } else if (event.type === 'parallel_start') {
-        this.header.setState(`⇉ 并行 ${event.stepCount} 步`, undefined, undefined);
+        this.header.setState(`⇉ parallel ${event.stepCount} steps`, undefined, undefined);
       } else if (event.type === 'parallel_complete') {
         void event;
       } else if (event.type === 'sampling_expand') {
-        this.currentSamplingBlock?.addLine(`  ↻ 第${event.round}轮分歧，扩展采样`);
+        this.currentSamplingBlock?.addLine(`  ↻ round ${event.round} divergence, expanding sampling`);
       } else if (event.type === 'subplan_start') {
-        this.header.setState(`◎ ${event.analyzerState}（两级规划）`, undefined, undefined);
+        this.header.setState(`◎ ${event.analyzerState} (two-level planning)`, undefined, undefined);
       } else if (event.type === 'subplan_complete') {
         void event;
       } else if (event.type === 'plan_parse_error') {
@@ -922,12 +922,12 @@ export class TuiApp {
         this.insertBefore(errBlock);
       } else if (event.type === 'sampling_stopped') {
         const labels: Record<typeof event.reason, string> = {
-          converged: '收敛',
-          max_count: '达到上限',
-          max_rounds: '达到最大轮数',
-          no_new_info: '无新信息',
+          converged: 'converged',
+          max_count: 'max count reached',
+          max_rounds: 'max rounds reached',
+          no_new_info: 'no new info',
         };
-        this.currentSamplingBlock?.addLine(`  ✓ 采样完成（${labels[event.reason]}）`);
+        this.currentSamplingBlock?.addLine(`  ✓ sampling done (${labels[event.reason]})`);
       }
 
       this.tui.requestRender();
@@ -967,7 +967,7 @@ export class TuiApp {
       this.tui,
       (s) => stateColor(this.loaderState)(s),
       (s) => C.dim(s),
-      '执行中...',
+      'running...',
     );
     this.insertBefore(loader);
     loader.start();
@@ -1011,8 +1011,8 @@ export class TuiApp {
             display = text;
           } else if (Array.isArray(parsed['edited'])) {
             const files = (parsed['edited'] as string[]).join(', ');
-            const lines = typeof parsed['linesChanged'] === 'number' ? `，${parsed['linesChanged']} 行` : '';
-            display = `已修改：${files}${lines}`;
+            const lines = typeof parsed['linesChanged'] === 'number' ? `, ${parsed['linesChanged']} lines` : '';
+            display = `Edited: ${files}${lines}`;
           } else if (Array.isArray(parsed['locations'])) {
             const locs = parsed['locations'] as Array<{ file: string; startLine?: number }>;
             display = locs.map((l) => `${l.file}${l.startLine ? `:${l.startLine}` : ''}`).join(', ');
@@ -1077,11 +1077,11 @@ export class TuiApp {
       if (isAbort) {
         aborted = true;
         this.metrics.finishTask(taskId, false);
-        this.insertBefore(new Text(C.dim('  ⊘  已中断'), 0, 0));
+        this.insertBefore(new Text(C.dim('  ⊘  interrupted'), 0, 0));
       } else {
         threw = true;
         this.metrics.finishTask(taskId, false);
-        this.insertBefore(new Text(C.err(`  ✗  错误: ${String(err)}`), 0, 0));
+        this.insertBefore(new Text(C.err(`  ✗  error: ${String(err)}`), 0, 0));
       }
     } finally {
       this.currentAgent = null;
@@ -1093,10 +1093,14 @@ export class TuiApp {
       const llmCalls = m.llmCalls;
       if (m.success) {
         this.insertBefore(
-          new Text('\n' + C.successText('  ✓  完成') + C.dim(`  成功率 100%  llm×${llmCalls}  tokens≈${tokens}`), 0, 0),
+          new Text(
+            '\n' + C.successText('  ✓  done') + C.dim(`  100% success  llm×${llmCalls}  tokens≈${tokens}`),
+            0,
+            0,
+          ),
         );
       } else if (!aborted && !threw) {
-        this.insertBefore(new Text('\n' + C.err('  ✗  失败') + C.dim(`  llm×${llmCalls}  tokens≈${tokens}`), 0, 0));
+        this.insertBefore(new Text('\n' + C.err('  ✗  failed') + C.dim(`  llm×${llmCalls}  tokens≈${tokens}`), 0, 0));
       }
     }
     this.header.setState('IDLE');

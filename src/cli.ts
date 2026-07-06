@@ -108,7 +108,7 @@ async function pickSession(): Promise<SessionStore | null> {
   }));
 
   return new Promise((resolve, reject) => {
-    const header = new Text('\x1b[2m  选择要继续的会话  ↑↓ 选择  Enter 确认  Esc 取消\x1b[0m', 0, 0);
+    const header = new Text('\x1b[2m  Select a session to resume  ↑↓ navigate  Enter confirm  Esc cancel\x1b[0m', 0, 0);
     tui.addChild(header);
 
     const list = new SelectList(items, 10, selectTheme);

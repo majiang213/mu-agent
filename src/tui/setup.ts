@@ -72,12 +72,12 @@ export class SetupWizard {
     if (this.headerComp) {
       this.tui.removeChild(this.headerComp);
     }
-    this.headerComp = new Text(C.dim(`  mu-agent setup`) + '  ' + C.dim(`步骤 ${this.step}/${this.totalSteps}`), 0, 0);
+    this.headerComp = new Text(C.dim(`  mu-agent setup`) + '  ' + C.dim(`Step ${this.step}/${this.totalSteps}`), 0, 0);
     this.tui.addChild(this.headerComp);
     this.tui.requestRender();
   }
 
-  // ─── Step 1: 模型配置 ──────────────────────────────────────────────────────
+  // ─── Step 1: Model config ──────────────────────────────────────────────────
 
   private async loadExistingModel(): Promise<Partial<Config['model']>> {
     const paths = [
@@ -103,7 +103,7 @@ export class SetupWizard {
 
     const existing = await this.loadExistingModel();
 
-    this.addStepText('\n  ' + C.ok('模型配置'));
+    this.addStepText('\n  ' + C.ok('Model config'));
     this.addStepText('\n  Provider');
 
     let provider: string = existing.provider ?? 'ollama';
@@ -126,7 +126,7 @@ export class SetupWizard {
     let modelSize: number | undefined;
     if (provider === 'custom' || provider === 'unsloth') {
       this.addStepText(
-        `\n  模型大小（单位：B，如 7 表示 7B，影响 Heavy Thinking 和约束强度）\n  留空跳过（默认视为大模型）:\n  模型大小:`,
+        `\n  Model size (unit: B, e.g. 7 means 7B; affects Heavy Thinking and constraint strength)\n  Leave blank to skip (treated as large model):\n  Model size (B):`,
       );
       const raw = await this.waitForInput(existing.modelSize != null ? String(existing.modelSize) : '');
       const trimmed = raw.trim();
@@ -151,7 +151,7 @@ export class SetupWizard {
       this.tui,
       (s) => C.pending(s),
       (s) => C.dim(s),
-      '正在获取模型列表...',
+      'Fetching model list...',
     );
     this.tui.addChild(loader);
     loader.start();
@@ -168,7 +168,7 @@ export class SetupWizard {
     this.tui.removeChild(loader);
 
     if (models.length === 0) {
-      this.addStepText(`\n  ${C.dim('未能获取模型列表，请手动输入')}\n  模型名称:`);
+      this.addStepText(`\n  ${C.dim('Could not fetch model list, enter manually')}\n  Model name:`);
       return this.waitForInput(existingName ?? '');
     }
 
@@ -177,7 +177,7 @@ export class SetupWizard {
       label: m.name,
       description: `context: ${Intl.NumberFormat('en-US').format(m.contextLength)}`,
     }));
-    this.addStepText('\n  选择模型:');
+    this.addStepText('\n  Select model:');
     this.tui.requestRender();
 
     const defaultIdx = existingName ? items.findIndex((i) => i.value === existingName) : 0;
@@ -185,17 +185,17 @@ export class SetupWizard {
 
     if (selected) return selected.value;
 
-    this.addStepText(`\n  模型名称:`);
+    this.addStepText(`\n  Model name:`);
     return this.waitForInput(existingName ?? '');
   }
 
-  // ─── Step 2: LSP 诊断 ─────────────────────────────────────────────────────
+  // ─── Step 2: LSP diagnostics ───────────────────────────────────────────────
 
   private async stepLsp(): Promise<void> {
     this.step = 2;
     this.renderHeader();
 
-    this.addStepText('\n  ' + C.ok('LSP 诊断'));
+    this.addStepText('\n  ' + C.ok('LSP diagnostics'));
     this.tui.requestRender();
 
     const statuses = getLspStatuses(process.cwd());
@@ -206,41 +206,45 @@ export class SetupWizard {
     }
 
     const lines = statuses.map((s) => {
-      const langLabel = C.ok(s.lang.padEnd(12));
-      const serverLabel = C.dim((s.lspServer ?? '(无 LSP server)').padEnd(36));
+      const langLabel = C.ok(s.lang.padEnd(14));
+      const serverLabel = C.dim((s.lspServer ?? '(no LSP server)').padEnd(34));
       const statusPart =
         s.lspStatus === 'active'
-          ? C.ok('✓ 已安装')
+          ? C.ok('✓ installed')
           : s.lspStatus === 'not_installed'
-            ? C.err('✗ 未安装') + (s.lspInstallCmd ? `  安装: ${C.dim(s.lspInstallCmd)}` : '')
-            : C.dim('无 LSP');
+            ? C.err('✗ not installed') + (s.lspInstallCmd ? `  install: ${C.dim(s.lspInstallCmd)}` : '')
+            : C.dim('no LSP');
       return `\n  ${langLabel}  ${serverLabel}  ${statusPart}`;
     });
 
     this.addStepText(
-      '\n  检测到以下语言：' + lines.join('') + '\n\n  未安装的 language server 需手动安装，详见各 server 文档。',
+      '\n  Detected languages:' +
+        lines.join('') +
+        '\n\n  Uninstalled language servers need manual install; see each server docs.',
     );
     this.tui.requestRender();
     this.clearStep();
   }
 
-  // ─── Step 3: 代码图 ───────────────────────────────────────────────────────
+  // ─── Step 3: Code graph ────────────────────────────────────────────────────
 
   private async stepGraph(): Promise<void> {
     this.step = 3;
     this.renderHeader();
 
-    this.addStepText('\n  ' + C.ok('代码图'));
+    this.addStepText('\n  ' + C.ok('Code graph'));
 
     const dbPath = join(process.cwd(), '.mu-agent', 'graph.db');
     const dbExists = existsSync(dbPath);
-    const statusMsg = dbExists ? `\n  ${C.ok('✓')} 代码图已存在 (graph.db)` : `\n  ${C.dim('代码图尚未构建')}`;
-    this.addStepText(statusMsg + '\n\n  是否现在构建？');
+    const statusMsg = dbExists
+      ? `\n  ${C.ok('✓')} Code graph exists (graph.db)`
+      : `\n  ${C.dim('Code graph not built yet')}`;
+    this.addStepText(statusMsg + '\n\n  Build now?');
     this.tui.requestRender();
 
     const choice = await this.waitForSelect([
-      { value: 'yes', label: dbExists ? '是，重新构建' : '是，立即构建' },
-      { value: 'no', label: '否，跳过' },
+      { value: 'yes', label: dbExists ? 'Yes, rebuild' : 'Yes, build now' },
+      { value: 'no', label: 'No, skip' },
     ]);
 
     this.clearStep();
@@ -250,7 +254,7 @@ export class SetupWizard {
         this.tui,
         (s) => C.pending(s),
         (s) => C.dim(s),
-        '正在构建代码图...',
+        'Building code graph...',
       );
       this.tui.addChild(loader);
       loader.start();
@@ -269,13 +273,15 @@ export class SetupWizard {
       this.tui.removeChild(loader);
 
       this.graphBuilt = !buildError;
-      const resultText = buildError ? `\n  ${C.err(`✗ 构建失败: ${buildError}`)}` : `\n  ${C.ok('✓ 代码图已构建')}`;
+      const resultText = buildError
+        ? `\n  ${C.err(`✗ Build failed: ${buildError}`)}`
+        : `\n  ${C.ok('✓ Code graph built')}`;
       this.addStepText(resultText);
       this.tui.requestRender();
     }
   }
 
-  // ─── Step 4: 完成 ─────────────────────────────────────────────────────────
+  // ─── Step 4: Done ──────────────────────────────────────────────────────────
 
   private stepDone(): void {
     this.step = 4;
@@ -289,14 +295,14 @@ export class SetupWizard {
       statuses.length === 0
         ? ''
         : notInstalled.length === 0
-          ? `\n  ${C.ok('✓')} LSP 已就绪`
-          : notInstalled.map((s) => `\n  ${C.err('✗')} LSP: ${s.lspServer} 未安装`).join('');
+          ? `\n  ${C.ok('✓')} LSP ready`
+          : notInstalled.map((s) => `\n  ${C.err('✗')} LSP: ${s.lspServer} not installed`).join('');
 
     const graphOk = this.graphBuilt ?? existsSync(dbPath);
-    const graphLine = graphOk ? `\n  ${C.ok('✓')} 代码图已构建` : `\n  ${C.err('✗')} 代码图未构建`;
+    const graphLine = graphOk ? `\n  ${C.ok('✓')} Code graph built` : `\n  ${C.err('✗')} Code graph not built`;
 
     const done = new Text(
-      `\n  ${C.ok('设置完成！')}` + lspLine + graphLine + `\n\n  开始使用:\n  ${C.dim('mu-agent tui')}`,
+      `\n  ${C.ok('Setup complete!')}` + lspLine + graphLine + `\n\n  Get started:\n  ${C.dim('mu-agent tui')}`,
       0,
       0,
     );
