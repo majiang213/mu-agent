@@ -28,7 +28,7 @@
 
 ### 环境要求
 
-- Node.js 22+
+- Node.js 24+
 - [Ollama](https://ollama.com)、[Unsloth Studio](https://unsloth.ai)（本地模型运行时）或 OpenAI 兼容 API
 
 ### 安装

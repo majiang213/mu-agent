@@ -33,7 +33,7 @@ small model.**
 
 ### Requirements
 
-- Node.js 22+
+- Node.js 24+
 - [Ollama](https://ollama.com), [Unsloth Studio](https://unsloth.ai) (local model
   runtimes), or an OpenAI-compatible API
 
