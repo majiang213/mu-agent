@@ -24,6 +24,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build native modules (better-sqlite3)
+        # pnpm 10 skips dependency install scripts by default; onlyBuiltDependencies
+        # in package.json allows it, but rebuild explicitly to guarantee the
+        # .node binary exists (prebuild-install fetches a prebuilt binary).
+        run: pnpm rebuild better-sqlite3
+
       - name: Build (tsc)
         run: pnpm build
 
