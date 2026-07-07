@@ -24,9 +24,12 @@ packages/*/dist-firefox/
 .vscode/
 .zed/
 .idea/
-.claude/*
-!.claude/workflows/
-!.claude/PRPs/
+
+# Internal dev scaffolding — not for public release (kept locally only)
+.claude/
+AGENTS.md
+CLAUDE.md
+tests/fixtures/.local-agent-manual.md
 *.swp
 *.swo
 *~
