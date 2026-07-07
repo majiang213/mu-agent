@@ -6,7 +6,7 @@ deterministic, state-machine-driven pipeline.
 
 ## Development Setup
 
-Requirements: Node.js 20+, pnpm 10+, and (for e2e tests) a running
+Requirements: Node.js 22+, pnpm 10+, and (for e2e tests) a running
 [Ollama](https://ollama.com) instance.
 
 ```bash
