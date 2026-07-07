@@ -72,6 +72,9 @@ mu-agent tui
 
 # Resume the last session
 mu-agent tui -c
+
+# Interactively pick a past session
+mu-agent tui --resume
 ```
 
 | Key | Action |

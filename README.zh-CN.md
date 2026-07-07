@@ -64,6 +64,9 @@ mu-agent tui
 
 # 恢复上次会话
 mu-agent tui -c
+
+# 交互式选择历史会话
+mu-agent tui --resume
 ```
 
 | 快捷键 | 功能 |
@@ -266,10 +269,10 @@ src/
 │   ├── websearch.ts
 │   └── safety/               # Checkpoint、行数限制、语法检查
 └── tui/
-    ├── app.ts                # 主 TUI（16 states、ESC 中断、调试模式、会话持久化）
+    ├── app.ts                # 主 TUI（17 states、ESC 中断、调试模式、会话持久化）
     ├── metrics.ts            # MetricsCollector（token/耗时统计）
     ├── setup.ts              # 交互式初始化向导（4步）
-    └── theme.ts              # 颜色主题（16个状态各自颜色）
+    └── theme.ts              # 颜色主题（17个状态各自颜色）
 ```
 
 ## 开发
