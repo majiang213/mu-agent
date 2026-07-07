@@ -28,7 +28,12 @@ jobs:
         # pnpm 10 skips dependency install scripts by default; onlyBuiltDependencies
         # in package.json allows it, but rebuild explicitly to guarantee the
         # .node binary exists (prebuild-install fetches a prebuilt binary).
-        run: pnpm rebuild better-sqlite3
+        run: |
+          node --version
+          pnpm rebuild better-sqlite3
+          echo "--- verify .node binary exists ---"
+          find node_modules/.pnpm/better-sqlite3@* -name "better_sqlite3.node" -o -name "*.node" | head
+          ls -la node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3/build/Release/ 2>/dev/null || echo "NO build/Release dir"
 
       - name: Build (tsc)
         run: pnpm build
