@@ -23,9 +23,9 @@ pnpm lint
 
 1. **Open an issue first** for non-trivial changes — discuss the approach before
    writing code. This avoids wasted effort on misaligned directions.
-2. **Gap-driven development**: substantial work is tracked as numbered "Gaps" in
-   `.claude/PRPs/GAPS.md`. New work should be recorded there (design → confirm →
-   implement → test → doc-sync → commit).
+2. **Plan before code**: for substantial work, sketch the approach (design →
+   confirm → implement → test → doc-sync → commit) before writing code. This
+   avoids wasted effort on misaligned directions.
 3. **Tests required**: follow TDD where practical. Run `pnpm test` before
    requesting review. Do not delete or weaken failing tests — fix the code.
 4. **One concern per PR**: keep PRs focused. Split unrelated changes.
