@@ -8,17 +8,27 @@
 
 ---
 
-## 安全优先
+## 100% 本地 —— 你的代码绝不离开你的机器
 
-µagent 在你的机器上运行代码和 shell 命令，因此安全是核心设计约束，而非事后补丁。多层 harness 级边界，无法被 prompt 指令绕过：
+µagent **设计上完全本地**。它只与你自己配置的 LLM provider 通信 ——
+[Ollama](https://ollama.com)、Unsloth Studio 或你自己的 OpenAI 兼容端点。**不调用任何第三方
+API**，无硬编码云后端：
 
-- **完全本地，无遥测** — 只与你配置的本地 LLM provider（Ollama / Unsloth / OpenAI 兼容 base URL）通信。代码、prompt、文件内容不离开你的机器。无分析、无上报。
-- **按状态工具白名单** — 每个状态只暴露其需要的 2–4 个工具；`complete()` 是唯一退出信号，按状态 schema 校验。状态无法调用未授予的工具。
-- **SafeModifier 检查点** — 每次 `edit`/`write` 前创建检查点；若改动破坏语法/结构，post-check 自动回滚。项目根目录外的路径遍历被阻断。每任务文件数/行数限制约束影响范围。
-- **GIT 硬白名单（default-deny）** — `State.GIT` 的 bash 被 harness guard 包装，拒绝 shell 元字符（`&`/`;`/`|`/换行/`$`/backtick/`()`）和任何非 `git` 首 token，仅允许明确安全的 git 子命令。force-push、push 到 `main`/`master`/`HEAD`、`reset --hard`、`rebase`、`commit --amend`、`filter-branch`、`clean -f`、`stash drop`、`branch -D`、`commit --no-verify` 及所有未列入的子命令在**到达 shell 前**被阻断。完整模型见 [SECURITY.md](./SECURITY.md)。
-- **停滞 + 失败处理** — 检测重复/无进展工具循环并中止；VERIFY 失败触发有界重新规划，而非无限重试。
+- 不调用 OpenAI / Anthropic / Google API。无需 API Key。
+- 你的源码、prompt、文件内容只发送给**你自己的**本地模型 —— 绝不发送到你无法控制的远程服务器。
+- 无遥测、无分析、无上报。除指向本地 URL 的 LLM 客户端外，无任何网络代码。
 
-威胁模型与私密漏洞上报见 [SECURITY.md](./SECURITY.md)。
+这是核心隐私保证：一个读写你私有代码库的 coding agent，在结构上就无法外泄它。在专有、离线或气隔仓库上运行，与本地脚本同等可信。
+
+### 额外的 harness 级护栏
+
+除纯本地网络外，agent 还有无法被 prompt 指令绕过的硬边界：
+
+- **按状态工具白名单** — 每个状态只暴露其需要的 2–4 个工具；`complete()` 是唯一退出信号，按 schema 校验。
+- **SafeModifier 检查点** — 每次 `edit`/`write` 先建检查点；若改动破坏语法/结构，post-check 自动回滚。项目根目录外的路径遍历被阻断；每任务文件/行数限制约束影响范围。
+- **GIT 硬白名单（default-deny）** — git 命令经 harness guard，拒绝 shell 元字符和非 `git` 首 token，仅允许安全子命令。force-push、`reset --hard`、`rebase`、`commit --amend`、`filter-branch`、`branch -D`、`commit --no-verify` 及所有未列入子命令在**到达 shell 前**被阻断。
+
+完整威胁模型与私密漏洞上报见 [SECURITY.md](./SECURITY.md)。
 
 ---
 

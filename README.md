@@ -10,37 +10,43 @@ key, runs entirely on your machine.
 
 ---
 
-## Security first
+## 100% local — your code never leaves your machine
 
-µagent runs code and shell commands on your machine, so safety is a core
-design constraint, not an afterthought. Multiple harness-level boundaries
-cannot be bypassed by prompt instructions:
+µagent is **fully local by design**. It talks only to the LLM provider you
+configure yourself — [Ollama](https://ollama.com), Unsloth Studio, or your own
+OpenAI-compatible endpoint. There is **no call to any third-party API** and no
+hardcoded cloud backend:
 
-- **Fully local, no telemetry** — talks only to your configured local LLM
-  provider (Ollama / Unsloth / OpenAI-compatible base URL). No code, prompts,
-  or file contents leave your machine. No analytics, no phone-home.
+- No OpenAI / Anthropic / Google API calls. No API key required.
+- Your source code, prompts, and file contents are sent only to **your** local
+  model — never to a remote server you don't control.
+- No telemetry, no analytics, no phone-home. The binary has no network code
+  beyond the LLM client you point at a local URL.
+
+This is the core privacy guarantee: a coding agent that reads and edits your
+private codebase cannot, by construction, exfiltrate it. You can run it on
+proprietary, offline, or air-gapped repos with the same confidence as a local
+script.
+
+### Additional harness-level guardrails
+
+Beyond local-only networking, the agent has hard boundaries that cannot be
+bypassed by prompt instructions:
+
 - **Per-state tool allowlist** — each state exposes only the 2–4 tools it
-  needs; `complete()` is the sole exit signal, validated against a per-state
-  schema. A state cannot reach for tools it wasn't granted.
-- **SafeModifier checkpoints** — every `edit`/`write` creates a checkpoint
-  before the change; a syntax + damage post-check restores the file
-  automatically if the edit broke it. Path traversal outside the project root
-  is blocked. Per-task file-count and line-count limits cap blast radius.
-- **GIT hard allowlist (default-deny)** — `State.GIT`'s bash is wrapped by a
-  harness guard that rejects shell metacharacters (`&`/`;`/`|`/newline/`$`/
-  backtick/`()`) and any non-`git` first token, then permits only explicitly
-  safe git subcommands. Force-push, push to `main`/`master`/`HEAD`,
-  `reset --hard`, `rebase`, `commit --amend`, `filter-branch`, `clean -f`,
-  `stash drop`, `branch -D`, `commit --no-verify`, and all unlisted
-  subcommands are blocked **before** the shell. See
-  [SECURITY.md](./SECURITY.md) for the full model and vulnerability
-  reporting.
-- **Stagnation + failure handling** — repeated/no-progress tool loops are
-  detected and aborted; VERIFY failure triggers a bounded re-plan, not an
-  infinite retry.
+  needs; `complete()` is the sole exit signal, schema-validated.
+- **SafeModifier checkpoints** — every `edit`/`write` is checkpointed first;
+  a syntax + damage post-check auto-restores the file if the edit broke it.
+  Path traversal outside the project root is blocked; per-task file/line
+  limits cap blast radius.
+- **GIT hard allowlist (default-deny)** — git commands run through a harness
+  guard that rejects shell metacharacters and non-`git` first tokens, then
+  permits only safe subcommands. Force-push, `reset --hard`, `rebase`,
+  `commit --amend`, `filter-branch`, `branch -D`, `commit --no-verify`, and
+  all unlisted subcommands are blocked **before** the shell.
 
-See [SECURITY.md](./SECURITY.md) for the threat model and how to report a
-vulnerability privately.
+See [SECURITY.md](./SECURITY.md) for the full threat model and private
+vulnerability reporting.
 
 ---
 
