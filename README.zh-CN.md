@@ -8,6 +8,20 @@
 
 ---
 
+## 安全优先
+
+µagent 在你的机器上运行代码和 shell 命令，因此安全是核心设计约束，而非事后补丁。多层 harness 级边界，无法被 prompt 指令绕过：
+
+- **完全本地，无遥测** — 只与你配置的本地 LLM provider（Ollama / Unsloth / OpenAI 兼容 base URL）通信。代码、prompt、文件内容不离开你的机器。无分析、无上报。
+- **按状态工具白名单** — 每个状态只暴露其需要的 2–4 个工具；`complete()` 是唯一退出信号，按状态 schema 校验。状态无法调用未授予的工具。
+- **SafeModifier 检查点** — 每次 `edit`/`write` 前创建检查点；若改动破坏语法/结构，post-check 自动回滚。项目根目录外的路径遍历被阻断。每任务文件数/行数限制约束影响范围。
+- **GIT 硬白名单（default-deny）** — `State.GIT` 的 bash 被 harness guard 包装，拒绝 shell 元字符（`&`/`;`/`|`/换行/`$`/backtick/`()`）和任何非 `git` 首 token，仅允许明确安全的 git 子命令。force-push、push 到 `main`/`master`/`HEAD`、`reset --hard`、`rebase`、`commit --amend`、`filter-branch`、`clean -f`、`stash drop`、`branch -D`、`commit --no-verify` 及所有未列入的子命令在**到达 shell 前**被阻断。完整模型见 [SECURITY.md](./SECURITY.md)。
+- **停滞 + 失败处理** — 检测重复/无进展工具循环并中止；VERIFY 失败触发有界重新规划，而非无限重试。
+
+威胁模型与私密漏洞上报见 [SECURITY.md](./SECURITY.md)。
+
+---
+
 ## 为什么小模型需要专项设计
 
 把为大模型设计的 Agent 框架直接套到 7B/8B 小模型上，成功率会大幅下降。根源不在模型"笨"，而在任务的呈现方式不适合它。

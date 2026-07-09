@@ -10,6 +10,40 @@ key, runs entirely on your machine.
 
 ---
 
+## Security first
+
+µagent runs code and shell commands on your machine, so safety is a core
+design constraint, not an afterthought. Multiple harness-level boundaries
+cannot be bypassed by prompt instructions:
+
+- **Fully local, no telemetry** — talks only to your configured local LLM
+  provider (Ollama / Unsloth / OpenAI-compatible base URL). No code, prompts,
+  or file contents leave your machine. No analytics, no phone-home.
+- **Per-state tool allowlist** — each state exposes only the 2–4 tools it
+  needs; `complete()` is the sole exit signal, validated against a per-state
+  schema. A state cannot reach for tools it wasn't granted.
+- **SafeModifier checkpoints** — every `edit`/`write` creates a checkpoint
+  before the change; a syntax + damage post-check restores the file
+  automatically if the edit broke it. Path traversal outside the project root
+  is blocked. Per-task file-count and line-count limits cap blast radius.
+- **GIT hard allowlist (default-deny)** — `State.GIT`'s bash is wrapped by a
+  harness guard that rejects shell metacharacters (`&`/`;`/`|`/newline/`$`/
+  backtick/`()`) and any non-`git` first token, then permits only explicitly
+  safe git subcommands. Force-push, push to `main`/`master`/`HEAD`,
+  `reset --hard`, `rebase`, `commit --amend`, `filter-branch`, `clean -f`,
+  `stash drop`, `branch -D`, `commit --no-verify`, and all unlisted
+  subcommands are blocked **before** the shell. See
+  [SECURITY.md](./SECURITY.md) for the full model and vulnerability
+  reporting.
+- **Stagnation + failure handling** — repeated/no-progress tool loops are
+  detected and aborted; VERIFY failure triggers a bounded re-plan, not an
+  infinite retry.
+
+See [SECURITY.md](./SECURITY.md) for the threat model and how to report a
+vulnerability privately.
+
+---
+
 ## Why small models need purpose-built design
 
 Naively adapting an agent framework built for large models to 7B/8B models tanks
