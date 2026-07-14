@@ -5,7 +5,7 @@
   "main": "dist/cli.js",
   "type": "module",
   "bin": {
-    "mu-agent": "./dist/cli.js"
+    "mu-agent": "dist/cli.js"
   },
   "files": [
     "dist/",
