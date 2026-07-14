@@ -8,6 +8,8 @@ framework, designed for 7B/8B small models.
 Reliably complete real coding tasks with local small models — no GPT, no API
 key, runs entirely on your machine.
 
+![µagent TUI](./demo.gif)
+
 ---
 
 ## 100% local — your code never leaves your machine
