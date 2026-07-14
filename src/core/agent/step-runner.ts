@@ -212,7 +212,7 @@ export async function runReasonStep(
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<{ steps: StepDirective[] }> {
   const htCfg = cfg.heavyThinking;
   const tier = cfg.stateMachine.getModelParams().tier;
@@ -352,7 +352,7 @@ async function runSingleReasonAttempt(
   onNeedsClarify?: (questions: string[]) => Promise<string>,
   fromState: State | 'IDLE' = 'IDLE',
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<{ steps: StepDirective[] }> {
   cfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
@@ -369,7 +369,7 @@ async function runSingleReasonAttempt(
     capturedComplete = args;
   });
 
-  const extraTools: AgentTool<any, any>[] = memorySearchTool ? [memorySearchTool] : [];
+  const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
   const reasonCfg: typeof cfg = cfg;
   const agent = buildStepAgent(systemPrompt, conversationHistory, reasonCfg, onEvent, [completeTool, ...extraTools]);
   subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
@@ -476,7 +476,7 @@ export async function runStep(
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<ExecutedStep> {
   const trajectory = [step.state, State.DONE];
   cfg.stateMachine.resetForNextTask(step.state);
@@ -522,7 +522,7 @@ export async function runStep(
     capturedComplete = args;
   });
   const readFiles = new Set<string>();
-  const memoryTools: AgentTool<any, any>[] =
+  const memoryTools: AgentTool[] =
     memorySearchTool && (step.state === State.REASON || step.state === State.ANSWER) ? [memorySearchTool] : [];
   const stepCfg: typeof cfg = cfg;
   const agent = buildStepAgent(
@@ -615,7 +615,7 @@ export async function executeSteps(
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<ExecutedStep[]> {
   const thisRoundResults: ExecutedStep[] = [];
   const total = directives.length;

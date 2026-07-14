@@ -1,23 +1,31 @@
 import Database from 'better-sqlite3';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { graphRetrieve } from '../core/memory/retrieval.js';
 import { formatEpisodeDetail } from '../core/memory/episode.js';
 import type { EpisodeRow } from '../core/memory/types.js';
 
-export function createMemorySearchTool(db: Database.Database, projectRoot: string) {
+const _memorySearchParams = Type.Object({
+  query: Type.Optional(Type.String({ description: 'Keyword search query' })),
+  id: Type.Optional(Type.String({ description: 'Short episode ID (first 4 chars without dashes)' })),
+});
+
+export interface MemorySearchDetails {
+  query?: string;
+  id?: string;
+}
+
+export function createMemorySearchTool(
+  db: Database.Database,
+  projectRoot: string,
+): AgentTool<typeof _memorySearchParams, MemorySearchDetails> {
   return {
     name: 'memory_search',
     label: 'Memory Search',
     description:
       'Search past task history. Use query for keyword search, or id for exact lookup by short ID (e.g. "a3f2").',
-    parameters: Type.Object({
-      query: Type.Optional(Type.String({ description: 'Keyword search query' })),
-      id: Type.Optional(Type.String({ description: 'Short episode ID (first 4 chars without dashes)' })),
-    }),
-    execute: async (
-      _toolCallId: string,
-      params: { query?: string; id?: string },
-    ): Promise<{ content: [{ type: 'text'; text: string }]; details: { query?: string; id?: string } }> => {
+    parameters: _memorySearchParams,
+    execute: async (_toolCallId, params) => {
       let text: string;
       if (params.id) {
         const row = db

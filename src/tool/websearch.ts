@@ -1,4 +1,4 @@
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 export interface SearchResult {
@@ -73,15 +73,13 @@ const _websearchParams = Type.Object({
   numResults: Type.Optional(Type.Number({ description: 'Number of results to return (default: 5, max: 10).' })),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const websearchTool: AgentTool<any, SearchResult[]> = {
+export const websearchTool: AgentTool<typeof _websearchParams, SearchResult[]> = {
   name: 'websearch',
   label: 'Web Search',
   description:
     'Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets. Use this to find documentation, answers to errors, or current information.',
   parameters: _websearchParams,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute: async (_toolCallId, params: any) => {
+  execute: async (_toolCallId, params) => {
     const numResults = Math.min(params.numResults ?? 5, 10);
     let text: string;
     let results: SearchResult[] = [];

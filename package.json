@@ -86,13 +86,13 @@
     "@earendil-works/pi-ai": "^0.78.1",
     "@earendil-works/pi-coding-agent": "^0.78.1",
     "@earendil-works/pi-tui": "^0.78.1",
-    "@sinclair/typebox": "^0.27.10",
     "better-sqlite3": "^12.10.0",
     "commander": "^15.0.0",
     "deepmerge": "^4.3.1",
     "glob": "^13.0.6",
     "node-html-markdown": "^2.0.0",
     "stopword": "^3.1.5",
+    "typebox": "^1.1.38",
     "vscode-jsonrpc": "^9.0.0"
   }
 }

@@ -94,7 +94,7 @@ export async function runWithVerifyRetry(
   cfg: RunConfig,
   onEvent: ((e: ExecutionEvent) => void) | undefined,
   memoryIndex: string,
-  memorySearchTool: AgentTool<any, any>,
+  memorySearchTool: AgentTool,
   clarifyCallback: (questions: string[]) => Promise<string>,
   memoryStore: MemoryStore | null,
 ): Promise<VerifyLoopOutcome> {
@@ -283,9 +283,7 @@ export class ReactAgent {
 
     const stateMachine = new StateMachineAgent(
       config.model.name,
-      // Cast needed: pi-agent-core's AgentTool<TParameters> requires TSchema [Kind] symbol
-      // which @sinclair/typebox TObject lacks — pre-existing upstream type gap
-      [astLocatorTool, webfetchTool as AgentTool<any, any>, websearchTool as AgentTool<any, any>],
+      [astLocatorTool, webfetchTool, websearchTool],
       paramCount,
       cwd,
     );
@@ -318,7 +316,7 @@ export class ReactAgent {
     this._memoryStore = new MemoryStore(memDb, cwd, model);
     const pendingSummariesPromise = this._memoryStore.processPendingSummaries().catch(() => {});
     const memoryIndex = formatMemoryIndex(memDb, cwd);
-    const memorySearchTool = createMemorySearchTool(memDb, cwd) as unknown as AgentTool<any, any>;
+    const memorySearchTool = createMemorySearchTool(memDb, cwd);
     const closeMemDb = () => {
       try {
         memDb.close();
