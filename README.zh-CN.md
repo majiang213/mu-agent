@@ -55,6 +55,16 @@ API**，无硬编码云后端：
 - Node.js 24+
 - [Ollama](https://ollama.com)、[Unsloth Studio](https://unsloth.ai)（本地模型运行时）或 OpenAI 兼容 API
 
+### 推荐模型
+
+µagent 针对 7B/8B 小模型调优，标靶测试验证模型：
+
+```bash
+ollama pull gemma4:e4b
+```
+
+其他可用小模型：`qwen3:8b`、`llama3.1:8b`。≤9B 自动归类为 `SMALL`，启用 Heavy Thinking（并行规划 + Synthesizer 审议）。通过 `mu-agent config` 指定你的模型。
+
 ### 安装
 
 ```bash

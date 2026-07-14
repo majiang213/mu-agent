@@ -77,6 +77,18 @@ small model.**
 - [Ollama](https://ollama.com), [Unsloth Studio](https://unsloth.ai) (local model
   runtimes), or an OpenAI-compatible API
 
+### Recommended model
+
+µagent is tuned for 7B/8B models. The fixtures are verified against:
+
+```bash
+ollama pull gemma4:e4b
+```
+
+Other small models that work well: `qwen3:8b`, `llama3.1:8b`. Anything ≤9B is
+auto-classified as `SMALL` and gets Heavy Thinking (parallel planning +
+Synthesizer deliberation). See `mu-agent config` to point at your model.
+
 ### Install
 
 ```bash
