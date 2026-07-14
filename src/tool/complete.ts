@@ -1,4 +1,4 @@
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../core/types.js';
 import { STATE_REGISTRY, GIT_OPERATIONS } from '../core/state-registry.js';

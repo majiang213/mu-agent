@@ -22,7 +22,9 @@ export default [
     },
     rules: {
       ...tsPlugin.configs.recommended.rules,
-      '@typescript-eslint/no-explicit-any': 'warn',
+      // Debt is paid off (0 usages): schema-typed tools now infer their params,
+      // so `error` keeps `any` from creeping back in at the pi boundary.
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       '@typescript-eslint/no-floating-promises': 'error',
       // CLI tool: console is the legitimate logging/stdout channel.

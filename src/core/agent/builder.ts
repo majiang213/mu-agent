@@ -482,8 +482,7 @@ export function buildStepAgent(
   initialMessages: AgentMessage[],
   cfg: RunConfig,
   onEvent: ((event: ExecutionEvent) => void) | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[] = [
+  tools: AgentTool[] = [
     ...createCodingTools(cfg.projectRoot),
     createGrepTool(cfg.projectRoot),
     createLsTool(cfg.projectRoot),
@@ -730,19 +729,16 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'message_update') {
-      const ae = (event as any).assistantMessageEvent as { type: string };
-      const msg = (event as any).message as { content?: Array<{ type: string; text?: string; thinking?: string }> };
-      if (msg?.content) {
-        const parts = msg.content;
+      const { assistantMessageEvent: ae, message } = event;
+      if (message.role === 'assistant') {
+        const parts = message.content;
         if (ae.type === 'thinking_delta' || ae.type === 'thinking_start') {
-          const thinking = parts
-            .flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking as string] : []))
-            .join('');
+          const thinking = parts.flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking] : [])).join('');
           if (thinking) onEvent?.({ type: 'message_thinking_update', content: thinking });
         }
         if (ae.type === 'text_delta' || ae.type === 'text_start') {
           const text = parts
-            .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
+            .flatMap((c) => (c.type === 'text' && c.text ? [c.text] : []))
             .join('')
             .replace(/<think>[\s\S]*?<\/think>/g, '')
             .replace(/<think>[\s\S]*$/, '');

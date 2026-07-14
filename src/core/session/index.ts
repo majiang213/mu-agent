@@ -24,7 +24,7 @@ export class StateMachineAgent {
 
   constructor(
     modelName: string,
-    extraTools: AgentTool<any, any>[] = [],
+    extraTools: AgentTool[] = [],
     paramCount: number | null = null,
     projectRoot: string = process.cwd(),
   ) {
@@ -46,9 +46,9 @@ export class StateMachineAgent {
     this.fileCount = 0;
     this.allTools = [
       ...createCodingTools(projectRoot),
-      createGrepTool(projectRoot) as AgentTool<any, any>,
-      createLsTool(projectRoot) as AgentTool<any, any>,
-      createFindTool(projectRoot) as AgentTool<any, any>,
+      createGrepTool(projectRoot),
+      createLsTool(projectRoot),
+      createFindTool(projectRoot),
       ...extraTools,
     ];
   }

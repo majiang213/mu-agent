@@ -1,5 +1,5 @@
 import { NodeHtmlMarkdown } from 'node-html-markdown';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 const MAX_CONTENT_LENGTH = 32000;
@@ -110,15 +110,13 @@ const _webfetchParams = Type.Object({
   ),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const webfetchTool: AgentTool<any, { url: string; truncated: boolean }> = {
+export const webfetchTool: AgentTool<typeof _webfetchParams, { url: string; truncated: boolean }> = {
   name: 'webfetch',
   label: 'Web Fetch',
   description:
     'Fetches content from a URL and returns it in the specified format (markdown by default). Use this to read documentation, articles, or any web page.',
   parameters: _webfetchParams,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute: async (_toolCallId, params: any) => {
+  execute: async (_toolCallId, params) => {
     const format = params.format ?? 'markdown';
     let text: string;
     try {
