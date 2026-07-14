@@ -1,0 +1,377 @@
+# Instincts generated from https://github.com/majiang213/mu-agent
+# Generated: 2026-07-14T11:45:16.768Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: mu-agent-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/majiang213/mu-agent
+---
+
+# Mu Agent Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: fix
+
+## Evidence
+
+- 1 commits analyzed
+- Detected conventional commit pattern
+- Examples: fix(types): remove all `any` at pi framework boundaries
+
+---
+id: mu-agent-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/majiang213/mu-agent
+---
+
+# Mu Agent Commit Length
+
+## Action
+
+Write moderate-length commit messages (~55 characters)
+
+## Evidence
+
+- Average commit message length: 55 chars
+- Based on 1 commits
+
+---
+id: mu-agent-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/majiang213/mu-agent
+---
+
+# Mu Agent Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: mu-agent-import-relative
+trigger: "when importing modules"
+confidence: 0.75
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/majiang213/mu-agent
+---
+
+# Mu Agent Import Relative
+
+## Action
+
+Use relative imports for project files
+
+## Evidence
+
+- Import analysis shows relative import pattern
+- Example: import { x } from '../lib/x'
+
+---
+id: mu-agent-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/majiang213/mu-agent
+---
+
+# Mu Agent Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: mu-agent-test-separate
+trigger: "when writing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/majiang213/mu-agent
+---
+
+# Mu Agent Test Separate
+
+## Action
+
+Place tests in the tests/ or __tests__/ directory, mirroring src structure
+
+## Evidence
+
+- Separate test directory pattern detected
+- Tests live in dedicated test folders
+
+---
+id: mu-agent-instinct-file-naming
+trigger: "When creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct File Naming
+
+## Action
+
+Name the file using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.files
+
+---
+id: mu-agent-instinct-function-naming
+trigger: "When defining a function"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Function Naming
+
+## Action
+
+Name the function using camelCase
+
+## Evidence
+
+- Pattern in namingConventions.functions
+
+---
+id: mu-agent-instinct-class-naming
+trigger: "When defining a class"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Class Naming
+
+## Action
+
+Name the class using PascalCase
+
+## Evidence
+
+- Pattern in namingConventions.classes
+
+---
+id: mu-agent-instinct-constant-naming
+trigger: "When declaring a constant"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Constant Naming
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE
+
+## Evidence
+
+- Pattern in namingConventions.constants
+
+---
+id: mu-agent-instinct-import-style
+trigger: "When importing modules"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Import Style
+
+## Action
+
+Use relative import paths
+
+## Evidence
+
+- Pattern in importStyle
+
+---
+id: mu-agent-instinct-export-style
+trigger: "When exporting from a module"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Export Style
+
+## Action
+
+Use named exports
+
+## Evidence
+
+- Pattern in exportStyle
+
+---
+id: mu-agent-instinct-typescript
+trigger: "When writing code"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Typescript
+
+## Action
+
+Use TypeScript language features
+
+## Evidence
+
+- Pattern in language: TypeScript
+
+---
+id: mu-agent-instinct-commit-format
+trigger: "When making a git commit"
+confidence: 0.9
+domain: git
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Commit Format
+
+## Action
+
+Use the conventional commit format with a prefix (e.g., fix:)
+
+## Evidence
+
+- Pattern in commits.type: conventional
+- Example: fix(types): remove all `any` at pi framework boundaries
+
+---
+id: mu-agent-instinct-commit-prefix
+trigger: "When fixing a bug or issue"
+confidence: 0.8
+domain: git
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Commit Prefix
+
+## Action
+
+Prefix the commit message with 'fix'
+
+## Evidence
+
+- Pattern in commits.prefixes: fix
+- Example: fix(types): remove all `any` at pi framework boundaries
+
+---
+id: mu-agent-instinct-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Commit Length
+
+## Action
+
+Keep the commit message concise (around 55 characters)
+
+## Evidence
+
+- Pattern in commits.averageLength: 55
+
+---
+id: mu-agent-instinct-test-location
+trigger: "When adding or updating tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Test Location
+
+## Action
+
+Place test files in the 'tests' folder, separate from 'src'
+
+## Evidence
+
+- Pattern in architecture.testLocation: separate
+- Pattern in architecture.commonFolders: tests
+
+---
+id: mu-agent-instinct-folder-structure
+trigger: "When creating new source code modules"
+confidence: 0.8
+domain: architecture
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Folder Structure
+
+## Action
+
+Organize code under 'src/core' or 'src/tool' as appropriate
+
+## Evidence
+
+- Pattern in architecture.srcLayout: core, tool
+
+---
+id: mu-agent-instinct-error-handling
+trigger: "When handling errors in code"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: majiang213/mu-agent
+---
+
+# Mu Agent Instinct Error Handling
+
+## Action
+
+Use try-catch blocks for error handling
+
+## Evidence
+
+- Pattern in errorHandling.style: try-catch
+
