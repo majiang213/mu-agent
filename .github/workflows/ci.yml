@@ -42,3 +42,70 @@ jobs:
       - name: Test
         # e2e tests require a running Ollama instance; excluded via vitest.config.ts.
         run: pnpm test
+
+  e2e:
+    # End-to-end fixture tests against a real Ollama model.
+    # Separate job, allowed to fail: model latency / Ollama flakiness should not
+    # block PRs. Runs only on main pushes to save CI minutes (9.6GB model pull).
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    needs: build-and-test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build native modules (better-sqlite3)
+        run: pnpm rebuild better-sqlite3
+
+      - name: Build (tsc)
+        run: pnpm build
+
+      - name: Install Ollama
+        uses: ollama/setup-action@v1
+
+      - name: Pull model
+        run: ollama pull gemma4:e4b
+
+      - name: Write e2e config
+        run: |
+          mkdir -p .mu-agent
+          printf '%s\n' \
+            '{' \
+            '  "model": {' \
+            '    "provider": "ollama",' \
+            '    "name": "gemma4:e4b",' \
+            '    "baseUrl": "http://localhost:11434",' \
+            '    "temperature": 0.1,' \
+            '    "contextRatio": 0.75' \
+            '  },' \
+            '  "safety": {' \
+            '    "enableCheckpoint": true,' \
+            '    "maxLinesPerEdit": 50,' \
+            '    "maxFilesPerTask": 5' \
+            '  },' \
+            '  "heavyThinking": {' \
+            '    "enabled": true,' \
+            '    "planCount": 3,' \
+            '    "samplingTemperature": 0.7' \
+            '  }' \
+            '}' > .mu-agent/config.json
+
+      - name: Run e2e fixture tests
+        env:
+          # Keep the Ollama server alive between pull and test steps.
+          OLLAMA_HOST: 127.0.0.1:11434
+        run: npx vitest run tests/e2e/fixtures.test.ts
+        timeout-minutes: 30
