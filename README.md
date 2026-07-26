@@ -25,6 +25,13 @@ hardcoded cloud backend:
 - No telemetry, no analytics, no phone-home. The binary has no network code
   beyond the LLM client you point at a local URL.
 
+> **One exception, off the default path:** the `RESEARCH` state exposes
+> optional `webfetch` / `websearch` tools so the agent can look up docs or
+> errors online when a task explicitly asks for it. Only `RESEARCH` has them
+> — all other states (LOCATE, MODIFY, VERIFY, …) have no network tools, and
+> LLM calls always stay local. Never use web research and nothing ever
+> leaves your machine.
+
 This is the core privacy guarantee: a coding agent that reads and edits your
 private codebase cannot, by construction, exfiltrate it. You can run it on
 proprietary, offline, or air-gapped repos with the same confidence as a local
