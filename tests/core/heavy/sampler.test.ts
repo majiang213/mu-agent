@@ -52,7 +52,7 @@ function makeStep(state: State) {
 }
 
 function makePlan(id: string, states: State[]): PlanCandidate {
-  return { id, steps: states.map(makeStep), sampledAt: 0 };
+  return { id, steps: states.map(makeStep) };
 }
 
 function makeCfg(): RunConfig {

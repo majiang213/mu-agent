@@ -3,7 +3,8 @@ import type { Model } from '@earendil-works/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
 import type { StepDirective } from '../types.js';
 import type { PlanCandidate, DeliberateOutcome } from './types.js';
-import { directiveFingerprint, formatDirective, parseDirectivesJson } from '../agent/directives.js';
+import { formatDirective, parseDirectivesJson } from '../agent/directives.js';
+import { allPlansSimilar, jaccardPlans } from './plan-set.js';
 
 const DELIBERATION_SYSTEM = `You are a coding task planner reviewing multiple independently generated execution plans for the same task.
 
@@ -47,14 +48,6 @@ function buildMemoryCache(candidates: PlanCandidate[]): string {
 
 function formatStepsForJudge(steps: StepDirective[]): string {
   return steps.map(formatDirective).join('\n');
-}
-
-function jaccardDirectives(a: StepDirective[], b: StepDirective[]): number {
-  const setA = new Set(a.map(directiveFingerprint));
-  const setB = new Set(b.map(directiveFingerprint));
-  const intersection = [...setA].filter((x) => setB.has(x)).length;
-  const union = new Set([...setA, ...setB]).size;
-  return union === 0 ? 1 : intersection / union;
 }
 
 async function runSingleDeliberation(
@@ -211,7 +204,7 @@ export async function deliberate(
       break;
     }
 
-    if (jaccardDirectives(newSteps, bestSteps) > 0.85) {
+    if (jaccardPlans(newSteps, bestSteps) > 0.85) {
       onEvent?.({ type: 'deliberation_refinement', round, verdict: 'converged' });
       bestSteps = newSteps;
       break;
@@ -227,16 +220,7 @@ export async function deliberate(
   };
 }
 
-function allPlansSimilar(candidates: PlanCandidate[], threshold = 0.8): boolean {
-  for (let i = 0; i < candidates.length; i++) {
-    for (let j = i + 1; j < candidates.length; j++) {
-      if (jaccardDirectives(candidates[i]!.steps, candidates[j]!.steps) < threshold) return false;
-    }
-  }
-  return true;
-}
-
 export function pickShortest(candidates: PlanCandidate[]): PlanCandidate {
-  if (candidates.length === 0) return { id: 'empty', steps: [], sampledAt: Date.now() };
+  if (candidates.length === 0) return { id: 'empty', steps: [] };
   return candidates.reduce((a, b) => (a.steps.length <= b.steps.length ? a : b));
 }

@@ -72,7 +72,7 @@ import { deliberate } from '../../../src/core/heavy/deliberator.js';
 import { runReasonStep } from '../../../src/core/agent/step-runner.js';
 
 function makePlan(id: string, states: State[]): PlanCandidate {
-  return { id, steps: states.map((s, i) => ({ state: s, focus: `focus ${i}` })), sampledAt: 0 };
+  return { id, steps: states.map((s, i) => ({ state: s, focus: `focus ${i}` })) };
 }
 
 function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {

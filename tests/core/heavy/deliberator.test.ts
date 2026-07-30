@@ -18,7 +18,6 @@ function makePlan(id: string, states: State[], whys?: string[]): PlanCandidate {
       focus: `step ${i}`,
       ...(whys?.[i] ? { why: whys[i] } : {}),
     })),
-    sampledAt: 0,
   };
 }
 
@@ -203,7 +202,6 @@ describe('deliberate', () => {
     const subplanPlan: PlanCandidate = {
       id: 'plan-0',
       steps: [{ subplan: { analyzerState: State.PLAN, focus: 'plan atomic commits' } }],
-      sampledAt: 0,
     };
     const result = await deliberate([subplanPlan], { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');

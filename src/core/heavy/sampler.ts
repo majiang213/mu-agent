@@ -1,9 +1,9 @@
 import { runReasonAttempt } from '../agent/reason-runner.js';
-import { planFingerprint } from '../agent/directives.js';
 import type { StepDirective } from '../types.js';
 import type { RunConfig, Mission, ExecutionEvent } from '../agent/types.js';
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { PlanCandidate } from './types.js';
+import { allSeenBefore, dedupPlans, newPlans, roundConverged } from './plan-set.js';
 import { DEFAULT_SAMPLING_TEMPERATURE } from '../../config/defaults.js';
 
 export const SAMPLING_BATCH_SIZE = 2;
@@ -19,27 +19,6 @@ export interface SamplerConfig {
   memoryIndex?: string;
   /** Attached to every sample's tool list. */
   memorySearchTool?: AgentTool;
-}
-
-function roundConverged(roundCandidates: PlanCandidate[]): boolean {
-  if (roundCandidates.length <= 1) return true;
-  const seqs = new Set(roundCandidates.map((c) => planFingerprint(c.steps)));
-  return seqs.size === 1;
-}
-
-function allSeenBefore(newCandidates: PlanCandidate[], existing: PlanCandidate[]): boolean {
-  if (newCandidates.length === 0) return false;
-  const existingSeqs = new Set(existing.map((c) => planFingerprint(c.steps)));
-  return newCandidates.every((c) => existingSeqs.has(planFingerprint(c.steps)));
-}
-
-function dedup(candidates: PlanCandidate[]): PlanCandidate[] {
-  const seen = new Map<string, PlanCandidate>();
-  for (const c of candidates) {
-    const seq = planFingerprint(c.steps);
-    if (!seen.has(seq)) seen.set(seq, c);
-  }
-  return [...seen.values()];
 }
 
 async function runBatch(
@@ -68,7 +47,7 @@ async function runBatch(
         completed++;
         onEvent?.({ type: 'sample_complete', index: idx, steps: r.steps });
         onEvent?.({ type: 'sampling_progress', completed, total: batchSize });
-        return { id: `plan-${idx}`, steps: r.steps, sampledAt: Date.now() } as PlanCandidate;
+        return { id: `plan-${idx}`, steps: r.steps } as PlanCandidate;
       },
       () => {
         completed++;
@@ -97,7 +76,7 @@ export async function samplePlans(
   const samplingTemp = samplerCfg.samplingTemperature ?? DEFAULT_SAMPLING_TEMPERATURE;
   const maxCount = getMaxCount(cfg.stateMachine.getModelParams().tier);
 
-  let candidates = dedup(seedCandidates);
+  let candidates = dedupPlans(seedCandidates);
   let sampleIndex = Math.max(candidates.length, indexOffset);
 
   const firstBatch = await runBatch(
@@ -114,16 +93,14 @@ export async function samplePlans(
 
   if (firstBatch.length === 0) return candidates;
 
-  const newInFirst = firstBatch.filter(
-    (c) => !candidates.some((e) => planFingerprint(e.steps) === planFingerprint(c.steps)),
-  );
+  const newInFirst = newPlans(firstBatch, candidates);
 
   if (newInFirst.length === 0) {
     onEvent?.({ type: 'sampling_stopped', reason: 'no_new_info' });
     return candidates;
   }
 
-  candidates = dedup([...candidates, ...firstBatch]);
+  candidates = dedupPlans([...candidates, ...firstBatch]);
 
   if (roundConverged(newInFirst)) {
     onEvent?.({ type: 'sampling_stopped', reason: 'converged' });
@@ -160,7 +137,7 @@ export async function samplePlans(
       break;
     }
 
-    candidates = dedup([...candidates, ...expandBatch]);
+    candidates = dedupPlans([...candidates, ...expandBatch]);
 
     if (round === MAX_ROUNDS) {
       onEvent?.({ type: 'sampling_stopped', reason: 'max_rounds' });
