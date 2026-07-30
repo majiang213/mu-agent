@@ -32,9 +32,9 @@ describe('SessionStore', () => {
       expect(store.isEmpty).toBe(true);
     });
 
-    it('filePath ends with .json', () => {
+    it('filePath ends with .jsonl', () => {
       const store = SessionStore.create(dir);
-      expect(store.filePath).toMatch(/\.json$/);
+      expect(store.filePath).toMatch(/\.jsonl$/);
     });
 
     it('filePath is inside .mu-agent/sessions/', () => {
@@ -201,9 +201,18 @@ describe('SessionStore', () => {
       expect(list[0]!.preview).toBe('fix the login bug in auth module');
     });
 
-    it('preview excludes [Assistant]: prefixed messages', async () => {
+    it('preview is the first USER message (role-based, not prefix-sniffing)', async () => {
       const s = SessionStore.create(dir);
       await s.append({ type: 'message', role: 'user', content: '[Assistant]: done', timestamp: 1 });
+      await s.append({ type: 'message', role: 'user', content: 'real user msg', timestamp: 2 });
+      const list = SessionStore.list(dir);
+      // The first user-authored message wins — content is not inspected.
+      expect(list[0]!.preview).toBe('[Assistant]: done');
+    });
+
+    it('preview skips assistant-role messages entirely', async () => {
+      const s = SessionStore.create(dir);
+      await s.append({ type: 'message', role: 'assistant', content: 'unprefixed assistant text', timestamp: 1 });
       await s.append({ type: 'message', role: 'user', content: 'real user msg', timestamp: 2 });
       const list = SessionStore.list(dir);
       expect(list[0]!.preview).toBe('real user msg');
