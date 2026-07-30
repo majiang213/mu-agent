@@ -1,9 +1,17 @@
 import Database from 'better-sqlite3';
-import type { EpisodeRow } from './types.js';
+import { episodeColumns, type EpisodeRow, type SemanticFact } from './types.js';
 import { detectActionWords, extractEntitiesForQuery } from './extractor.js';
+import { fmtTime, toShortId, parseStructuredSummary } from './episode.js';
+import { readSemanticFacts } from './semantic.js';
 
+/**
+ * Read side of the memory subsystem: graph retrieval (entity + action_type +
+ * FTS5) and the ~200-token index anchor. All episode queries project through
+ * the single episodeColumns() list in types.ts.
+ */
 export function graphRetrieve(userInput: string, db: Database.Database, projectRoot: string): EpisodeRow[] {
   const results: Map<string, EpisodeRow> = new Map();
+  const cols = episodeColumns('e');
 
   const fileNames = extractEntitiesForQuery(userInput);
   if (fileNames.length > 0) {
@@ -11,9 +19,7 @@ export function graphRetrieve(userInput: string, db: Database.Database, projectR
     const rows = db
       .prepare(
         `
-      SELECT DISTINCT e.rowid, e.id, e.timestamp, e.project_root, e.user_input,
-        e.action_type, e.files_changed, e.success, e.result_summary,
-        e.is_summarized, e.step_outputs, e.description, e.keywords, e.tokens_used
+      SELECT DISTINCT ${cols}
       FROM episodes e
       JOIN episode_entities ee ON ee.episode_id = e.id
       JOIN entities en ON en.id = ee.entity_id
@@ -32,12 +38,10 @@ export function graphRetrieve(userInput: string, db: Database.Database, projectR
     const rows = db
       .prepare(
         `
-      SELECT rowid, id, timestamp, project_root, user_input,
-        action_type, files_changed, success, result_summary,
-        is_summarized, step_outputs, description, keywords, tokens_used
-      FROM episodes
-      WHERE project_root = ? AND action_type = ? AND timestamp > ?
-      ORDER BY timestamp DESC
+      SELECT ${cols}
+      FROM episodes e
+      WHERE e.project_root = ? AND e.action_type = ? AND e.timestamp > ?
+      ORDER BY e.timestamp DESC
       LIMIT 3
     `,
       )
@@ -62,9 +66,7 @@ export function graphRetrieve(userInput: string, db: Database.Database, projectR
       const rows = db
         .prepare(
           `
-        SELECT e.rowid, e.id, e.timestamp, e.project_root, e.user_input,
-          e.action_type, e.files_changed, e.success, e.result_summary,
-          e.is_summarized, e.step_outputs, e.description, e.keywords, e.tokens_used
+        SELECT ${cols}
         FROM episodes_fts
         JOIN episodes e ON episodes_fts.rowid = e.rowid
         WHERE episodes_fts MATCH ? AND e.project_root = ?
@@ -80,4 +82,80 @@ export function graphRetrieve(userInput: string, db: Database.Database, projectR
   }
 
   return [...results.values()].sort((a, b) => b.timestamp - a.timestamp).slice(0, 5);
+}
+
+function fmtTitle(row: EpisodeRow): string {
+  const s = parseStructuredSummary(row.result_summary);
+  if (s?.action) return s.action.slice(0, 20);
+  return row.user_input.slice(0, 20);
+}
+
+/** ~200-token memory anchor injected into memory-capable states' prompts (Gap 42). */
+export function formatMemoryIndex(db: Database.Database, projectRoot: string): string {
+  let rows: EpisodeRow[];
+  try {
+    rows = db
+      .prepare(
+        `
+      SELECT ${episodeColumns()}
+      FROM episodes
+      WHERE project_root = ?
+      ORDER BY timestamp DESC
+      LIMIT 8
+    `,
+      )
+      .all(projectRoot) as EpisodeRow[];
+  } catch {
+    return '';
+  }
+
+  if (rows.length === 0) return '';
+
+  const total = (
+    db
+      .prepare(
+        `
+    SELECT COUNT(*) as cnt FROM episodes WHERE project_root = ?
+  `,
+      )
+      .get(projectRoot) as { cnt: number }
+  ).cnt;
+
+  const entityRows = db
+    .prepare(
+      `
+    SELECT en.name, COUNT(DISTINCT ee.episode_id) as cnt
+    FROM entities en
+    JOIN episode_entities ee ON en.id = ee.entity_id
+    JOIN episodes e ON ee.episode_id = e.id
+    WHERE e.project_root = ? AND en.type = 'file'
+    GROUP BY en.id
+    HAVING cnt >= 2
+    ORDER BY cnt DESC
+    LIMIT 5
+  `,
+    )
+    .all(projectRoot) as { name: string; cnt: number }[];
+
+  const facts: SemanticFact[] = readSemanticFacts(db, projectRoot).slice(0, 5);
+
+  const lines: string[] = ['<memory>', '最近任务：'];
+  for (const row of rows) {
+    const shortId = toShortId(row.id);
+    lines.push(`  [${fmtTime(row.timestamp)} #${shortId}] ${fmtTitle(row)}`);
+  }
+  lines.push(`共 ${total} 条记忆（近30天）`);
+
+  if (entityRows.length > 0) {
+    lines.push(`实体：${entityRows.map((e) => `${e.name}(${e.cnt})`).join(' ')}`);
+  }
+
+  const prefFacts = facts.filter((f) => f.category === 'preference' || f.category === 'convention');
+  if (prefFacts.length > 0) {
+    lines.push(`偏好：${prefFacts.map((f) => f.value).join(' | ')}`);
+  }
+
+  lines.push('使用 memory_search 工具可查看任意条目的详情。');
+  lines.push('</memory>');
+  return lines.join('\n') + '\n';
 }

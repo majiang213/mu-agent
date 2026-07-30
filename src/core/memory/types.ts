@@ -35,6 +35,33 @@ export interface SemanticFact {
   source: 'inferred' | 'explicit';
 }
 
+/**
+ * The canonical episodes-table projection — the ONE column list.
+ * Previously copy-pasted into 6 queries across 4 files; a schema change
+ * now means editing this array once.
+ */
+const EPISODE_COLUMN_LIST = [
+  'rowid',
+  'id',
+  'user_input',
+  'result_summary',
+  'action_type',
+  'files_changed',
+  'success',
+  'timestamp',
+  'is_summarized',
+  'step_outputs',
+  'description',
+  'keywords',
+  'tokens_used',
+  'project_root',
+] as const;
+
+/** SQL column list for the episodes table, optionally table-prefixed (joins). */
+export function episodeColumns(prefix?: string): string {
+  return EPISODE_COLUMN_LIST.map((c) => (prefix ? `${prefix}.${c}` : c)).join(', ');
+}
+
 export interface EntityNode {
   type: string;
   name: string;

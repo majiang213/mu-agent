@@ -20,7 +20,7 @@ import { fetchOllamaParamCount } from '../../provider/model-info.js';
 import type { EnvContext } from '../prompts/agent.js';
 import { loadContext } from './context.js';
 import { LspClient } from '../../tool/lsp.js';
-import { MemoryStore, findGitRoot, initMemoryDb, formatMemoryIndex } from '../memory/index.js';
+import { MemoryStore } from '../memory/index.js';
 import { createMemorySearchTool } from '../../tool/memory-search.js';
 
 const MAX_VERIFY_RETRIES = 2;
@@ -295,19 +295,11 @@ export class ReactAgent {
     const lspClient = new LspClient();
     await lspClient.init(cwd);
 
-    const gitRoot = findGitRoot(cwd);
-    const memDb = initMemoryDb(gitRoot);
-    this._memoryStore = new MemoryStore(memDb, cwd, model);
+    this._memoryStore = MemoryStore.open(cwd, model);
     const pendingSummariesPromise = this._memoryStore.processPendingSummaries().catch(() => {});
-    const memoryIndex = formatMemoryIndex(memDb, cwd);
-    const memorySearchTool = createMemorySearchTool(memDb, cwd) as unknown as AgentTool<any, any>;
-    const closeMemDb = () => {
-      try {
-        memDb.close();
-      } catch {
-        /* db already closed */
-      }
-    };
+    const memoryIndex = this._memoryStore.index();
+    const memorySearchTool = createMemorySearchTool(this._memoryStore) as unknown as AgentTool<any, any>;
+    const closeMemDb = () => this._memoryStore?.close();
 
     const cfg = {
       model,

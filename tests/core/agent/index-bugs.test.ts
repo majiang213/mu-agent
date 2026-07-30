@@ -81,20 +81,24 @@ vi.mock('../../../src/tool/lsp.js', () => ({
   }),
 }));
 
-vi.mock('../../../src/core/memory/index.js', () => ({
-  MemoryStore: vi.fn(function () {
-    return {
-      processPendingSummaries: vi.fn(async () => {}),
-      writeEpisodeSync: vi.fn(),
-    };
-  }),
-  findGitRoot: vi.fn(() => '/tmp'),
-  initMemoryDb: vi.fn(() => ({
-    prepare: vi.fn(() => ({ get: vi.fn(), all: vi.fn(() => []), run: vi.fn() })),
+vi.mock('../../../src/core/memory/index.js', () => {
+  const store = {
+    processPendingSummaries: vi.fn(async () => {}),
+    writeEpisodeSync: vi.fn(),
+    index: vi.fn(() => ''),
+    search: vi.fn(() => ''),
+    searchById: vi.fn(() => null),
     close: vi.fn(),
-  })),
-  formatMemoryIndex: vi.fn(() => ''),
-}));
+  };
+  return {
+    MemoryStore: Object.assign(
+      vi.fn(function () {
+        return store;
+      }),
+      { open: vi.fn(() => store) },
+    ),
+  };
+});
 
 vi.mock('../../../src/tool/memory-search.js', () => ({
   createMemorySearchTool: vi.fn(() => ({})),

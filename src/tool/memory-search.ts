@@ -1,10 +1,11 @@
-import Database from 'better-sqlite3';
 import { Type } from '@sinclair/typebox';
-import { graphRetrieve } from '../core/memory/retrieval.js';
-import { formatEpisodeDetail } from '../core/memory/episode.js';
-import type { EpisodeRow } from '../core/memory/types.js';
+import type { MemoryStore } from '../core/memory/index.js';
 
-export function createMemorySearchTool(db: Database.Database, projectRoot: string) {
+/**
+ * memory_search AgentTool (Gap 42). Goes through the MemoryStore interface —
+ * no raw db handle, no imports of memory internals.
+ */
+export function createMemorySearchTool(store: MemoryStore) {
   return {
     name: 'memory_search',
     label: 'Memory Search',
@@ -20,24 +21,9 @@ export function createMemorySearchTool(db: Database.Database, projectRoot: strin
     ): Promise<{ content: [{ type: 'text'; text: string }]; details: { query?: string; id?: string } }> => {
       let text: string;
       if (params.id) {
-        const row = db
-          .prepare(
-            `
-          SELECT rowid, id, user_input, result_summary, timestamp, step_outputs,
-            action_type, files_changed, success, is_summarized, description, keywords, tokens_used, project_root
-          FROM episodes
-          WHERE project_root = ? AND REPLACE(id, '-', '') LIKE ?
-          LIMIT 1
-        `,
-          )
-          .get(projectRoot, `${params.id}%`) as EpisodeRow | undefined;
-        text = row ? formatEpisodeDetail(row) : `未找到 ID 为 #${params.id} 的记忆。`;
+        text = store.searchById(params.id) ?? `未找到 ID 为 #${params.id} 的记忆。`;
       } else if (params.query) {
-        const rows = graphRetrieve(params.query, db, projectRoot);
-        text =
-          rows.length > 0
-            ? rows.map((r) => formatEpisodeDetail(r)).join('\n\n---\n\n')
-            : `未找到与"${params.query}"相关的记忆。`;
+        text = store.search(params.query);
       } else {
         text = '请提供 query 或 id 参数。';
       }
