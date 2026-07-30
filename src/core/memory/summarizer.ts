@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import type { Model } from '@earendil-works/pi-ai';
 import { parseStructuredSummary } from './episode.js';
+import { resolveApiKey } from '../../provider/model-info.js';
 
 interface LLMSummary {
   description: string;
@@ -26,7 +27,7 @@ async function generateEpisodeSummary(
       systemPrompt: `你是代码助手。用一句中文总结这次任务（≤50字），然后列出3-5个搜索关键词。\n输出格式（JSON）：{"description": "...", "keywords": ["...", "..."]}`,
       messages: [{ role: 'user', content: context, timestamp: Date.now() }],
     },
-    { temperature: 0.1, apiKey: model.provider === 'ollama' ? 'ollama' : undefined },
+    { temperature: 0.1, apiKey: resolveApiKey(model) || undefined },
   );
 
   try {

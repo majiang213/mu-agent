@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { loadConfig, saveConfig, ConfigNotFoundError } from './config/loader.js';
+import { DEFAULT_CONFIG } from './config/defaults.js';
 import { getLspStatuses } from './config/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
@@ -10,15 +11,38 @@ const program = new Command();
 
 program.name('mu-agent').description('µagent — small-model coding agent with deterministic pipelines').version('1.0.0');
 
-function applyCliOverrides(options: { model?: string; provider?: string; baseUrl?: string }): void {
+const PROVIDERS = ['ollama', 'custom', 'unsloth'] as const;
+
+function parseProviderFlag(value: string): Config['model']['provider'] {
+  if (!(PROVIDERS as readonly string[]).includes(value)) {
+    console.error(`Invalid provider "${value}" — must be one of: ${PROVIDERS.join(', ')}`);
+    process.exit(1);
+  }
+  return value as Config['model']['provider'];
+}
+
+/**
+ * Per-run, in-memory config overrides. NEVER persisted — `mu-agent config`
+ * is the only command that writes defaults (second-pass review, candidate 9).
+ */
+function mergeCliOverrides(config: Config, options: { model?: string; provider?: string; baseUrl?: string }): Config {
+  const model = { ...config.model };
+  if (options.model) model.name = options.model;
+  if (options.provider) model.provider = parseProviderFlag(options.provider);
+  if (options.baseUrl) model.baseUrl = options.baseUrl;
+  return { ...config, model };
+}
+
+/** Persist defaults (`config` command's whole job). saveConfig validates. */
+function persistCliOverrides(options: { model?: string; provider?: string; baseUrl?: string }): void {
   const modelUpdates: Partial<Config['model']> = {};
   if (options.model) modelUpdates.name = options.model;
-  if (options.provider) modelUpdates.provider = options.provider as Config['model']['provider'];
+  if (options.provider) modelUpdates.provider = parseProviderFlag(options.provider);
   if (options.baseUrl) modelUpdates.baseUrl = options.baseUrl;
   if (Object.keys(modelUpdates).length > 0) {
     // Ensure provider and baseUrl have defaults when only --model is provided
-    if (!modelUpdates.provider) modelUpdates.provider = 'ollama';
-    if (!modelUpdates.baseUrl) modelUpdates.baseUrl = 'http://localhost:11434';
+    if (!modelUpdates.provider) modelUpdates.provider = DEFAULT_CONFIG.model.provider;
+    if (!modelUpdates.baseUrl) modelUpdates.baseUrl = DEFAULT_CONFIG.model.baseUrl;
     saveConfig({ model: modelUpdates as Config['model'] });
   }
 }
@@ -27,15 +51,14 @@ program
   .command('run')
   .description('Run a coding task')
   .argument('<task>', 'Task description')
-  .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider (saved to .mu-agent/config.json)')
-  .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
+  .option('-m, --model <model>', 'Model name (this run only)')
+  .option('-p, --provider <provider>', 'Provider: ollama | custom | unsloth (this run only)')
+  .option('-u, --base-url <url>', 'Base URL (this run only)')
   .action(async (task, options) => {
     try {
       let config;
       try {
-        applyCliOverrides(options);
-        config = loadConfig();
+        config = mergeCliOverrides(loadConfig(), options);
       } catch (err) {
         if (err instanceof ConfigNotFoundError) {
           console.error('\n' + err.message + '\n');
@@ -64,11 +87,11 @@ program
   .command('config')
   .description('Show or update current configuration')
   .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider (saved to .mu-agent/config.json)')
+  .option('-p, --provider <provider>', 'Set provider: ollama | custom | unsloth (saved to .mu-agent/config.json)')
   .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
   .action((options) => {
     try {
-      applyCliOverrides(options);
+      persistCliOverrides(options);
       const config = loadConfig();
       const lsp = getLspStatuses(process.cwd());
       const safe = {
@@ -138,16 +161,15 @@ async function pickSession(): Promise<SessionStore | null> {
 program
   .command('tui')
   .description('Start interactive TUI mode')
-  .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider (saved to .mu-agent/config.json)')
-  .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
+  .option('-m, --model <model>', 'Model name (this run only)')
+  .option('-p, --provider <provider>', 'Provider: ollama | custom | unsloth (this run only)')
+  .option('-u, --base-url <url>', 'Base URL (this run only)')
   .option('-c, --continue', 'Continue the most recent session')
   .option('--resume', 'Interactively select a session to resume')
   .action(async (options) => {
     let config;
     try {
-      applyCliOverrides(options);
-      config = loadConfig();
+      config = mergeCliOverrides(loadConfig(), options);
     } catch (err) {
       if (err instanceof ConfigNotFoundError) {
         console.error('\n' + err.message + '\n');

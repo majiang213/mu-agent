@@ -69,6 +69,8 @@ vi.mock('../../../src/tool/websearch.js', () => ({ websearchTool: {} }));
 vi.mock('../../../src/provider/model-info.js', () => ({
   fetchOllamaParamCount: vi.fn(async () => null),
   fetchContextLength: vi.fn(async () => 128000),
+  resolveApiKey: vi.fn(() => 'ollama'),
+  OLLAMA_DUMMY_API_KEY: 'ollama',
 }));
 
 vi.mock('../../../src/tool/lsp.js', () => ({

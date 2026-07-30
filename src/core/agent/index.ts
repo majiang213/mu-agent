@@ -15,7 +15,7 @@ import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
 import { parseEditedFiles } from './step-context.js';
-import { fetchOllamaParamCount } from '../../provider/model-info.js';
+import { fetchOllamaParamCount, resolveApiKey } from '../../provider/model-info.js';
 
 import type { EnvContext } from '../prompts/agent.js';
 import { loadContext } from './context.js';
@@ -309,7 +309,7 @@ export class ReactAgent {
       env,
       temperature: config.model.temperature ?? DEFAULT_TEMPERATURE,
       contextRatio,
-      apiKey: config.model.apiKey ?? 'ollama',
+      apiKey: resolveApiKey(config.model),
       projectRoot: cwd,
       registerAgent: (a: Agent) => this.registerAgent(a),
       unregisterAgent: (a: Agent) => this._activeAgents.delete(a),

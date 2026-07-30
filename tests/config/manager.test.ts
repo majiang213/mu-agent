@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
+import { writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadConfig, ConfigNotFoundError } from '../../src/config/loader.js';
+import { loadConfig, saveConfig, ConfigNotFoundError } from '../../src/config/loader.js';
 
 function makeTmpDir(): string {
   const dir = join(tmpdir(), `mu-agent-test-${Date.now()}`);
@@ -127,5 +127,33 @@ describe('loadConfig', () => {
         rmSync(dir, { recursive: true });
       }
     });
+  });
+});
+
+describe('saveConfig', () => {
+  it('rejects an invalid provider BEFORE writing (load/save symmetry)', () => {
+    const dir = makeTmpDir();
+    try {
+      expect(() =>
+        saveConfig({ model: { provider: 'garbage' as never, name: 'x', baseUrl: 'http://localhost:1' } }, dir),
+      ).toThrow('provider');
+      expect(() => loadConfig(dir)).toThrow(ConfigNotFoundError); // nothing was written
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
+  });
+
+  it('persists valid updates and reloads them', () => {
+    const dir = makeTmpDir();
+    try {
+      saveConfig({ model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434' } }, dir);
+      const onDisk = JSON.parse(readFileSync(join(dir, '.mu-agent', 'config.json'), 'utf-8')) as {
+        model: { name: string };
+      };
+      expect(onDisk.model.name).toBe('qwen2.5:7b');
+      expect(loadConfig(dir).model.name).toBe('qwen2.5:7b');
+    } finally {
+      rmSync(dir, { recursive: true });
+    }
   });
 });

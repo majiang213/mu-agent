@@ -9,7 +9,7 @@ const PROJECT_CONFIG_PATH = join('.mu-agent', 'config.json');
 
 export class ConfigNotFoundError extends Error {
   constructor() {
-    super('未找到配置文件。请先运行 setup 完成初始化：\n  mu-agent setup');
+    super('Config not found. Run setup first:\n  mu-agent setup');
     this.name = 'ConfigNotFoundError';
   }
 }
@@ -97,6 +97,10 @@ export function saveConfig(updates: Partial<Config>, projectRoot?: string): void
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }
+
+  // Validate the would-be persisted config (merged over defaults) before
+  // writing — load and save must never disagree about what a valid file is.
+  validateConfig(mergeWithDefaults(merged), 'config');
 
   writeFileSync(projectConfigPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
 }

@@ -1,5 +1,22 @@
 const FALLBACK_CONTEXT = 131072;
 
+/**
+ * pi-ai's openai-completions API requires an apiKey string; Ollama ignores
+ * it, so this dummy value is used. The ONE place that knows the sentinel —
+ * previously re-declared as a bare 'ollama' literal in four modules
+ * (second-pass review, candidate 9).
+ */
+export const OLLAMA_DUMMY_API_KEY = 'ollama';
+
+/**
+ * Resolve the apiKey for a model config: the configured key, the dummy
+ * sentinel for Ollama, or '' (non-Ollama without a key — the upstream call
+ * will fail auth and surface the real configuration error).
+ */
+export function resolveApiKey(model: { provider: string; apiKey?: string }): string {
+  return model.apiKey ?? (model.provider === 'ollama' ? OLLAMA_DUMMY_API_KEY : '');
+}
+
 function normalizeBase(url: string): string {
   return url.replace(/\/+$/, '').replace(/\/v1$/, '');
 }

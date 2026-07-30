@@ -2,6 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { completeSimple } from '@earendil-works/pi-ai';
 import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
+import { OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
 
 export interface CompactionConfig {
   maxTokens: number;
@@ -134,7 +135,7 @@ export async function compressConversationHistoryWithLLM(
   messages: AgentMessage[],
   model: Model<'openai-completions'>,
   contextRatio = DEFAULT_CONTEXT_RATIO,
-  apiKey = 'ollama',
+  apiKey = OLLAMA_DUMMY_API_KEY,
 ): Promise<AgentMessage[]> {
   const triggerTokens = Math.floor(model.contextWindow * contextRatio);
   if (messages.length <= SUMMARY_TRIGGER_COUNT && estimateTokens(messages) <= triggerTokens) {

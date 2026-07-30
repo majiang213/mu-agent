@@ -8,7 +8,7 @@ import {
   RETRY_TEMPERATURE_STEP,
   DEFAULT_CONTEXT_RATIO,
 } from '../../config/defaults.js';
-import { fetchContextLength } from '../../provider/model-info.js';
+import { fetchContextLength, OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
 import { compressConversationHistoryWithLLM } from '../compaction/index.js';
@@ -55,7 +55,7 @@ export async function compressConversationHistory(
   messages: AgentMessage[],
   model: Model<'openai-completions'>,
   contextRatio = DEFAULT_CONTEXT_RATIO,
-  apiKey = 'ollama',
+  apiKey = OLLAMA_DUMMY_API_KEY,
 ): Promise<AgentMessage[]> {
   if (messages.length === 0) return [];
   return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
