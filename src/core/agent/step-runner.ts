@@ -56,15 +56,24 @@ export async function compressConversationHistory(
   return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
 }
 
+/** Options threaded through step execution (4c — replaces 7-9 positional params). */
+export interface StepRunOptions {
+  onEvent?: (event: ExecutionEvent) => void;
+  memoryIndex?: string;
+  memorySearchTool?: AgentTool;
+}
+
+export interface ReasonStepOptions extends StepRunOptions {
+  onNeedsClarify?: (questions: string[]) => Promise<string>;
+}
+
 export async function runReasonStep(
   mission: Mission,
   cfg: RunConfig,
   conversationHistory: AgentMessage[],
-  onEvent?: (event: ExecutionEvent) => void,
-  onNeedsClarify?: (questions: string[]) => Promise<string>,
-  memoryIndex?: string,
-  memorySearchTool?: AgentTool,
+  options: ReasonStepOptions = {},
 ): Promise<{ steps: StepDirective[] }> {
+  const { onEvent, onNeedsClarify, memoryIndex, memorySearchTool } = options;
   const htCfg = cfg.heavyThinking;
   const tier = cfg.stateMachine.getModelParams().tier;
   const heavyEnabled = (tier === 'SMALL' || tier === 'MEDIUM') && htCfg?.enabled !== false;
@@ -190,10 +199,9 @@ export async function runStep(
   mission: Mission,
   stepResults: ExecutedStep[],
   cfg: RunConfig,
-  onEvent?: (event: ExecutionEvent) => void,
-  memoryIndex?: string,
-  memorySearchTool?: AgentTool,
+  options: StepRunOptions = {},
 ): Promise<ExecutedStep> {
+  const { onEvent, memoryIndex, memorySearchTool } = options;
   cfg.stateMachine.resetForNextTask(step.state);
 
   let stepEnv = cfg.env;
@@ -314,10 +322,9 @@ export async function executeSteps(
   mission: Mission,
   allStepResults: ExecutedStep[],
   cfg: RunConfig,
-  onEvent?: (event: ExecutionEvent) => void,
-  memoryIndex?: string,
-  memorySearchTool?: AgentTool,
+  options: StepRunOptions = {},
 ): Promise<ExecutedStep[]> {
+  const { onEvent, memoryIndex, memorySearchTool } = options;
   const thisRoundResults: ExecutedStep[] = [];
   const total = directives.length;
 
@@ -331,17 +338,11 @@ export async function executeSteps(
       onEvent?.({ type: 'subplan_start', analyzerState: spec.analyzerState, focus: spec.focus });
 
       const subplanSnapshot = [...allStepResults, ...thisRoundResults];
-      const planResult = await runStep(
-        planStep,
-        i,
-        total,
-        mission,
-        subplanSnapshot,
-        cfg,
+      const planResult = await runStep(planStep, i, total, mission, subplanSnapshot, cfg, {
         onEvent,
         memoryIndex,
         memorySearchTool,
-      );
+      });
       thisRoundResults.push(planResult);
 
       let subDirectives: StepDirective[] = [];
@@ -381,15 +382,11 @@ export async function executeSteps(
 
       if (subDirectives.length > 0) {
         onEvent?.({ type: 'subplan_complete', subStepCount: subDirectives.length });
-        const subResults = await executeSteps(
-          subDirectives,
-          mission,
-          [...allStepResults, ...thisRoundResults],
-          cfg,
+        const subResults = await executeSteps(subDirectives, mission, [...allStepResults, ...thisRoundResults], cfg, {
           onEvent,
           memoryIndex,
           memorySearchTool,
-        );
+        });
         thisRoundResults.push(...subResults);
       }
     } else if ('parallel' in directive) {
@@ -409,7 +406,11 @@ export async function executeSteps(
           // SHARED safeModifier — rollback must see every branch's checkpoints.
           const branchCfg = forkParallelBranchConfig(cfg);
           const snapshot = [...allStepResults, ...thisRoundResults];
-          return runStep(step, i, total, mission, snapshot, branchCfg, branchOnEvent, memoryIndex, memorySearchTool);
+          return runStep(step, i, total, mission, snapshot, branchCfg, {
+            onEvent: branchOnEvent,
+            memoryIndex,
+            memorySearchTool,
+          });
         }),
       );
 
@@ -431,7 +432,11 @@ export async function executeSteps(
       onEvent?.({ type: 'parallel_complete', stepCount: parallelSteps.length });
     } else {
       const snapshot = [...allStepResults, ...thisRoundResults];
-      const result = await runStep(directive, i, total, mission, snapshot, cfg, onEvent, memoryIndex, memorySearchTool);
+      const result = await runStep(directive, i, total, mission, snapshot, cfg, {
+        onEvent,
+        memoryIndex,
+        memorySearchTool,
+      });
       thisRoundResults.push(result);
     }
   }

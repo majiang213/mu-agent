@@ -91,11 +91,7 @@ describe('runWithVerifyRetry', () => {
       makeMission(),
       [],
       makeCfg(),
-      undefined,
-      '',
-      {} as never,
-      noopClarify,
-      null,
+      { onNeedsClarify: noopClarify },
     );
 
     expect(outcome.kind).toBe('completed');
@@ -119,11 +115,7 @@ describe('runWithVerifyRetry', () => {
       makeMission(),
       [],
       makeCfg(),
-      undefined,
-      '',
-      {} as never,
-      noopClarify,
-      null,
+      { onNeedsClarify: noopClarify },
     );
 
     expect(outcome.kind).toBe('failed');
@@ -155,11 +147,7 @@ describe('runWithVerifyRetry', () => {
       makeMission(),
       [],
       makeCfg(),
-      undefined,
-      '',
-      {} as never,
-      noopClarify,
-      null,
+      { onNeedsClarify: noopClarify },
     );
 
     expect(outcome.kind).toBe('failed');

@@ -268,7 +268,7 @@ describe('Bug 4: state_change event from field', () => {
     const onEvent = (event: Record<string, unknown>) => events.push(event);
 
     // Act
-    await runStep(step, 1, 2, mission, [], cfg, onEvent);
+    await runStep(step, 1, 2, mission, [], cfg, { onEvent });
 
     // Assert: the state_change event should have from=MODIFY (the actual current state),
     // not from=REASON (which is hardcoded on line 514/523 of step-runner.ts).
@@ -292,7 +292,7 @@ describe('Bug 4: state_change event from field', () => {
     const events: Array<Record<string, unknown>> = [];
     const onEvent = (event: Record<string, unknown>) => events.push(event);
 
-    await runStep(step, 0, 1, mission, [], cfg, onEvent);
+    await runStep(step, 0, 1, mission, [], cfg, { onEvent });
 
     const stateChangeEvent = events.find((e) => e.type === 'state_change' && e.to === State.MODIFY);
     expect(stateChangeEvent).toBeDefined();

@@ -171,9 +171,9 @@ describe('executeSteps', () => {
         },
       ];
 
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, (e) =>
-        events.push(e),
-      );
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
+        onEvent: (e) => events.push(e),
+      });
 
       const types = events.map((e) => e.type);
       expect(types).toContain('parallel_start');
@@ -194,9 +194,9 @@ describe('executeSteps', () => {
         },
       ];
 
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, (e) =>
-        events.push(e),
-      );
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
+        onEvent: (e) => events.push(e),
+      });
 
       const types = events.map((e) => e.type);
       expect(types).not.toContain('state_change');
@@ -233,9 +233,9 @@ describe('executeSteps', () => {
         },
       ];
 
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, (e) =>
-        events.push(e),
-      );
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
+        onEvent: (e) => events.push(e),
+      });
 
       const overlap = events.find((e) => e.type === 'parallel_overlap');
       expect(overlap).toBeDefined();
@@ -269,9 +269,9 @@ describe('executeSteps', () => {
         },
       ];
 
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, (e) =>
-        events.push(e),
-      );
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
+        onEvent: (e) => events.push(e),
+      });
 
       expect(events.some((e) => e.type === 'parallel_overlap')).toBe(false);
     });
@@ -343,9 +343,9 @@ describe('executeSteps', () => {
       const events: ExecutionEvent[] = [];
       const directives: StepDirective[] = [{ state: State.ANSWER, focus: 'respond' }];
 
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], makeCfg(), (e) =>
-        events.push(e),
-      );
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], makeCfg(), {
+        onEvent: (e) => events.push(e),
+      });
 
       const types = events.map((e) => e.type);
       expect(types).toContain('task_start');
@@ -362,7 +362,7 @@ describe('executeSteps', () => {
         { subplan: { analyzerState: State.PLAN, focus: 'analyze changes and plan commits' } },
       ];
 
-      await executeSteps(directives, mission, [], makeCfg(), (e) => events.push(e));
+      await executeSteps(directives, mission, [], makeCfg(), { onEvent: (e) => events.push(e) });
 
       const types = events.map((e) => e.type);
       expect(types).toContain('subplan_start');
@@ -426,7 +426,7 @@ describe('executeSteps', () => {
         { subplan: { analyzerState: State.PLAN, focus: 'run tests and plan two fixes' } },
       ];
 
-      await executeSteps(directives, mission, [], makeCfg(), (e) => events.push(e));
+      await executeSteps(directives, mission, [], makeCfg(), { onEvent: (e) => events.push(e) });
 
       const completeEv = events.find((e) => e.type === 'subplan_complete');
       expect(completeEv).toBeDefined();

@@ -121,7 +121,9 @@ describe('runReasonStep — heavy path', () => {
     vi.mocked(samplePlans).mockResolvedValue([plan]);
     vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
     const events: ExecutionEvent[] = [];
-    await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], (e) => events.push(e));
+    await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], {
+      onEvent: (e) => events.push(e),
+    });
     const startEvent = events.find(
       (e): e is Extract<ExecutionEvent, { type: 'deliberation_start' }> => e.type === 'deliberation_start',
     );
@@ -145,9 +147,9 @@ describe('runReasonStep — heavy path', () => {
     vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
     vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(synthesized));
     const events: ExecutionEvent[] = [];
-    const result = await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], (e) =>
-      events.push(e),
-    );
+    const result = await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], {
+      onEvent: (e) => events.push(e),
+    });
     expect(result.steps).toEqual(synthesized.steps);
     expect(events.some((e) => e.type === 'deliberation_complete' && e.synthesizedStepCount === 4)).toBe(true);
   });
@@ -161,13 +163,10 @@ describe('runReasonStep — heavy path', () => {
       .mockResolvedValueOnce({ type: 'needs_clarification', question: 'Which file?' })
       .mockResolvedValueOnce(makeSelectedOutcome(plan0));
     const events: ExecutionEvent[] = [];
-    const result = await runReasonStep(
-      { id: 't', description: 'fix bug', state: 'running' },
-      cfg,
-      [],
-      (e) => events.push(e),
-      async () => 'src/auth.ts',
-    );
+    const result = await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], {
+      onEvent: (e) => events.push(e),
+      onNeedsClarify: async () => 'src/auth.ts',
+    });
     expect(samplePlans).toHaveBeenCalledTimes(2);
     expect(deliberate).toHaveBeenCalledTimes(2);
     expect(events.some((e) => e.type === 'deliberation_clarification')).toBe(true);
@@ -186,7 +185,9 @@ describe('runReasonStep — heavy path', () => {
     vi.mocked(deliberate)
       .mockResolvedValueOnce({ type: 'needs_clarification', question: 'Which file?' })
       .mockResolvedValueOnce(makeSelectedOutcome(plans[0]!));
-    await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], undefined, async () => 'answer');
+    await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], {
+      onNeedsClarify: async () => 'answer',
+    });
     expect(vi.mocked(deliberate).mock.calls[1]![4]).toBe(false);
   });
 
@@ -199,7 +200,9 @@ describe('runReasonStep — heavy path', () => {
     });
     const events: ExecutionEvent[] = [];
     try {
-      await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], (e) => events.push(e));
+      await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], {
+        onEvent: (e) => events.push(e),
+      });
     } catch {}
     expect(events.some((e) => e.type === 'deliberation_start')).toBe(true);
     expect(events.some((e) => e.type === 'deliberation_fallback')).toBe(true);
@@ -211,9 +214,9 @@ describe('runReasonStep — heavy path', () => {
     vi.mocked(samplePlans).mockResolvedValue([plan]);
     vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
     const events: ExecutionEvent[] = [];
-    await runReasonStep({ id: 't', description: 'fix bug in calc.js', state: 'running' }, cfg, [], (e) =>
-      events.push(e),
-    );
+    await runReasonStep({ id: 't', description: 'fix bug in calc.js', state: 'running' }, cfg, [], {
+      onEvent: (e) => events.push(e),
+    });
     expect(events.some((e) => e.type === 'state_change' && e.to === 'SAMPLING')).toBe(true);
     expect(samplePlans).toHaveBeenCalledTimes(1);
   });

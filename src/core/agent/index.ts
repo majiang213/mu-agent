@@ -1,11 +1,12 @@
 import { Agent } from '@earendil-works/pi-agent-core';
-import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { SafeModifier } from '../../tool/safety/index.js';
 import type { Config } from '../../config/types.js';
 import { State } from '../types.js';
 import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import { compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
+import type { ReasonStepOptions } from './step-runner.js';
 import { buildRunSetup } from './setup.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
 import { parseEditedFiles } from './step-context.js';
@@ -63,17 +64,18 @@ export type VerifyLoopOutcome =
   | { kind: 'completed'; allStepResults: ExecutedStep[]; mission: Mission }
   | { kind: 'failed'; result: StateResult; mission: Mission };
 
+export interface VerifyRetryOptions extends ReasonStepOptions {
+  memoryStore?: MemoryStore | null;
+}
+
 export async function runWithVerifyRetry(
   initialSteps: StepDirective[],
   mission: Mission,
   conversationHistory: AgentMessage[],
   cfg: RunConfig,
-  onEvent: ((e: ExecutionEvent) => void) | undefined,
-  memoryIndex: string,
-  memorySearchTool: AgentTool,
-  clarifyCallback: (questions: string[]) => Promise<string>,
-  memoryStore: MemoryStore | null,
+  options: VerifyRetryOptions = {},
 ): Promise<VerifyLoopOutcome> {
+  const { onEvent, memoryIndex, memorySearchTool, onNeedsClarify, memoryStore = null } = options;
   const allStepResults: ExecutedStep[] = [];
   let currentSteps = initialSteps;
   let prevStepsSignature = '';
@@ -82,15 +84,11 @@ export async function runWithVerifyRetry(
   let verifyRetryCount = 0;
 
   while (true) {
-    const thisRoundResults = await executeSteps(
-      currentSteps,
-      mission,
-      allStepResults,
-      cfg,
+    const thisRoundResults = await executeSteps(currentSteps, mission, allStepResults, cfg, {
       onEvent,
       memoryIndex,
       memorySearchTool,
-    );
+    });
 
     allStepResults.push(...thisRoundResults);
 
@@ -131,15 +129,12 @@ export async function runWithVerifyRetry(
           timestamp: Date.now(),
         },
       ];
-      const { steps: verifyRetrySteps } = await runReasonStep(
-        mission,
-        cfg,
-        verifyFailureHistory,
+      const { steps: verifyRetrySteps } = await runReasonStep(mission, cfg, verifyFailureHistory, {
         onEvent,
-        clarifyCallback,
+        onNeedsClarify,
         memoryIndex,
         memorySearchTool,
-      );
+      });
       if (verifyRetrySteps.length === 0) {
         const result: StateResult = {
           state: State.DONE,
@@ -276,27 +271,20 @@ export class ReactAgent {
         cfg.apiKey,
       );
 
-      const { steps } = await runReasonStep(
-        mission,
-        cfg,
-        conversationHistory,
+      const { steps } = await runReasonStep(mission, cfg, conversationHistory, {
         onEvent,
-        clarifyCallback,
+        onNeedsClarify: clarifyCallback,
         memoryIndex,
         memorySearchTool,
-      );
+      });
 
-      const outcome = await runWithVerifyRetry(
-        steps,
-        mission,
-        conversationHistory,
-        cfg,
+      const outcome = await runWithVerifyRetry(steps, mission, conversationHistory, cfg, {
         onEvent,
         memoryIndex,
         memorySearchTool,
-        clarifyCallback,
-        this._memoryStore,
-      );
+        onNeedsClarify: clarifyCallback,
+        memoryStore: this._memoryStore,
+      });
 
       if (outcome.kind === 'failed') {
         mission = outcome.mission;
@@ -325,9 +313,7 @@ export class ReactAgent {
             mission,
             allStepResults,
             cfg,
-            onEvent,
-            memoryIndex,
-            memorySearchTool,
+            { onEvent, memoryIndex, memorySearchTool },
           );
         } catch {
           // ANSWER is best-effort — degrade gracefully to last step output
