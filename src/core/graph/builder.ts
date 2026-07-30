@@ -4,11 +4,7 @@ import { join, relative, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { glob } from 'glob';
 import ts from 'typescript';
-import { GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME, IGNORE_DIRS } from './constants.js';
-
-function getDbPath(projectRoot: string): string {
-  return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
-}
+import { GRAPH_DB_DIRNAME, IGNORE_DIRS, getDbPath } from './constants.js';
 
 export interface GraphNode {
   id: number;

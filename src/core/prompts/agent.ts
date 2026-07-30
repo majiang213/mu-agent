@@ -101,7 +101,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   // get the tool (registry memorySearchTool flag) — splice it in per state.
   const memoryBlock = memoryIndex
     ? STATE_REGISTRY[state]?.memorySearchTool === true
-      ? memoryIndex.replace('</memory>', '使用 memory_search 工具可查看任意条目的详情。\n</memory>')
+      ? memoryIndex.replace('</memory>', 'Use the memory_search tool to view the details of any entry.\n</memory>')
       : memoryIndex
     : '';
 

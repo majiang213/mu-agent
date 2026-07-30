@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
+import { resolve as pathResolve, relative } from 'node:path';
 import { StagnationDetector } from '../cognitive/index.js';
 import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { fetchContextLength, OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
@@ -133,7 +134,10 @@ export async function runReasonStep(
   );
 
   if (candidates.length === 0) {
-    onEvent?.({ type: 'deliberation_fallback', reason: '所有采样失败，回退到单次规划' });
+    onEvent?.({
+      type: 'deliberation_fallback',
+      reason: 'all samples failed, falling back to a single planning attempt',
+    });
     return runReasonAttempt(mission, cfg, conversationHistory, {
       onEvent,
       onNeedsClarify,
@@ -208,7 +212,9 @@ export async function runStep(
   if (STATE_REGISTRY[step.state]?.needsCodeContext === true) {
     try {
       // One locator per run (cfg.locator) — its BM25 cache survives across steps.
-      const locator = cfg.locator ?? new CodeGraphLocator(cfg.projectRoot);
+      // The ??= fallback only fires in tests; memoizing keeps the instance
+      // owned (and closable) instead of leaking one per call.
+      const locator = (cfg.locator ??= new CodeGraphLocator(cfg.projectRoot));
       const result = locator.locate(step.focus);
       stepEnv = {
         ...cfg.env,
@@ -294,7 +300,6 @@ export async function runStep(
 
   if (step.state === State.MODIFY && capturedComplete !== null) {
     try {
-      const { resolve: pathResolve, relative } = await import('node:path');
       const edited = Array.isArray(capturedComplete['edited']) ? (capturedComplete['edited'] as string[]) : [];
       if (edited.length > 0) {
         const absPaths = edited
@@ -305,7 +310,7 @@ export async function runStep(
           return rel && !rel.startsWith('..') && !rel.startsWith('/');
         });
         if (safePaths.length > 0) {
-          const locator = cfg.locator ?? new CodeGraphLocator(cfg.projectRoot);
+          const locator = (cfg.locator ??= new CodeGraphLocator(cfg.projectRoot));
           locator.updateFiles(safePaths);
         }
       }

@@ -46,7 +46,7 @@ describe('MemoryStore (deepened interface)', () => {
 
       const index = store.index();
       expect(index).toContain('<memory>');
-      expect(index).toContain('最近任务');
+      expect(index).toContain('Recent tasks');
 
       const hits = store.search('divide by zero');
       expect(hits).toContain('calc.js');
@@ -72,7 +72,7 @@ describe('MemoryStore (deepened interface)', () => {
   it('search reports when nothing matches', () => {
     const store = MemoryStore.open(tmpDir);
     try {
-      expect(store.search('nothing-like-this-anywhere')).toContain('未找到');
+      expect(store.search('nothing-like-this-anywhere')).toContain('No memories found');
     } finally {
       store.close();
     }

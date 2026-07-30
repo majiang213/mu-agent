@@ -79,7 +79,7 @@ async function runSingleDeliberation(
       .map((c) => c.text)
       .join('');
   } catch {
-    onEvent?.({ type: 'deliberation_fallback', reason: 'LLM 调用失败' });
+    onEvent?.({ type: 'deliberation_fallback', reason: 'LLM call failed' });
     return null;
   }
 
@@ -89,7 +89,7 @@ async function runSingleDeliberation(
       const question = qMatch?.[1]?.trim() ?? 'Can you provide more details about the task?';
       return { type: 'needs_clarification', question };
     }
-    onEvent?.({ type: 'deliberation_fallback', reason: '需要澄清，已跳过' });
+    onEvent?.({ type: 'deliberation_fallback', reason: 'clarification needed, skipped' });
     return null;
   }
 
@@ -101,7 +101,7 @@ async function runSingleDeliberation(
     };
   }
 
-  onEvent?.({ type: 'deliberation_fallback', reason: '解析失败，响应中无有效 steps' });
+  onEvent?.({ type: 'deliberation_fallback', reason: 'parse failed: no valid steps in response' });
   return null;
 }
 
@@ -149,7 +149,7 @@ export async function deliberate(
   allowClarification = true,
 ): Promise<DeliberateOutcome> {
   if (candidates.length === 0) {
-    onEvent?.({ type: 'deliberation_fallback', reason: '无可用方案' });
+    onEvent?.({ type: 'deliberation_fallback', reason: 'no candidates available' });
     return { type: 'selected', result: { synthesizedSteps: [], deliberationSummary: 'no candidates' } };
   }
 
@@ -161,7 +161,7 @@ export async function deliberate(
   }
 
   if (allPlansSimilar(candidates)) {
-    onEvent?.({ type: 'deliberation_fallback', reason: '所有方案相似，直接采用' });
+    onEvent?.({ type: 'deliberation_fallback', reason: 'all candidates similar, adopted directly' });
     return {
       type: 'selected',
       result: { synthesizedSteps: pickShortest(candidates).steps, deliberationSummary: 'plans too similar' },

@@ -1,7 +1,13 @@
+import { join } from 'node:path';
 import { MU_AGENT_DIR } from '../../config/defaults.js';
 
 export const GRAPH_DB_DIRNAME = MU_AGENT_DIR;
 export const GRAPH_DB_FILENAME = 'graph.db';
+
+/** The one graph.db path — shared by the graph builder and retriever. */
+export function getDbPath(projectRoot: string): string {
+  return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
+}
 
 /**
  * THE ignore list — one source for every directory the harness pretends does

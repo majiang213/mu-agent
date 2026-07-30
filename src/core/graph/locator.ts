@@ -57,6 +57,9 @@ export class CodeGraphLocator {
 
   updateFiles(filePaths: string[]): void {
     this.builder.updateFiles(filePaths);
+    // Close the stale retriever's readonly handle before swapping in a fresh
+    // one (the swap exists to invalidate its BM25 cache).
+    this.retriever.close();
     this.retriever = new GraphRetriever(this.projectRoot);
   }
 

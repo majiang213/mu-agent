@@ -101,7 +101,7 @@ describe('formatMemoryIndex', () => {
     writeEpisodeSync(db, makeMission('task one'), [], makeFinalResult(true), projectRoot);
     writeEpisodeSync(db, makeMission('task two'), [], makeFinalResult(true), projectRoot);
     const result = formatMemoryIndex(db, projectRoot);
-    expect(result).toContain('共 2 条记忆');
+    expect(result).toContain('2 memories');
   });
 });
 

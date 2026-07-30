@@ -1,10 +1,6 @@
 import Database from 'better-sqlite3';
-import { join, resolve } from 'node:path';
-import { GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME } from './constants.js';
-
-function getDbPath(projectRoot: string): string {
-  return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
-}
+import { resolve } from 'node:path';
+import { getDbPath } from './constants.js';
 
 export interface RetrieveResult {
   id: number;

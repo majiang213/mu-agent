@@ -49,7 +49,7 @@ export class MemoryStore {
     const rows = graphRetrieve(query, this.db, this.projectRoot);
     return rows.length > 0
       ? rows.map((r) => formatEpisodeDetail(r)).join('\n\n---\n\n')
-      : `未找到与"${query}"相关的记忆。`;
+      : `No memories found matching "${query}".`;
   }
 
   /** Exact lookup by short id; null when no episode matches. */

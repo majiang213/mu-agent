@@ -16,15 +16,15 @@ async function generateEpisodeSummary(
   let context = row.user_input;
   const s = parseStructuredSummary(row.result_summary);
   if (s) {
-    if (s.files?.length) context += `\n修改了: ${s.files.join(', ')}`;
-    if (s.key_finding) context += `\n结论: ${s.key_finding}`;
-    if (s.error_summary) context += `\n失败: ${s.error_summary}`;
+    if (s.files?.length) context += `\nModified: ${s.files.join(', ')}`;
+    if (s.key_finding) context += `\nFinding: ${s.key_finding}`;
+    if (s.error_summary) context += `\nError: ${s.error_summary}`;
   }
 
   const result = await completeSimple(
     model,
     {
-      systemPrompt: `你是代码助手。用一句中文总结这次任务（≤50字），然后列出3-5个搜索关键词。\n输出格式（JSON）：{"description": "...", "keywords": ["...", "..."]}`,
+      systemPrompt: `You are a coding assistant. Summarize this task in one sentence (≤120 chars), then list 3-5 search keywords.\nOutput format (JSON): {"description": "...", "keywords": ["...", "..."]}`,
       messages: [{ role: 'user', content: context, timestamp: Date.now() }],
     },
     { temperature: 0.1, apiKey: resolveApiKey(model) || undefined },

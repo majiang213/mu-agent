@@ -385,7 +385,7 @@ describe('deliberate', () => {
     expect(result.type).toBe('selected');
     const fallback = events.find((e) => e.type === 'deliberation_fallback');
     expect(fallback).toBeDefined();
-    expect(fallback?.reason).toContain('澄清');
+    expect(fallback?.reason).toContain('clarification');
   });
 
   it('allPlansSimilar: 3 plans where 2 are similar but 1 is different triggers deliberation', async () => {

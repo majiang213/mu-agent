@@ -23,11 +23,11 @@ export function createMemorySearchTool(
     execute: async (_toolCallId, params) => {
       let text: string;
       if (params.id) {
-        text = store.searchById(params.id) ?? `未找到 ID 为 #${params.id} 的记忆。`;
+        text = store.searchById(params.id) ?? `No memory found with ID #${params.id}.`;
       } else if (params.query) {
         text = store.search(params.query);
       } else {
-        text = '请提供 query 或 id 参数。';
+        text = 'Provide a query or id parameter.';
       }
       return {
         content: [{ type: 'text' as const, text }],

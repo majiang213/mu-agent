@@ -111,11 +111,11 @@ export function formatEpisodeDetail(ep: EpisodeRow): string {
   const shortId = toShortId(ep.id);
 
   const lines = [`[${time} #${shortId}] ${trunc(ep.user_input)}`];
-  if (s?.action) lines.push(`动作：${s.action}`);
-  if (s?.files?.length) lines.push(`文件：${s.files.join(', ')}`);
-  if (s?.key_finding) lines.push(`结论：${trunc(s.key_finding)}`);
-  if (s?.error_summary) lines.push(`失败：${trunc(s.error_summary)}`);
+  if (s?.action) lines.push(`Action: ${s.action}`);
+  if (s?.files?.length) lines.push(`Files: ${s.files.join(', ')}`);
+  if (s?.key_finding) lines.push(`Finding: ${trunc(s.key_finding)}`);
+  if (s?.error_summary) lines.push(`Error: ${trunc(s.error_summary)}`);
   const outcome = ep.success ? 'success' : 'failed';
-  lines.push(`结果：${outcome}`);
+  lines.push(`Result: ${outcome}`);
   return lines.join('\n');
 }

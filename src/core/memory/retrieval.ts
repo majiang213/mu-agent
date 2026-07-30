@@ -139,20 +139,20 @@ export function formatMemoryIndex(db: Database.Database, projectRoot: string): s
 
   const facts: SemanticFact[] = readSemanticFacts(db, projectRoot).slice(0, 5);
 
-  const lines: string[] = ['<memory>', '最近任务：'];
+  const lines: string[] = ['<memory>', 'Recent tasks:'];
   for (const row of rows) {
     const shortId = toShortId(row.id);
     lines.push(`  [${fmtTime(row.timestamp)} #${shortId}] ${fmtTitle(row)}`);
   }
-  lines.push(`共 ${total} 条记忆（近30天）`);
+  lines.push(`${total} memories`);
 
   if (entityRows.length > 0) {
-    lines.push(`实体：${entityRows.map((e) => `${e.name}(${e.cnt})`).join(' ')}`);
+    lines.push(`Files: ${entityRows.map((e) => `${e.name}(${e.cnt})`).join(' ')}`);
   }
 
   const prefFacts = facts.filter((f) => f.category === 'preference' || f.category === 'convention');
   if (prefFacts.length > 0) {
-    lines.push(`偏好：${prefFacts.map((f) => f.value).join(' | ')}`);
+    lines.push(`Preferences: ${prefFacts.map((f) => f.value).join(' | ')}`);
   }
 
   // NOTE: the memory_search hint line is NOT emitted here — it is spliced in
