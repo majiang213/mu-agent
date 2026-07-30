@@ -16,32 +16,38 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **complete()** — the tool every state must call to exit; its TypeBox schema is
   declared per-state in STATE_REGISTRY.
 - **STATE_REGISTRY** — the single source for per-state facts: allowedTools,
-  instruction, reminderFields, completeSchema, contextNeeds. (Being deepened to
-  also own readOnly/needsCodeContext/memory/verbPrefix/transition — candidate 1.)
+  instruction, reminderFields, completeSchema, contextNeeds, and (since
+  2026-07-30) readOnly / needsCodeContext / memoryIndex / memorySearchTool /
+  verbPrefix. complete() args are validated against the same completeSchema
+  the model sees (TypeBox Value.Check + reminderFields message).
 - **Heavy Thinking (HT)** — for SMALL/MEDIUM models: N parallel REASON samples
   (sampler) → deliberation (synthesizer) → refinement (judge), before the real
   REASON step commits to a plan.
 - **ReactAgent** — the facade: `run()` drives REASON → executeSteps → ANSWER.
-- **ExecutionEvent** — the event union streamed from core to the TUI.
-
-## Safety & memory
-
+- **ExecutionEvent** — the event union streamed from core to the TUI. The TUI's
+  handler chain ends in an exhaustiveness check (unhandled variant = compile
+  error).
 - **SafeModifier** — file checkpoints before edit/write; rollback restores them.
-- **SafeModification** *(planned, candidates 3+5)* — the module owning the
-  checkpoint → post-check → restore protocol (today smeared across builder.ts,
-  step-runner.ts, agent/index.ts).
-- **StepContext** *(planned, candidate 3)* — the module owning per-step mutable
-  resources (SafeModifier forks, StagnationDetector, readFiles, retry config)
-  with explicit fork/merge semantics for parallel branches.
+  The checkpoint store is SHARED across parallel branches (never forked).
+- **directives module** (`src/core/agent/directives.ts`) — one home for
+  StepDirective: parse / flatten / fingerprint / format. Dedup, Jaccard
+  similarity, and retry-loop detection all read one canonical fingerprint.
+- **runReasonAttempt** (`step-runner.ts`) — the single REASON planning
+  implementation; Heavy Thinking samples run it with a cloned state machine
+  and throwOnFailure, so samples plan with the same memory injection and
+  REMINDER retries as the real REASON step.
+- **step-context** (`src/core/agent/step-context.ts`) — fork semantics for
+  parallel branches (cloned state machine, SHARED checkpoint store) +
+  parseEditedFiles + findOverlappingEdits (parallel_overlap event).
+- **SafeModification** (`src/tool/safety/modification.ts`) — the post-edit
+  protocol: syntax + damage check → restore-or-clear → steer message.
 - **MemoryStore** — three-layer memory (episodes + entities + semantic facts)
-  over SQLite; injects a ~200-token index anchor into memory-capable states.
-
-## Planned modules (architecture review 2026-07-30)
-
-- **directives module** *(candidate 2)* — one home for StepDirective:
-  parse / flatten / fingerprint / format, plus the unified `runReasonAttempt`.
-- **RunPresenter** *(candidate 4)* — pure module in `src/tui/` converting
-  ExecutionEvent + StateResult into view-models; app.ts only renders.
+  over SQLite. The deepened interface: open / writeEpisodeSync / index /
+  search / searchById / processPendingSummaries / close. Episode queries
+  project through the single episodeColumns() list.
+- **RunPresenter** (`src/tui/presenter.ts`) — pure, terminal-free presentation:
+  formatRunResult (run output → display), session message shaping without
+  presentation prefixes, legacy prefix stripping at load.
 
 ## Decisions worth not re-litigating
 
