@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import { join, dirname, parse } from 'node:path';
 import { mkdirSync, existsSync } from 'node:fs';
+import { MU_AGENT_DIR } from '../../config/defaults.js';
 
-const DB_DIRNAME = '.mu-agent';
+const DB_DIRNAME = MU_AGENT_DIR;
 const DB_FILENAME = 'memory.db';
 const CURRENT_SCHEMA_VERSION = 1;
 

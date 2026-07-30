@@ -207,7 +207,8 @@ export async function runStep(
   let stepEnv = cfg.env;
   if (STATE_REGISTRY[step.state]?.needsCodeContext === true) {
     try {
-      const locator = new CodeGraphLocator(cfg.projectRoot);
+      // One locator per run (cfg.locator) — its BM25 cache survives across steps.
+      const locator = cfg.locator ?? new CodeGraphLocator(cfg.projectRoot);
       const result = locator.locate(step.focus);
       stepEnv = {
         ...cfg.env,
@@ -304,7 +305,7 @@ export async function runStep(
           return rel && !rel.startsWith('..') && !rel.startsWith('/');
         });
         if (safePaths.length > 0) {
-          const locator = new CodeGraphLocator(cfg.projectRoot);
+          const locator = cfg.locator ?? new CodeGraphLocator(cfg.projectRoot);
           locator.updateFiles(safePaths);
         }
       }

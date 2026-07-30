@@ -4,6 +4,7 @@ import { glob } from 'glob';
 import ts from 'typescript';
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
+import { IGNORE_DIRS } from '../core/graph/constants.js';
 
 export interface ASTSearchResult {
   functionName: string;
@@ -21,7 +22,7 @@ export class ASTLocator {
 
     const files = await glob('**/*.{ts,tsx,js,jsx}', {
       cwd: scope,
-      ignore: ['node_modules/**', 'dist/**'],
+      ignore: [...IGNORE_DIRS].map((d) => `**/${d}/**`),
     });
 
     for (const file of files.slice(0, 50)) {

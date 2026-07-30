@@ -48,6 +48,20 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **RunPresenter** (`src/tui/presenter.ts`) — pure, terminal-free presentation:
   formatRunResult (run output → display), session message shaping without
   presentation prefixes, legacy prefix stripping at load.
+- **reason-runner** (`src/core/agent/reason-runner.ts`) — the LLM-call engine:
+  runStepAgent (prompt+retry) + runReasonAttempt. step-runner and the HT
+  sampler both depend on it (no import cycle).
+- **RunSetup** (`src/core/agent/setup.ts`) — builds everything a run needs
+  (model probe, tool stack, env, LSP, memory, RunConfig) and disposes it
+  (close()). run() is a pipeline over it.
+- **isAbortError** (`src/core/agent/abort.ts`) — the one "user pressed Esc"
+  predicate (name primary, 'aborted' fallback).
+- **Two locators, disambiguated** — `CodeGraphLocator` (`core/graph/locator.ts`)
+  is the harness's SQLite BM25+call-graph locator (one per run, in RunConfig);
+  `astLocatorTool` (`tool/locator.ts`) is the model-facing AST search tool.
+  IGNORE_DIRS (`core/graph/constants.ts`) is the one ignore list for both,
+  the tree walker, and the graph builder.
+- **MU_AGENT_DIR** (`config/defaults.ts`) — the one '.mu-agent' literal.
 
 ## Decisions worth not re-litigating
 

@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { existsSync, unlinkSync } from 'node:fs';
 import { join, dirname, basename } from 'node:path';
+import { MU_AGENT_DIR } from '../../config/defaults.js';
 
 export interface Checkpoint {
   filePath: string;
@@ -28,7 +29,7 @@ export class SafeModifier {
   private checkpoints: Map<string, Checkpoint> = new Map();
   private checkpointDir: string;
 
-  constructor(checkpointDir = '.mu-agent/checkpoints') {
+  constructor(checkpointDir = `${MU_AGENT_DIR}/checkpoints`) {
     this.checkpointDir = checkpointDir;
   }
 

@@ -4,27 +4,11 @@ import { join, relative, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { glob } from 'glob';
 import ts from 'typescript';
-import { GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME } from './constants.js';
+import { GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME, IGNORE_DIRS } from './constants.js';
 
 function getDbPath(projectRoot: string): string {
   return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
 }
-
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'out',
-  '__pycache__',
-  '.venv',
-  'venv',
-  'coverage',
-  '.next',
-  '.nuxt',
-  'target',
-  'vendor',
-]);
 
 export interface GraphNode {
   id: number;
@@ -318,7 +302,7 @@ export class GraphBuilder {
   private collectSourceFiles(): string[] {
     return glob.sync('**/*.{ts,tsx,js,jsx}', {
       cwd: this.projectRoot,
-      ignore: [...SKIP_DIRS].map((d) => `**/${d}/**`),
+      ignore: [...IGNORE_DIRS].map((d) => `**/${d}/**`),
       absolute: true,
     });
   }

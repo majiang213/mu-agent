@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { GraphBuilder } from './builder.js';
 import { GraphRetriever } from './retriever.js';
-import { buildProjectTree, extractCandidateFiles } from './tree.js';
+import { scanProjectTree, renderProjectTree, extractCandidateFiles } from './tree.js';
 
 export interface LocateResult {
   files: string[];
@@ -23,8 +23,14 @@ export class CodeGraphLocator {
     this.retriever = new GraphRetriever(this.projectRoot);
   }
 
+  /** Close the retriever's readonly SQLite handle. Owned per-run by RunConfig. */
+  close(): void {
+    this.retriever.close();
+  }
+
   locate(focus: string): LocateResult {
-    const tree = buildProjectTree(this.projectRoot);
+    const entries = scanProjectTree(this.projectRoot);
+    const tree = renderProjectTree(entries);
 
     if (this.retriever.hasGraph()) {
       const results = this.retriever.retrieve(focus);
@@ -44,7 +50,7 @@ export class CodeGraphLocator {
       }
     }
 
-    const candidates = extractCandidateFiles(tree, focus);
+    const candidates = extractCandidateFiles(entries, focus);
     const suggestedFiles = candidates.map((p) => ({ path: p }));
     return { files: candidates, snippets: {}, tree, suggestedFiles, method: 'keyword' };
   }

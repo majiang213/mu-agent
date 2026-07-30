@@ -5,6 +5,7 @@ import type { EnvContext } from '../prompts/agent.js';
 import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';
 import type { SafeModifier } from '../../tool/safety/index.js';
 import type { LspClient } from '../../tool/lsp.js';
+import type { CodeGraphLocator } from '../graph/locator.js';
 
 export type ExecutionEvent =
   | { type: 'state_change'; from: string; to: string }
@@ -58,5 +59,7 @@ export interface RunConfig {
   registerAgent?: (agent: Agent) => void;
   unregisterAgent?: (agent: Agent) => void;
   lspClient?: LspClient;
+  /** One locator per run (BM25 cache survives across steps); closed at cleanup. */
+  locator?: CodeGraphLocator;
   heavyThinking?: HeavyThinkingConfig;
 }

@@ -17,8 +17,7 @@ export interface RetrieveResult {
 }
 
 export class GraphRetriever {
-  private bm25Index: Map<number, { tokens: Set<string>; node: RetrieveResult }> | null = null;
-  private bm25BuiltAt = 0;
+  private bm25Index: Map<number, { counts: Map<string, number>; docLen: number; node: RetrieveResult }> | null = null;
   private projectRoot: string;
   private db: Database.Database | null = null;
 
@@ -55,29 +54,29 @@ export class GraphRetriever {
     this.ensureBM25();
     if (!this.bm25Index || this.bm25Index.size === 0) return [];
 
-    const queryTokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+    const queryTokens = tokenize(query);
     if (queryTokens.length === 0) return [];
 
     const scores = new Map<number, number>();
     const N = this.bm25Index.size;
-    const avgLen = [...this.bm25Index.values()].reduce((s, v) => s + v.tokens.size, 0) / N;
+    const avgLen = [...this.bm25Index.values()].reduce((s, v) => s + v.docLen, 0) / N;
     const k1 = 1.5;
     const b = 0.75;
 
     const idf = new Map<string, number>();
     for (const token of queryTokens) {
       let df = 0;
-      for (const { tokens } of this.bm25Index.values()) {
-        if (tokens.has(token)) df++;
+      for (const { counts } of this.bm25Index.values()) {
+        if (counts.has(token)) df++;
       }
       idf.set(token, Math.log((N - df + 0.5) / (df + 0.5) + 1));
     }
 
-    for (const [id, { tokens }] of this.bm25Index) {
-      const docLen = tokens.size;
+    for (const [id, { counts, docLen }] of this.bm25Index) {
       let score = 0;
       for (const token of queryTokens) {
-        const tf = tokens.has(token) ? 1 : 0;
+        const tf = counts.get(token) ?? 0;
+        if (tf === 0) continue;
         const idfVal = idf.get(token) ?? 0;
         score += (idfVal * (tf * (k1 + 1))) / (tf + k1 * (1 - b + (b * docLen) / avgLen));
       }
@@ -172,7 +171,7 @@ export class GraphRetriever {
   }
 
   private ensureBM25(): void {
-    if (this.bm25Index && Date.now() - this.bm25BuiltAt < 300_000) return;
+    if (this.bm25Index) return;
     try {
       const db = this.getDb();
       const rows = db
@@ -194,10 +193,16 @@ export class GraphRetriever {
 
       this.bm25Index = new Map();
       for (const row of rows) {
-        const text = (row.search_text ?? row.name).toLowerCase();
-        const tokens = new Set(text.split(/[\s_\-./]+/).filter(Boolean));
+        const text = row.search_text ?? row.name;
+        const counts = new Map<string, number>();
+        let docLen = 0;
+        for (const token of tokenize(text)) {
+          counts.set(token, (counts.get(token) ?? 0) + 1);
+          docLen++;
+        }
         this.bm25Index.set(row.id, {
-          tokens,
+          counts,
+          docLen,
           node: {
             id: row.id,
             name: row.name,
@@ -209,11 +214,18 @@ export class GraphRetriever {
           },
         });
       }
-      this.bm25BuiltAt = Date.now();
     } catch (err) {
       console.warn('[graph] ensureBM25 error:', err instanceof Error ? err.message : String(err));
       this.bm25Index = null;
-      this.bm25BuiltAt = 0;
     }
   }
+}
+
+/** THE tokenizer — identical for documents and queries (previously a query
+ *  for `foo_bar` could never match the doc tokens `foo`,`bar`). */
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[\s_\-./]+/)
+    .filter(Boolean);
 }

@@ -3,6 +3,7 @@ import { appendFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { MU_AGENT_DIR } from '../../config/defaults.js';
 
 export interface SessionHeader {
   type: 'header';
@@ -32,7 +33,7 @@ const SESSION_EXT = '.jsonl';
 const LEGACY_EXT = '.json';
 
 function getSessionsDir(projectRoot: string, create: boolean): string {
-  const dir = join(projectRoot, '.mu-agent', 'sessions');
+  const dir = join(projectRoot, MU_AGENT_DIR, 'sessions');
   if (create && !existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

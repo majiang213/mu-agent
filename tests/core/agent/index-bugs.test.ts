@@ -113,6 +113,7 @@ vi.mock('../../../src/core/agent/context.js', () => ({
 vi.mock('../../../src/config/defaults.js', () => ({
   DEFAULT_TEMPERATURE: 0.7,
   DEFAULT_CONTEXT_RATIO: 0.2,
+  MU_AGENT_DIR: '.mu-agent',
 }));
 
 vi.mock('node:child_process', () => ({

@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { buildProjectTree } from '../../../src/core/graph/tree.js';
+import { scanProjectTree, renderProjectTree } from '../../../src/core/graph/tree.js';
+
+function buildProjectTree(cwd: string): string {
+  return renderProjectTree(scanProjectTree(cwd));
+}
 
 // Bug 19 (tree.ts:61): files filter doesn't exclude dotfiles, .env content may leak into LLM context.
 // Bug 19 (tree.ts:81): slice(0, MAX_CHARS) truncates file names, producing invalid paths.

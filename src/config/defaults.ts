@@ -1,6 +1,9 @@
 import deepmerge from 'deepmerge';
 import type { Config } from './types.js';
 
+/** The project's local data directory (graph db, memory db, sessions, checkpoints). */
+export const MU_AGENT_DIR = '.mu-agent';
+
 export const DEFAULT_TEMPERATURE = 0.1;
 export const MAX_TEMPERATURE = 0.5;
 export const RETRY_TEMPERATURE_STEP = 0.2;

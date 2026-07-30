@@ -9,6 +9,7 @@ import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { StateMachineAgent } from '../session/index.js';
 import { LspClient } from '../../tool/lsp.js';
+import { CodeGraphLocator } from '../graph/locator.js';
 import { MemoryStore } from '../memory/index.js';
 import { createMemorySearchTool } from '../../tool/memory-search.js';
 import { fetchOllamaParamCount, resolveApiKey } from '../../provider/model-info.js';
@@ -75,6 +76,8 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
   const lspClient = new LspClient();
   await lspClient.init(cwd);
 
+  const locator = new CodeGraphLocator(cwd);
+
   const memoryStore = MemoryStore.open(cwd, model);
   const pendingSummaries = memoryStore.processPendingSummaries().catch(() => {});
   const memoryIndex = memoryStore.index();
@@ -93,6 +96,7 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
     registerAgent: hooks.registerAgent,
     unregisterAgent: hooks.unregisterAgent,
     lspClient,
+    locator,
     heavyThinking: config.heavyThinking,
   };
 
@@ -104,6 +108,7 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
     pendingSummaries,
     close: () => {
       lspClient.dispose();
+      locator.close();
       memoryStore.close();
     },
   };

@@ -2,10 +2,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Config } from './types.js';
-import { mergeWithDefaults } from './defaults.js';
+import { mergeWithDefaults, MU_AGENT_DIR } from './defaults.js';
 
 const GLOBAL_CONFIG_PATH = join(homedir(), '.config', 'mu-agent', 'config.json');
-const PROJECT_CONFIG_PATH = join('.mu-agent', 'config.json');
+const PROJECT_CONFIG_PATH = join(MU_AGENT_DIR, 'config.json');
 
 export class ConfigNotFoundError extends Error {
   constructor() {
@@ -43,7 +43,7 @@ function validateConfig(cfg: Config, source: string): void {
 }
 
 export function loadConfig(projectRoot?: string): Config {
-  const projectConfigPath = projectRoot ? join(projectRoot, '.mu-agent', 'config.json') : PROJECT_CONFIG_PATH;
+  const projectConfigPath = projectRoot ? join(projectRoot, MU_AGENT_DIR, 'config.json') : PROJECT_CONFIG_PATH;
 
   const globalExists = existsSync(GLOBAL_CONFIG_PATH);
   const projectExists = existsSync(projectConfigPath);
@@ -79,7 +79,7 @@ export function loadConfig(projectRoot?: string): Config {
 }
 
 export function saveConfig(updates: Partial<Config>, projectRoot?: string): void {
-  const projectConfigPath = projectRoot ? join(projectRoot, '.mu-agent', 'config.json') : PROJECT_CONFIG_PATH;
+  const projectConfigPath = projectRoot ? join(projectRoot, MU_AGENT_DIR, 'config.json') : PROJECT_CONFIG_PATH;
 
   const existing: Partial<Config> = existsSync(projectConfigPath) ? readJson(projectConfigPath) : {};
 
