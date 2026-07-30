@@ -1,27 +1,15 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
-import { execSync } from 'node:child_process';
-import { homedir } from 'node:os';
-import { astLocatorTool } from '../../tool/locator.js';
 import { SafeModifier } from '../../tool/safety/index.js';
-import { webfetchTool } from '../../tool/webfetch.js';
-import { websearchTool } from '../../tool/websearch.js';
 import type { Config } from '../../config/types.js';
-import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
-import { StateMachineAgent } from '../session/index.js';
 import { State } from '../types.js';
 import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
-import { buildModel, compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
+import { compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
+import { buildRunSetup } from './setup.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
 import { parseEditedFiles } from './step-context.js';
-import { fetchOllamaParamCount, resolveApiKey } from '../../provider/model-info.js';
-
-import type { EnvContext } from '../prompts/agent.js';
-import { loadContext } from './context.js';
-import { LspClient } from '../../tool/lsp.js';
 import { MemoryStore } from '../memory/index.js';
-import { createMemorySearchTool } from '../../tool/memory-search.js';
 
 const MAX_VERIFY_RETRIES = 2;
 
@@ -253,75 +241,22 @@ export class ReactAgent {
     };
     let mission = { ...baseMission };
 
-    const contextRatio = config.model.contextRatio ?? DEFAULT_CONTEXT_RATIO;
-    const [paramCount, model] = await Promise.all([
-      config.model.provider === 'ollama'
-        ? fetchOllamaParamCount(config.model.baseUrl, config.model.name)
-        : Promise.resolve(config.model.modelSize != null ? config.model.modelSize * 1e9 : null),
-      buildModel(config.model.name, config.model.provider, config.model.baseUrl, contextRatio, config.model.apiKey),
-    ]);
-
-    const cwd = options?.cwd ?? process.cwd();
-
-    const stateMachine = new StateMachineAgent(
-      config.model.name,
-      // Cast needed: pi-agent-core's AgentTool<TParameters> requires TSchema [Kind] symbol
-      // which @sinclair/typebox TObject lacks — pre-existing upstream type gap
-      [astLocatorTool, webfetchTool, websearchTool],
-      paramCount,
-      cwd,
-    );
-    const home = homedir();
-    const cwdDisplay = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
-    let isGitRepo: boolean;
-    try {
-      execSync('git rev-parse --git-dir', { stdio: 'ignore', cwd });
-      isGitRepo = true;
-    } catch {
-      isGitRepo = false;
-    }
-
-    const env: EnvContext = {
-      cwd: cwdDisplay,
-      platform: process.platform,
-      isGitRepo,
-      date: new Date().toDateString(),
-      projectContext: loadContext(cwd) ?? undefined,
-    };
-
     if (this._isRunning) throw new Error('ReactAgent.run() already running');
     this._isRunning = true;
 
-    const lspClient = new LspClient();
-    await lspClient.init(cwd);
-
-    this._memoryStore = MemoryStore.open(cwd, model);
-    const pendingSummariesPromise = this._memoryStore.processPendingSummaries().catch(() => {});
-    const memoryIndex = this._memoryStore.index();
-    const memorySearchTool = createMemorySearchTool(this._memoryStore);
-    const closeMemDb = () => this._memoryStore?.close();
-
-    const cfg = {
-      model,
-      stateMachine,
-      safetyConfig: config.safety ?? {},
-      safeModifier: new SafeModifier(),
-      env,
-      temperature: config.model.temperature ?? DEFAULT_TEMPERATURE,
-      contextRatio,
-      apiKey: resolveApiKey(config.model),
-      projectRoot: cwd,
+    const cwd = options?.cwd ?? process.cwd();
+    const setup = await buildRunSetup(config, cwd, {
       registerAgent: (a: Agent) => this.registerAgent(a),
-      unregisterAgent: (a: Agent) => this._activeAgents.delete(a),
-      lspClient,
-      heavyThinking: config.heavyThinking,
-    };
+      unregisterAgent: (a) => this._activeAgents.delete(a),
+    });
+    this._memoryStore = setup.memoryStore;
+    const { cfg, memoryIndex, memorySearchTool } = setup;
 
     onEvent?.({
       type: 'session_info',
       provider: config.model.provider,
-      tier: stateMachine.getModelParams().tier,
-      contextWindow: model.contextWindow,
+      tier: cfg.stateMachine.getModelParams().tier,
+      contextWindow: cfg.model.contextWindow,
     });
 
     const clarifyCallback = async (questions: string[]): Promise<string> => {
@@ -336,8 +271,8 @@ export class ReactAgent {
     try {
       const conversationHistory = await compressConversationHistory(
         initialMessages ?? [],
-        model,
-        contextRatio,
+        cfg.model,
+        cfg.contextRatio,
         cfg.apiKey,
       );
 
@@ -429,9 +364,8 @@ export class ReactAgent {
       }
       throw err;
     } finally {
-      lspClient.dispose();
-      await pendingSummariesPromise;
-      closeMemDb();
+      setup.close();
+      await setup.pendingSummaries;
       this._isRunning = false;
     }
   }
