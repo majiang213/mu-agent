@@ -21,6 +21,7 @@ import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
+import { parseDirectives, flattenDirectives } from './directives.js';
 
 export async function buildModel(
   modelName: string,
@@ -53,96 +54,6 @@ export async function compressConversationHistory(
 ): Promise<AgentMessage[]> {
   if (messages.length === 0) return [];
   return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
-}
-
-/**
- * Flatten a StepDirective[] into Step[] for signature/duplicate/match checks.
- * A subplan collapses to a single pseudo-step { state: PLAN, focus } so it
- * contributes to signatures (preventing false "identical retry" dedup) and
- * is NOT mistaken for a MODIFY (preventing false rollback skips).
- * Pure subplan-only plans thus surface as `[PLAN:...]`, not `""`.
- */
-function flattenDirectives(directives: StepDirective[]): Step[] {
-  const out: Step[] = [];
-  for (const d of directives) {
-    if ('parallel' in d) {
-      out.push(...d.parallel);
-    } else if ('subplan' in d) {
-      out.push({ state: State.PLAN, focus: d.subplan.focus });
-    } else {
-      out.push(d);
-    }
-  }
-  return out;
-}
-
-function isValidStep(s: unknown, validStates: Set<string>, invalid: string[]): s is Step {
-  if (typeof s !== 'object' || s === null) {
-    invalid.push(String(s));
-    return false;
-  }
-  const r = s as Record<string, unknown>;
-  if (typeof r['state'] !== 'string' || !validStates.has(r['state'] as State)) {
-    invalid.push(`invalid state "${r['state']}"`);
-    return false;
-  }
-  if (typeof r['focus'] !== 'string' || (r['focus'] as string).length === 0) {
-    invalid.push(`missing focus for state "${r['state']}"`);
-    return false;
-  }
-  return true;
-}
-
-export function parseReasonSteps(json: Record<string, unknown> | null): {
-  steps: StepDirective[];
-  error: string | null;
-} {
-  if (!json) return { steps: [], error: 'complete() was not called or returned no data.' };
-  if (!Array.isArray(json['steps']))
-    return { steps: [], error: 'steps must be an array. Got: ' + JSON.stringify(json['steps']) };
-  const validStates = new Set(Object.values(State));
-  const invalid: string[] = [];
-  const directives: StepDirective[] = [];
-
-  for (const item of json['steps'] as unknown[]) {
-    if (typeof item !== 'object' || item === null) {
-      invalid.push(String(item));
-      continue;
-    }
-    const r = item as Record<string, unknown>;
-
-    if (Array.isArray(r['parallel'])) {
-      const parallelSteps: Step[] = [];
-      for (const ps of r['parallel'] as unknown[]) {
-        if (isValidStep(ps, validStates, invalid)) {
-          parallelSteps.push(ps);
-        }
-      }
-      if (parallelSteps.length > 0) {
-        directives.push({ parallel: parallelSteps });
-      }
-    } else if (typeof r['subplan'] === 'object' && r['subplan'] !== null) {
-      const sp = r['subplan'] as Record<string, unknown>;
-      // Gap 80: analyzerState MUST be PLAN — only the read-only sub-planner is allowed.
-      // Any other state would let a subplan masquerade as MODIFY/etc and bypass state guards.
-      if (sp['analyzerState'] === State.PLAN && typeof sp['focus'] === 'string' && (sp['focus'] as string).length > 0) {
-        directives.push({
-          subplan: { analyzerState: State.PLAN, focus: sp['focus'] as string },
-        });
-      } else {
-        invalid.push('subplan must have analyzerState "PLAN" and a non-empty focus string');
-      }
-    } else if (isValidStep(item, validStates, invalid)) {
-      directives.push(item);
-    }
-  }
-
-  if (directives.length === 0 && invalid.length > 0) {
-    return { steps: [], error: `Invalid entries: ${invalid.join(', ')}` };
-  }
-  // Cap at 6 directives (not flattened steps): a { parallel: [...] } counts as one directive.
-  // This intentionally allows a parallel group with many inner steps to exceed 6 total steps.
-  return { steps: directives.slice(0, 6), error: null };
 }
 
 export async function runStepAgent(
@@ -192,16 +103,13 @@ export async function runReasonStep(
   const heavyEnabled = (tier === 'SMALL' || tier === 'MEDIUM') && htCfg?.enabled !== false;
 
   if (!heavyEnabled) {
-    return runSingleReasonAttempt(
-      mission,
-      cfg,
-      conversationHistory,
+    return runReasonAttempt(mission, cfg, conversationHistory, {
       onEvent,
       onNeedsClarify,
-      'IDLE',
+      fromState: 'IDLE',
       memoryIndex,
       memorySearchTool,
-    );
+    });
   }
 
   onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
@@ -215,16 +123,12 @@ export async function runReasonStep(
 
   let phase0Candidate: import('../heavy/types.js').PlanCandidate | null = null;
   try {
-    const phase0Result = await runSingleReasonAttempt(
-      mission,
-      cfg,
-      conversationHistory,
-      phase0OnEvent,
-      undefined,
-      'IDLE',
+    const phase0Result = await runReasonAttempt(mission, cfg, conversationHistory, {
+      onEvent: phase0OnEvent,
+      fromState: 'IDLE',
       memoryIndex,
       memorySearchTool,
-    );
+    });
     const flatSteps = flattenDirectives(phase0Result.steps);
     if (flatSteps.length <= 1) {
       return phase0Result;
@@ -246,7 +150,7 @@ export async function runReasonStep(
     currentMission,
     cfg,
     conversationHistory,
-    { samplingTemperature: htCfg?.samplingTemperature },
+    { samplingTemperature: htCfg?.samplingTemperature, memoryIndex, memorySearchTool },
     onEvent,
     phase0Candidate ? [phase0Candidate] : [],
     1,
@@ -254,16 +158,13 @@ export async function runReasonStep(
 
   if (candidates.length === 0) {
     onEvent?.({ type: 'deliberation_fallback', reason: '所有采样失败，回退到单次规划' });
-    return runSingleReasonAttempt(
-      mission,
-      cfg,
-      conversationHistory,
+    return runReasonAttempt(mission, cfg, conversationHistory, {
       onEvent,
       onNeedsClarify,
-      'IDLE',
+      fromState: 'IDLE',
       memoryIndex,
       memorySearchTool,
-    );
+    });
   }
 
   let outcome = await deliberate(candidates, currentMission, cfg, onEvent);
@@ -282,22 +183,20 @@ export async function runReasonStep(
     };
     candidates = await samplePlans(currentMission, cfg, conversationHistory, {
       samplingTemperature: htCfg?.samplingTemperature,
+      memoryIndex,
+      memorySearchTool,
     });
     if (candidates.length === 0) {
       onEvent?.({
         type: 'deliberation_fallback',
         reason: 'all samples failed after clarification, falling back to single attempt',
       });
-      return runSingleReasonAttempt(
-        currentMission,
-        cfg,
-        conversationHistory,
+      return runReasonAttempt(currentMission, cfg, conversationHistory, {
         onEvent,
-        undefined,
-        State.REASON,
+        fromState: State.REASON,
         memoryIndex,
         memorySearchTool,
-      );
+      });
     }
 
     outcome = await deliberate(candidates, currentMission, cfg, onEvent, false);
@@ -317,16 +216,34 @@ export async function runReasonStep(
   return { steps: fallback.steps };
 }
 
-async function runSingleReasonAttempt(
+export interface ReasonAttemptOptions {
+  onEvent?: (event: ExecutionEvent) => void;
+  onNeedsClarify?: (questions: string[]) => Promise<string>;
+  /** Emit a state_change(from -> REASON) event before prompting. */
+  fromState?: State | 'IDLE';
+  memoryIndex?: string;
+  memorySearchTool?: AgentTool<any, any>;
+  /**
+   * Throw instead of returning { steps: [] } when the attempt never produces
+   * a valid plan (sampler semantics: the sample counts as failed).
+   */
+  throwOnFailure?: boolean;
+}
+
+/**
+ * Run one REASON planning attempt: build the agent, prompt, and drive the
+ * complete() capture with REMINDER retries and optional clarification.
+ * The single implementation behind both the real REASON step and Heavy
+ * Thinking samples (which run it with a cloned state machine and
+ * throwOnFailure) — the two can no longer drift.
+ */
+export async function runReasonAttempt(
   mission: Mission,
   cfg: RunConfig,
   conversationHistory: AgentMessage[],
-  onEvent?: (event: ExecutionEvent) => void,
-  onNeedsClarify?: (questions: string[]) => Promise<string>,
-  fromState: State | 'IDLE' = 'IDLE',
-  memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  options: ReasonAttemptOptions = {},
 ): Promise<{ steps: StepDirective[] }> {
+  const { onEvent, onNeedsClarify, fromState, memoryIndex, memorySearchTool, throwOnFailure } = options;
   cfg.stateMachine.transitionTo(State.REASON);
   const systemPrompt = buildSystemPrompt({
     state: State.REASON,
@@ -348,7 +265,9 @@ async function runSingleReasonAttempt(
 
   cfg.registerAgent?.(agent);
   try {
-    onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
+    if (fromState !== undefined) {
+      onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
+    }
     await runStepAgent(agent, mission.description, cfg, stagnationDetector);
 
     if (capturedComplete === null) {
@@ -375,15 +294,17 @@ async function runSingleReasonAttempt(
     cfg.unregisterAgent?.(agent);
   }
 
+  let lastParseError: string | null = null;
   if (capturedComplete !== null) {
     const c = capturedComplete;
     if (c['needsClarify'] === true) {
       return { steps: [] };
     }
-    const { steps, error } = parseReasonSteps(c);
+    const { steps, error } = parseDirectives(c);
     if (!error) {
       return { steps };
     }
+    lastParseError = error;
     capturedComplete = null;
     agent.steer({
       role: 'steer',
@@ -392,10 +313,11 @@ async function runSingleReasonAttempt(
     });
     await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     if (capturedComplete !== null) {
-      const { steps: retrySteps, error: retryError } = parseReasonSteps(capturedComplete);
+      const { steps: retrySteps, error: retryError } = parseDirectives(capturedComplete);
       if (!retryError) {
         return { steps: retrySteps };
       }
+      lastParseError = retryError;
     }
   } else {
     agent.steer({
@@ -405,13 +327,17 @@ async function runSingleReasonAttempt(
     });
     await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     if (capturedComplete !== null) {
-      const { steps, error } = parseReasonSteps(capturedComplete);
+      const { steps, error } = parseDirectives(capturedComplete);
       if (!error) {
         return { steps };
       }
+      lastParseError = error;
     }
   }
 
+  if (throwOnFailure) {
+    throw new Error(`bare sample: ${lastParseError ?? 'complete() not called'}`);
+  }
   return { steps: [] };
 }
 
@@ -584,7 +510,7 @@ export async function executeSteps(
       let parseError = '';
       try {
         const parsed = JSON.parse(planResult.output) as Record<string, unknown>;
-        const { steps: parsedSteps, error } = parseReasonSteps(parsed);
+        const { steps: parsedSteps, error } = parseDirectives(parsed);
         if (error || parsedSteps.length === 0) {
           parseFailed = true;
           parseError = error ?? 'empty steps';

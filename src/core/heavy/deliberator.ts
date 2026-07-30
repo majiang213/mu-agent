@@ -1,9 +1,9 @@
 import { completeSimple } from '@earendil-works/pi-ai';
 import type { Model } from '@earendil-works/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
-import { State } from '../types.js';
-import type { Step, StepDirective } from '../types.js';
+import type { StepDirective } from '../types.js';
 import type { PlanCandidate, DeliberateOutcome } from './types.js';
+import { directiveFingerprint, formatDirective, parseDirectivesJson } from '../agent/directives.js';
 
 const DELIBERATION_SYSTEM = `You are a coding task planner reviewing multiple independently generated execution plans for the same task.
 
@@ -37,108 +37,24 @@ WORSE = new plan is less likely to succeed than current best.
 SAME = both plans are equivalent.
 No explanation. One word only.`;
 
-function formatStepForCache(step: Step): string {
-  const why = step.why ? `\n        why: ${step.why}` : '';
-  return `  [${step.state}] ${step.focus}${why}`;
-}
-
-function formatDirectiveForCache(d: StepDirective): string {
-  if ('parallel' in d) {
-    return `  [parallel]\n${d.parallel.map((s) => '    ' + formatStepForCache(s).trimStart()).join('\n')}`;
-  }
-  if ('subplan' in d) {
-    return `  [subplan → ${d.subplan.analyzerState}] ${d.subplan.focus}`;
-  }
-  return formatStepForCache(d);
-}
-
 function buildMemoryCache(candidates: PlanCandidate[]): string {
   const shuffled = [...candidates].sort(() => Math.random() - 0.5);
   const labels = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   return shuffled
-    .map((c, i) => `--- Plan ${labels[i] ?? String(i + 1)} ---\n${c.steps.map(formatDirectiveForCache).join('\n')}`)
+    .map((c, i) => `--- Plan ${labels[i] ?? String(i + 1)} ---\n${c.steps.map(formatDirective).join('\n')}`)
     .join('\n\n');
 }
 
 function formatStepsForJudge(steps: StepDirective[]): string {
-  return steps.map(formatDirectiveForCache).join('\n');
-}
-
-/** Canonical fingerprint of a directive for Jaccard similarity (order-independent within sets). */
-function directiveKey(d: StepDirective): string {
-  if ('parallel' in d) {
-    return `P:${d.parallel
-      .map((s) => `${s.state}:${s.focus}`)
-      .sort()
-      .join('|')}`;
-  }
-  if ('subplan' in d) {
-    return `S:${d.subplan.analyzerState}:${d.subplan.focus}`;
-  }
-  return `${d.state}:${d.focus}`;
+  return steps.map(formatDirective).join('\n');
 }
 
 function jaccardDirectives(a: StepDirective[], b: StepDirective[]): number {
-  const setA = new Set(a.map(directiveKey));
-  const setB = new Set(b.map(directiveKey));
+  const setA = new Set(a.map(directiveFingerprint));
+  const setB = new Set(b.map(directiveFingerprint));
   const intersection = [...setA].filter((x) => setB.has(x)).length;
   const union = new Set([...setA, ...setB]).size;
   return union === 0 ? 1 : intersection / union;
-}
-
-function parseDirectivesJson(raw: string): StepDirective[] | null {
-  const start = raw.indexOf('[');
-  const end = raw.lastIndexOf(']');
-  if (start === -1 || end === -1 || end <= start) return null;
-  const validStates = new Set(Object.values(State));
-  try {
-    const parsed = JSON.parse(raw.slice(start, end + 1)) as unknown[];
-    if (!Array.isArray(parsed)) return null;
-    const directives: StepDirective[] = [];
-    for (const item of parsed) {
-      if (typeof item !== 'object' || item === null) continue;
-      const r = item as Record<string, unknown>;
-
-      // parallel group
-      if (Array.isArray(r['parallel'])) {
-        const members: Step[] = [];
-        for (const ps of r['parallel'] as unknown[]) {
-          if (typeof ps !== 'object' || ps === null) continue;
-          const pr = ps as Record<string, unknown>;
-          if (typeof pr['state'] !== 'string' || !validStates.has(pr['state'] as State)) continue;
-          if (typeof pr['focus'] !== 'string' || pr['focus'].length === 0) continue;
-          const step: Step = { state: pr['state'] as Step['state'], focus: pr['focus'] };
-          if (typeof pr['why'] === 'string' && pr['why'].length > 0) step.why = pr['why'];
-          members.push(step);
-        }
-        if (members.length >= 2) directives.push({ parallel: members });
-        continue;
-      }
-
-      // subplan
-      if (typeof r['subplan'] === 'object' && r['subplan'] !== null) {
-        const sp = r['subplan'] as Record<string, unknown>;
-        if (
-          sp['analyzerState'] === State.PLAN &&
-          typeof sp['focus'] === 'string' &&
-          (sp['focus'] as string).length > 0
-        ) {
-          directives.push({ subplan: { analyzerState: State.PLAN, focus: sp['focus'] as string } });
-        }
-        continue;
-      }
-
-      // single step
-      if (typeof r['state'] !== 'string' || !validStates.has(r['state'] as State)) continue;
-      if (typeof r['focus'] !== 'string' || r['focus'].length === 0) continue;
-      const step: Step = { state: r['state'] as Step['state'], focus: r['focus'] };
-      if (typeof r['why'] === 'string' && r['why'].length > 0) step.why = r['why'];
-      directives.push(step);
-    }
-    return directives.length > 0 ? directives.slice(0, 6) : null;
-  } catch {
-    return null;
-  }
 }
 
 async function runSingleDeliberation(
@@ -280,7 +196,7 @@ export async function deliberate(
 
   for (let iter = 0; iter < 8; iter++) {
     const round = iter + 1;
-    memoryCache += `\n\n--- Deliberation result (round ${round}) ---\n${bestSteps.map(formatDirectiveForCache).join('\n')}`;
+    memoryCache += `\n\n--- Deliberation result (round ${round}) ---\n${bestSteps.map(formatDirective).join('\n')}`;
 
     const nextOutcome = await runSingleDeliberation(memoryCache, mission, cfg, deliberationModel, false, onEvent);
 

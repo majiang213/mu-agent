@@ -19,7 +19,6 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
   runReasonStep: vi.fn(),
   executeSteps: vi.fn(async () => []),
   runStep: vi.fn(),
-  parseReasonSteps: vi.fn(),
 }));
 
 vi.mock('../../../src/core/agent/builder.js', () => ({

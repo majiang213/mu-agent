@@ -34,7 +34,7 @@ vi.mock('../../../src/core/prompts/agent.js', () => ({
 
 vi.mock('../../../src/core/agent/step-runner.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/agent/step-runner.js')>();
-  return { ...actual, runStepAgent: vi.fn(async () => {}) };
+  return { ...actual, runReasonAttempt: vi.fn() };
 });
 
 vi.mock('../../../src/tool/safety/index.js', () => ({
@@ -44,6 +44,7 @@ vi.mock('../../../src/tool/safety/index.js', () => ({
 }));
 
 import { samplePlans } from '../../../src/core/heavy/sampler.js';
+import { runReasonAttempt } from '../../../src/core/agent/step-runner.js';
 import type { RunConfig, ExecutionEvent } from '../../../src/core/agent/types.js';
 
 function makeStep(state: State) {
@@ -94,28 +95,25 @@ function makeCfg(): RunConfig {
   };
 }
 
-import { buildCompleteTool } from '../../../src/tool/complete.js';
-
 describe('samplePlans — adaptive sampling', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  function setupCompleteMock(plans: PlanCandidate[]) {
+  // Samples are mocked at the unified runReasonAttempt seam: each call
+  // returns the next plan (or throws for a failed sample).
+  function setupAttemptMock(plans: PlanCandidate[]) {
     let callCount = 0;
-    vi.mocked(buildCompleteTool).mockImplementation((_state, cb) => {
+    vi.mocked(runReasonAttempt).mockImplementation(async () => {
       const plan = plans[callCount % plans.length]!;
       callCount++;
-      Promise.resolve().then(() => cb({ steps: plan.steps, needsClarify: false }));
-      return { name: 'complete', execute: vi.fn() };
+      return { steps: plan.steps };
     });
   }
 
   it('returns seed candidate immediately when first batch all fail', async () => {
     const seed = makePlan('seed', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    vi.mocked(buildCompleteTool).mockImplementation(() => {
-      throw new Error('agent build failed');
-    });
+    vi.mocked(runReasonAttempt).mockRejectedValue(new Error('sample failed'));
     const cfg = makeCfg();
     const result = await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, undefined, [seed]);
     expect(result).toHaveLength(1);
@@ -124,7 +122,7 @@ describe('samplePlans — adaptive sampling', () => {
 
   it('stops with converged when first batch all have same state sequence', async () => {
     const plan = makePlan('p', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    setupCompleteMock([plan, plan]);
+    setupAttemptMock([plan, plan]);
     const cfg = makeCfg();
     const events: ExecutionEvent[] = [];
     const result = await samplePlans(
@@ -142,7 +140,7 @@ describe('samplePlans — adaptive sampling', () => {
   it('deduplicates candidates with same state sequence', async () => {
     const plan1 = makePlan('p1', [State.LOCATE, State.MODIFY]);
     const plan2 = makePlan('p2', [State.LOCATE, State.MODIFY]);
-    setupCompleteMock([plan1, plan2]);
+    setupAttemptMock([plan1, plan2]);
     const cfg = makeCfg();
     const result = await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, undefined, []);
     expect(result.length).toBe(1);
@@ -151,7 +149,7 @@ describe('samplePlans — adaptive sampling', () => {
   it('seed candidate with same seq as batch result is deduplicated', async () => {
     const seed = makePlan('seed', [State.LOCATE, State.MODIFY]);
     const plan = makePlan('p', [State.LOCATE, State.MODIFY]);
-    setupCompleteMock([plan, plan]);
+    setupAttemptMock([plan, plan]);
     const cfg = makeCfg();
     const result = await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, undefined, [seed]);
     expect(result.length).toBe(1);
@@ -160,7 +158,7 @@ describe('samplePlans — adaptive sampling', () => {
   it('fires sampling_stopped no_new_info when batch brings no new sequences', async () => {
     const seed = makePlan('seed', [State.LOCATE, State.MODIFY]);
     const same = makePlan('same', [State.LOCATE, State.MODIFY]);
-    setupCompleteMock([same, same]);
+    setupAttemptMock([same, same]);
     const cfg = makeCfg();
     const events: ExecutionEvent[] = [];
     await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), [seed]);
@@ -169,7 +167,7 @@ describe('samplePlans — adaptive sampling', () => {
 
   it('fires sample_start with correct total', async () => {
     const plan = makePlan('p', [State.MODIFY]);
-    setupCompleteMock([plan, plan]);
+    setupAttemptMock([plan, plan]);
     const cfg = makeCfg();
     const events: ExecutionEvent[] = [];
     await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), []);

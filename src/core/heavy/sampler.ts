@@ -1,12 +1,8 @@
-import { StagnationDetector } from '../cognitive/index.js';
-import { buildCompleteTool } from '../../tool/complete.js';
-import { buildSystemPrompt } from '../prompts/agent.js';
-import { buildStepAgent, subscribeStepEvents } from '../agent/builder.js';
-import { runStepAgent, parseReasonSteps } from '../agent/step-runner.js';
-import { State } from '../types.js';
+import { runReasonAttempt } from '../agent/step-runner.js';
+import { planFingerprint } from '../agent/directives.js';
 import type { StepDirective } from '../types.js';
 import type { RunConfig, Mission, ExecutionEvent } from '../agent/types.js';
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { PlanCandidate } from './types.js';
 import { DEFAULT_SAMPLING_TEMPERATURE } from '../../config/defaults.js';
 
@@ -19,46 +15,28 @@ function getMaxCount(tier: string): number {
 
 export interface SamplerConfig {
   samplingTemperature?: number;
-}
-
-/**
- * Fingerprint a candidate's step sequence for dedup / convergence.
- * - single step  → "STATE:focus" (focus included so genuinely different focuses differ)
- * - parallel     → "P:<sorted member states>" (order-independent; member focuses ignored)
- * - subplan      → "PLAN:<focus>" (subplans stay distinct across samples — Gap 81)
- * The full directive list is joined by '|'.
- */
-function stateSeq(candidate: PlanCandidate): string {
-  return candidate.steps
-    .map((d) => {
-      if ('parallel' in d) {
-        const states = d.parallel.map((s) => s.state).sort();
-        return `P:${states.join(',')}`;
-      }
-      if ('subplan' in d) {
-        return `PLAN:${d.subplan.focus}`;
-      }
-      return `${d.state}:${d.focus}`;
-    })
-    .join('|');
+  /** Injected into every sample's REASON prompt (Gap 42 anchor). */
+  memoryIndex?: string;
+  /** Attached to every sample's tool list. */
+  memorySearchTool?: AgentTool<any, any>;
 }
 
 function roundConverged(roundCandidates: PlanCandidate[]): boolean {
   if (roundCandidates.length <= 1) return true;
-  const seqs = new Set(roundCandidates.map(stateSeq));
+  const seqs = new Set(roundCandidates.map((c) => planFingerprint(c.steps)));
   return seqs.size === 1;
 }
 
 function allSeenBefore(newCandidates: PlanCandidate[], existing: PlanCandidate[]): boolean {
   if (newCandidates.length === 0) return false;
-  const existingSeqs = new Set(existing.map(stateSeq));
-  return newCandidates.every((c) => existingSeqs.has(stateSeq(c)));
+  const existingSeqs = new Set(existing.map((c) => planFingerprint(c.steps)));
+  return newCandidates.every((c) => existingSeqs.has(planFingerprint(c.steps)));
 }
 
 function dedup(candidates: PlanCandidate[]): PlanCandidate[] {
   const seen = new Map<string, PlanCandidate>();
   for (const c of candidates) {
-    const seq = stateSeq(c);
+    const seq = planFingerprint(c.steps);
     if (!seen.has(seq)) seen.set(seq, c);
   }
   return [...seen.values()];
@@ -71,13 +49,21 @@ async function runBatch(
   batchSize: number,
   startIndex: number,
   samplingTemp: number,
+  samplerCfg: SamplerConfig,
   onEvent?: (event: ExecutionEvent) => void,
 ): Promise<PlanCandidate[]> {
   let completed = 0;
   const tasks = Array.from({ length: batchSize }, (_, i) => {
     const idx = startIndex + i;
     onEvent?.({ type: 'sample_start', index: idx, total: startIndex + batchSize });
-    return runBareReasonSample(mission, { ...cfg, temperature: samplingTemp }, conversationHistory, idx, onEvent).then(
+    return runOneSample(
+      mission,
+      { ...cfg, temperature: samplingTemp },
+      conversationHistory,
+      idx,
+      samplerCfg,
+      onEvent,
+    ).then(
       (r) => {
         completed++;
         onEvent?.({ type: 'sample_complete', index: idx, steps: r.steps });
@@ -121,13 +107,16 @@ export async function samplePlans(
     SAMPLING_BATCH_SIZE,
     sampleIndex,
     samplingTemp,
+    samplerCfg,
     onEvent,
   );
   sampleIndex += SAMPLING_BATCH_SIZE;
 
   if (firstBatch.length === 0) return candidates;
 
-  const newInFirst = firstBatch.filter((c) => !candidates.some((e) => stateSeq(e) === stateSeq(c)));
+  const newInFirst = firstBatch.filter(
+    (c) => !candidates.some((e) => planFingerprint(e.steps) === planFingerprint(c.steps)),
+  );
 
   if (newInFirst.length === 0) {
     onEvent?.({ type: 'sampling_stopped', reason: 'no_new_info' });
@@ -156,6 +145,7 @@ export async function samplePlans(
       SAMPLING_BATCH_SIZE,
       sampleIndex,
       samplingTemp,
+      samplerCfg,
       onEvent,
     );
     sampleIndex += SAMPLING_BATCH_SIZE;
@@ -180,26 +170,15 @@ export async function samplePlans(
   return candidates;
 }
 
-async function runBareReasonSample(
+async function runOneSample(
   mission: Mission,
   cfg: RunConfig,
   conversationHistory: AgentMessage[],
   sampleIndex: number,
+  samplerCfg: SamplerConfig,
   onEvent?: (event: ExecutionEvent) => void,
 ): Promise<{ steps: StepDirective[] }> {
   const isolatedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone() };
-  isolatedCfg.stateMachine.transitionTo(State.REASON);
-  const systemPrompt = buildSystemPrompt({
-    state: State.REASON,
-    task: mission.description,
-    modelParams: isolatedCfg.stateMachine.getModelParams(),
-    env: isolatedCfg.env,
-  });
-
-  let capturedComplete: Record<string, unknown> | null = null;
-  const completeTool = buildCompleteTool(State.REASON, (args) => {
-    capturedComplete = args;
-  });
 
   const sampleOnEvent = (event: ExecutionEvent): void => {
     if (event.type === 'message_thinking_update' || event.type === 'message_thinking_end') {
@@ -207,27 +186,12 @@ async function runBareReasonSample(
     }
   };
 
-  const stagnationDetector = new StagnationDetector();
-  const agent = buildStepAgent(systemPrompt, conversationHistory, isolatedCfg, sampleOnEvent, [completeTool]);
-  subscribeStepEvents(agent, State.REASON, stagnationDetector, isolatedCfg, () => {}, sampleOnEvent);
-
-  isolatedCfg.registerAgent?.(agent);
-  try {
-    await runStepAgent(agent, mission.description, isolatedCfg, stagnationDetector);
-  } finally {
-    isolatedCfg.unregisterAgent?.(agent);
-  }
-
-  if (capturedComplete === null) {
-    throw new Error('bare sample: complete() not called');
-  }
-
-  const stepsField = capturedComplete['steps'];
-  const modelReturnedEmptySteps = Array.isArray(stepsField) && (stepsField as unknown[]).length === 0;
-  const { steps: directives, error } = parseReasonSteps(capturedComplete);
-  if (directives.length === 0 && !modelReturnedEmptySteps) {
-    throw new Error(`bare sample: invalid plan — ${error ?? 'empty steps'}`);
-  }
-
-  return { steps: directives };
+  // One shared implementation with the real REASON step: samples plan with
+  // the same memory injection and REMINDER retries (no behavioral drift).
+  return runReasonAttempt(mission, isolatedCfg, conversationHistory, {
+    onEvent: sampleOnEvent,
+    memoryIndex: samplerCfg.memoryIndex,
+    memorySearchTool: samplerCfg.memorySearchTool,
+    throwOnFailure: true,
+  });
 }

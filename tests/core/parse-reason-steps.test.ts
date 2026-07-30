@@ -1,23 +1,23 @@
 import { describe, it, expect } from 'vitest';
-import { parseReasonSteps } from '../../src/core/agent/step-runner.js';
+import { parseDirectives } from '../../src/core/agent/directives.js';
 import { State } from '../../src/core/types.js';
 
-describe('parseReasonSteps', () => {
+describe('parseDirectives (unified directives module)', () => {
   describe('null / missing input', () => {
     it('returns empty steps and error when input is null', () => {
-      const { steps, error } = parseReasonSteps(null);
+      const { steps, error } = parseDirectives(null);
       expect(steps).toHaveLength(0);
       expect(error).toBeTruthy();
     });
 
     it('returns error when steps field is missing', () => {
-      const { steps, error } = parseReasonSteps({ other: 'field' });
+      const { steps, error } = parseDirectives({ other: 'field' });
       expect(steps).toHaveLength(0);
       expect(error).toContain('steps must be an array');
     });
 
     it('returns error when steps is not an array', () => {
-      const { steps, error } = parseReasonSteps({ steps: 'LOCATE' });
+      const { steps, error } = parseDirectives({ steps: 'LOCATE' });
       expect(steps).toHaveLength(0);
       expect(error).toBeTruthy();
     });
@@ -25,7 +25,7 @@ describe('parseReasonSteps', () => {
 
   describe('empty steps array', () => {
     it('returns empty steps with no error for empty array (valid for direct Q&A)', () => {
-      const { steps, error } = parseReasonSteps({ steps: [] });
+      const { steps, error } = parseDirectives({ steps: [] });
       expect(steps).toHaveLength(0);
       expect(error).toBeNull();
     });
@@ -33,7 +33,7 @@ describe('parseReasonSteps', () => {
 
   describe('valid steps', () => {
     it('parses a single valid step', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [{ state: 'LOCATE', focus: 'find login function' }],
       });
       expect(error).toBeNull();
@@ -43,7 +43,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('parses a full coding pipeline', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'LOCATE', focus: 'find the bug' },
           { state: 'MODIFY', focus: 'fix the bug' },
@@ -56,7 +56,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('parses ANSWER step for chitchat', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [{ state: 'ANSWER', focus: 'respond to greeting' }],
       });
       expect(error).toBeNull();
@@ -79,7 +79,7 @@ describe('parseReasonSteps', () => {
         'ROLLBACK',
       ];
       for (const state of validStates) {
-        const { steps, error } = parseReasonSteps({
+        const { steps, error } = parseDirectives({
           steps: [{ state, focus: 'some focus' }],
         });
         expect(error).toBeNull();
@@ -90,7 +90,7 @@ describe('parseReasonSteps', () => {
 
   describe('invalid steps — filtering', () => {
     it('filters out steps with invalid state name', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'INVALID_STATE', focus: 'do something' },
           { state: 'MODIFY', focus: 'valid step' },
@@ -102,7 +102,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('filters out steps with empty focus', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'LOCATE', focus: '' },
           { state: 'MODIFY', focus: 'fix it' },
@@ -113,7 +113,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('filters out non-object entries', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [null, 'string', 42, { state: 'ANSWER', focus: 'valid' }],
       });
       expect(steps).toHaveLength(1);
@@ -121,7 +121,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('returns error when all entries are invalid', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'INVALID', focus: 'x' },
           { state: 'ALSO_BAD', focus: 'y' },
@@ -135,21 +135,21 @@ describe('parseReasonSteps', () => {
   describe('max 6 steps cap', () => {
     it('returns at most 6 steps', () => {
       const manySteps = Array(10).fill({ state: 'LOCATE', focus: 'find something' });
-      const { steps, error } = parseReasonSteps({ steps: manySteps });
+      const { steps, error } = parseDirectives({ steps: manySteps });
       expect(error).toBeNull();
       expect(steps).toHaveLength(6);
     });
 
     it('returns exactly 6 when input has exactly 6', () => {
       const sixSteps = Array(6).fill({ state: 'MODIFY', focus: 'change something' });
-      const { steps } = parseReasonSteps({ steps: sixSteps });
+      const { steps } = parseDirectives({ steps: sixSteps });
       expect(steps).toHaveLength(6);
     });
   });
 
   describe('parallel directives', () => {
     it('parses a parallel group as a single directive', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'LOCATE', focus: 'find files' },
           {
@@ -172,8 +172,8 @@ describe('parseReasonSteps', () => {
       }
     });
 
-    it('filters out invalid steps inside a parallel group', () => {
-      const { steps, error } = parseReasonSteps({
+    it('drops a parallel group reduced below 2 valid members (schema minItems: 2)', () => {
+      const { steps } = parseDirectives({
         steps: [
           {
             parallel: [
@@ -183,17 +183,13 @@ describe('parseReasonSteps', () => {
           },
         ],
       });
-      expect(error).toBeNull();
-      expect(steps).toHaveLength(1);
-      const first = steps[0]!;
-      if ('parallel' in first) {
-        expect(first.parallel).toHaveLength(1);
-        expect(first.parallel[0]!.state).toBe(State.MODIFY);
-      }
+      // The REASON completeSchema declares parallel minItems: 2, so a group
+      // that filters down to a single valid member is not a valid parallel.
+      expect(steps).toHaveLength(0);
     });
 
     it('skips parallel directive entirely if all inner steps are invalid', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           {
             parallel: [
@@ -210,7 +206,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('mixes sequential and parallel directives in one plan', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'LOCATE', focus: 'find affected files' },
           {
@@ -232,7 +228,7 @@ describe('parseReasonSteps', () => {
 
   describe('subplan directives (Gap 80)', () => {
     it('parses a valid subplan directive', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [{ subplan: { analyzerState: 'PLAN', focus: 'analyze git changes and plan commits' } }],
       });
       expect(error).toBeNull();
@@ -246,21 +242,21 @@ describe('parseReasonSteps', () => {
     });
 
     it('rejects subplan with empty focus', () => {
-      const { steps } = parseReasonSteps({
+      const { steps } = parseDirectives({
         steps: [{ subplan: { analyzerState: 'PLAN', focus: '' } }],
       });
       expect(steps).toHaveLength(0);
     });
 
     it('rejects subplan with non-string analyzerState', () => {
-      const { steps } = parseReasonSteps({
+      const { steps } = parseDirectives({
         steps: [{ subplan: { analyzerState: 123, focus: 'do something' } }],
       });
       expect(steps).toHaveLength(0);
     });
 
     it('mixes subplan with regular sequential steps', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           { state: 'VERIFY', focus: 'run tests' },
           { subplan: { analyzerState: 'PLAN', focus: 'plan atomic commits' } },
@@ -273,7 +269,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('mixes subplan with parallel directive', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [
           {
             parallel: [
@@ -291,7 +287,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('counts subplan toward the 6-directive cap', () => {
-      const { steps } = parseReasonSteps({
+      const { steps } = parseDirectives({
         steps: [
           { state: 'LOCATE', focus: 'f1' },
           { state: 'MODIFY', focus: 'f2' },
@@ -307,7 +303,7 @@ describe('parseReasonSteps', () => {
     });
 
     it('accepts PLAN as a valid analyzerState (State enum value)', () => {
-      const { steps, error } = parseReasonSteps({
+      const { steps, error } = parseDirectives({
         steps: [{ subplan: { analyzerState: 'PLAN', focus: 'run tests and plan fix steps' } }],
       });
       expect(error).toBeNull();

@@ -10,9 +10,10 @@ import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { StateMachineAgent } from '../session/index.js';
 import { State } from '../types.js';
-import type { StateResult, Step, ExecutedStep, StepDirective } from '../types.js';
+import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
+import { flattenDirectives, planFingerprint } from './directives.js';
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
 
 import type { EnvContext } from '../prompts/agent.js';
@@ -53,12 +54,7 @@ async function rollbackEditedFiles(
 }
 
 function stepsSignature(directives: StepDirective[]): string {
-  return directives
-    .flatMap((d): Step[] =>
-      'parallel' in d ? d.parallel : 'subplan' in d ? [{ state: State.PLAN, focus: d.subplan.focus }] : [d],
-    )
-    .map((s) => `${s.state}:${s.focus}`)
-    .join('|');
+  return planFingerprint(directives);
 }
 
 function _buildVerifyFailureContext(
@@ -192,9 +188,7 @@ export async function runWithVerifyRetry(
       }
       prevStepsSignature = verifySig;
 
-      const flatVerifyRetry = verifyRetrySteps.flatMap((d): Step[] =>
-        'parallel' in d ? d.parallel : 'subplan' in d ? [{ state: State.PLAN, focus: d.subplan.focus }] : [d],
-      );
+      const flatVerifyRetry = flattenDirectives(verifyRetrySteps);
       const verifyRetryHasModify = flatVerifyRetry.some((s) => s.state === State.MODIFY);
       const verifyRetryHasRollback = flatVerifyRetry.some((s) => s.state === State.ROLLBACK);
       if (verifyRetryHasModify && !verifyRetryHasRollback) {
