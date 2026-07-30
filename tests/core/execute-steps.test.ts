@@ -47,10 +47,6 @@ vi.mock('../../src/core/prompts/agent.js', () => ({
   buildUserPrompt: vi.fn(() => 'user'),
 }));
 
-vi.mock('../../src/core/states.js', () => ({
-  advanceState: vi.fn((_s: unknown, traj: State[]) => traj[traj.length - 1] ?? State.DONE),
-}));
-
 vi.mock('../../src/tool/complete.js', () => ({
   buildCompleteTool: vi.fn((state: State, onComplete: (args: Record<string, unknown>) => void) => ({
     name: 'complete',

@@ -44,17 +44,6 @@ vi.mock('../../../src/core/prompts/agent.js', () => ({
   buildUserPrompt: vi.fn(() => 'mocked user prompt'),
 }));
 
-vi.mock('../../../src/core/states.js', () => ({
-  advanceState: vi.fn(),
-  detectModelParams: vi.fn(() => ({
-    tier: 'SMALL',
-    paramCount: 7,
-    maxFilesPerTask: 2,
-    maxRetries: 1,
-    strictPlanning: true,
-  })),
-}));
-
 vi.mock('../../../src/tool/safety/index.js', () => ({
   syntaxCheckHook: vi.fn(),
   damageCheckHook: vi.fn(),

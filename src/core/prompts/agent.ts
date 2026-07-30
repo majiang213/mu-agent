@@ -1,4 +1,4 @@
-import { State, STATES_NEEDING_CODE_CONTEXT, type ModelParams, type StateContext } from '../types.js';
+import { State, type ModelParams } from '../types.js';
 import type { AgentContext } from '../agent/context.js';
 import type { ExecutedStep } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
@@ -18,26 +18,28 @@ export interface SystemPromptOptions {
   state: State;
   task: string;
   modelParams: ModelParams;
-  context?: StateContext;
   focus?: string;
   env?: EnvContext;
   memoryIndex?: string;
 }
 
+function needsCodeContext(state: State): boolean {
+  return STATE_REGISTRY[state]?.needsCodeContext === true;
+}
+
 function buildBasePrompt(env?: EnvContext, state?: State): string {
   let envBlock = '';
   if (env) {
+    const withCode = state !== undefined && needsCodeContext(state);
     const treeSection =
-      state && STATES_NEEDING_CODE_CONTEXT.has(state) && env.projectTree
-        ? `\n<project_structure>\n${env.projectTree}\n</project_structure>`
-        : '';
+      withCode && env.projectTree ? `\n<project_structure>\n${env.projectTree}\n</project_structure>` : '';
     const suggestedSection =
-      state && STATES_NEEDING_CODE_CONTEXT.has(state) && env.suggestedFiles?.length
+      withCode && env.suggestedFiles?.length
         ? `\n<suggested_files>\n${env.suggestedFiles.map((f) => `- ${f.path}${f.hint ? ` (${f.hint})` : ''}`).join('\n')}\n</suggested_files>`
         : '';
     const snippetEntries = env.snippets ? Object.entries(env.snippets) : [];
     const snippetsSection =
-      state && STATES_NEEDING_CODE_CONTEXT.has(state) && snippetEntries.length
+      withCode && snippetEntries.length
         ? `\n<code_snippets>\n${snippetEntries.map(([file, code]) => `// ${file}\n${code}`).join('\n\n')}\n</code_snippets>`
         : '';
     envBlock = `<env>
@@ -88,7 +90,7 @@ const SMALL_MODEL_CONSTRAINTS = `Keep responses under 400 tokens. Do not specula
 const SMALL_MODEL_CONSTRAINTS_WITH_TOOLS = `Keep responses under 400 tokens. Use only the listed tools. Do not speculate.`;
 
 export function buildSystemPrompt(options: SystemPromptOptions): string {
-  const { state, task, modelParams, context, focus, env, memoryIndex } = options;
+  const { state, task, modelParams, focus, env, memoryIndex } = options;
 
   if (state === State.DONE) {
     return 'Task complete.';
@@ -97,14 +99,10 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   const base = buildBasePrompt(env, state);
   const memoryBlock = memoryIndex ?? '';
 
-  const toolList = context?.availableTools?.length
-    ? `Available tools:\n${context.availableTools.map((t) => `- ${t.name}`).join('\n')}`
-    : '';
-
   const stateInstruction = STATE_REGISTRY[state]?.instruction ?? '';
   const focusLine = focus ? `Current focus: ${focus}` : '';
 
-  const lines = [base, memoryBlock, toolList, stateInstruction, `Current task: ${task}`, focusLine];
+  const lines = [base, memoryBlock, stateInstruction, `Current task: ${task}`, focusLine];
 
   if (modelParams.tier === 'SMALL') {
     const constraints = state === State.REASON ? SMALL_MODEL_CONSTRAINTS : SMALL_MODEL_CONSTRAINTS_WITH_TOOLS;
@@ -112,18 +110,6 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   }
 
   return lines.filter(Boolean).join('\n\n').trim();
-}
-
-function projectOutput(receiverState: State, sourceState: State, rawOutput: string): string {
-  const allowedFields = STATE_REGISTRY[receiverState]?.contextFilter?.[sourceState];
-  if (!allowedFields) return rawOutput;
-  try {
-    const parsed = JSON.parse(rawOutput) as Record<string, unknown>;
-    const filtered = Object.fromEntries(Object.entries(parsed).filter(([k]) => allowedFields.includes(k)));
-    return JSON.stringify(filtered);
-  } catch {
-    return rawOutput;
-  }
 }
 
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
@@ -152,16 +138,14 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     const locateDiag = previousResults.filter((r) => r.state === State.LOCATE || r.state === State.DIAGNOSE);
     const lines: string[] = [];
     if (lastModify) {
-      const out = projectOutput(State.VERIFY, State.MODIFY, lastModify.output);
-      lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(out)}`);
+      lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(lastModify.output)}`);
     }
     const uniqueEdited = [...new Set(allEdited)];
     if (uniqueEdited.length > 1) {
       lines.push(`[MODIFY] all edited files: ${uniqueEdited.join(', ')}`);
     }
     for (const r of locateDiag) {
-      const out = projectOutput(State.VERIFY, r.state as State, r.output);
-      lines.push(`[${r.state}] ${r.focus}\n${trunc(out)}`);
+      lines.push(`[${r.state}] ${r.focus}\n${trunc(r.output)}`);
     }
     if (lines.length === 0) return '';
     return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
@@ -174,8 +158,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (relevant.length === 0) return '';
 
   const allLines = relevant.map((r) => {
-    const out = projectOutput(state, r.state as State, r.output);
-    return `[${r.state}] ${r.focus}\n${trunc(out)}`;
+    return `[${r.state}] ${r.focus}\n${trunc(r.output)}`;
   });
 
   const BUDGET = 8000;
@@ -196,20 +179,6 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
 export function buildUserPrompt(state: State, task: string, focus?: string, previousResults?: ExecutedStep[]): string {
   const target = focus ?? task;
   const context = previousResults ? fmtPreStepCtx(state, previousResults) : '';
-  switch (state) {
-    case State.LOCATE:
-      return `Locate the code positions for: ${target}${context}`;
-    case State.MODIFY:
-      return `Apply the changes for: ${target}${context}`;
-    case State.WRITE:
-      return `Create new files for: ${target}${context}`;
-    case State.PLAN:
-      return `Analyze and plan execution steps for: ${target}${context}`;
-    case State.GIT:
-      return `Execute the git operation: ${target}${context}`;
-    case State.VERIFY:
-      return `Verify the changes are correct for: ${target}${context}`;
-    default:
-      return `${target}${context}`;
-  }
+  const verbPrefix = STATE_REGISTRY[state]?.verbPrefix;
+  return verbPrefix ? `${verbPrefix}: ${target}${context}` : `${target}${context}`;
 }

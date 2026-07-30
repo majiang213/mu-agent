@@ -1,58 +1,25 @@
 import { describe, it, expect } from 'vitest';
-import { getNextState, getBaseStateConfigs } from '../../src/core/states.js';
 import { State } from '../../src/core/types.js';
+import { STATE_REGISTRY } from '../../src/core/state-registry.js';
 
-// ---- Bug 19 (states.ts:114): getNextState ignores success parameter ----
-
-describe('Bug 19: getNextState ignores success parameter', () => {
-  it('VERIFY with success=false should not transition to DONE', () => {
-    // Arrange: VERIFY failed.
-    // Bug 19 (states.ts:114): getNextState ignores the success parameter.
-    // When VERIFY fails (success=false), the next state should NOT be DONE.
-    // It should be something like ROLLBACK or REASON for retry.
-    const nextState = getNextState(State.VERIFY, false);
-
-    // Bug: getNextState always returns State.DONE for VERIFY regardless of success.
-    // After fix, VERIFY with success=false should return a different state (e.g., ROLLBACK).
-    expect(nextState).not.toBe(State.DONE);
-  });
-
-  it('VERIFY with success=true should transition to DONE', () => {
-    const nextState = getNextState(State.VERIFY, true);
-    expect(nextState).toBe(State.DONE);
-  });
-});
-
-// ---- Bug 26: ROLLBACK allowedTools missing bash and edit ----
+// Regression pins for per-state allowedTools, now read straight from the
+// registry (getBaseStateConfigs was a pure pass-through and was deleted).
 
 describe('Bug 26: ROLLBACK allowedTools missing bash and edit', () => {
   it('ROLLBACK state includes bash in allowedTools', () => {
-    const configs = getBaseStateConfigs();
-    const rollbackTools = configs[State.ROLLBACK].allowedTools;
-
-    // Bug 26: ROLLBACK only has ['read', 'write', 'complete'].
-    // It needs 'bash' to run 'git checkout' and 'edit' for partial modifications.
-    expect(rollbackTools).toContain('bash');
+    // ROLLBACK needs 'bash' to run 'git checkout' style restores.
+    expect(STATE_REGISTRY[State.ROLLBACK].allowedTools).toContain('bash');
   });
 
   it('ROLLBACK state includes edit in allowedTools', () => {
-    const configs = getBaseStateConfigs();
-    const rollbackTools = configs[State.ROLLBACK].allowedTools;
-
-    // Bug 26: 'edit' is missing, forcing the model to use 'write' for full-file rewrites.
-    expect(rollbackTools).toContain('edit');
+    // ROLLBACK needs 'edit' for partial modifications.
+    expect(STATE_REGISTRY[State.ROLLBACK].allowedTools).toContain('edit');
   });
 });
 
-// ---- Bug 19 (states.ts:104): TEST_WRITE allowedTools missing edit ----
-
 describe('Bug 19: TEST_WRITE allowedTools missing edit', () => {
   it('TEST_WRITE state includes edit in allowedTools', () => {
-    const configs = getBaseStateConfigs();
-    const testWriteTools = configs[State.TEST_WRITE].allowedTools;
-
-    // Bug 19 (states.ts:104): TEST_WRITE has ['read', 'write', 'complete'].
-    // It needs 'edit' to modify existing test files.
-    expect(testWriteTools).toContain('edit');
+    // TEST_WRITE needs 'edit' to modify existing test files.
+    expect(STATE_REGISTRY[State.TEST_WRITE].allowedTools).toContain('edit');
   });
 });

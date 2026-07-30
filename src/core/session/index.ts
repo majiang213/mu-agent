@@ -1,15 +1,45 @@
 import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { State, type ModelParams, type StateConfig } from '../types.js';
-import { detectModelParams, getBaseStateConfigs, getNextState } from '../states.js';
+import { State, type ModelParams } from '../types.js';
+import { STATE_REGISTRY } from '../state-registry.js';
 
-interface StateMachineConfig {
-  modelParams: ModelParams;
-  states: Record<State, StateConfig>;
+export function detectModelParams(paramCount: number | null): ModelParams {
+  const billions = paramCount !== null ? paramCount / 1e9 : null;
+
+  if (billions !== null && billions <= 9) {
+    return {
+      tier: 'SMALL',
+      paramCount: billions,
+      maxFilesPerTask: 2,
+      maxRetries: 1,
+      strictPlanning: true,
+    };
+  } else if (billions !== null && billions <= 30) {
+    return {
+      tier: 'MEDIUM',
+      paramCount: billions,
+      maxFilesPerTask: 4,
+      maxRetries: 2,
+      strictPlanning: true,
+    };
+  } else {
+    return {
+      tier: 'LARGE',
+      paramCount: billions ?? 0,
+      maxFilesPerTask: 8,
+      maxRetries: 3,
+      strictPlanning: false,
+    };
+  }
 }
 
+/**
+ * Per-task step environment: tool gating by state (from STATE_REGISTRY),
+ * edit-file counting, and model tier params. The REASON-planned step list is
+ * the control flow; this class only tracks the current state for tool gating.
+ */
 export class StateMachineAgent {
-  private config: StateMachineConfig;
+  private readonly modelParams: ModelParams;
   private currentState: State;
   private allTools: AgentTool[];
   private fileCount: number;
@@ -28,13 +58,7 @@ export class StateMachineAgent {
     this.extraTools = extraTools;
     this.paramCount = paramCount;
     this.projectRoot = projectRoot;
-    const modelParams = detectModelParams(paramCount);
-    const states = getBaseStateConfigs();
-
-    this.config = {
-      modelParams,
-      states,
-    };
+    this.modelParams = detectModelParams(paramCount);
 
     this.currentState = State.REASON;
     this.fileCount = 0;
@@ -53,20 +77,12 @@ export class StateMachineAgent {
     return cloned;
   }
 
-  getCurrentStateConfig(): StateMachineConfig['states'][State] {
-    return this.config.states[this.currentState];
-  }
-
   getAllowedTools(): AgentTool[] {
-    const stateConfig = this.getCurrentStateConfig();
-    const allowedSet = new Set(stateConfig.allowedTools);
+    const allowedSet = new Set(STATE_REGISTRY[this.currentState]?.allowedTools ?? []);
     return this.allTools.filter((tool) => allowedSet.has(tool.name));
   }
 
   transitionTo(nextState: State): void {
-    const expected = getNextState(this.currentState, true);
-    if (expected !== nextState && !(this.currentState === State.REASON && nextState === State.REASON))
-      console.warn('[session] Unexpected transition:', this.currentState, '->', nextState, '(expected', expected + ')');
     this.currentState = nextState;
   }
 
@@ -81,7 +97,7 @@ export class StateMachineAgent {
   }
 
   canModifyMoreFiles(maxFiles?: number): boolean {
-    const limit = maxFiles ?? this.config.modelParams.maxFilesPerTask;
+    const limit = maxFiles ?? this.modelParams.maxFilesPerTask;
     return this.fileCount < limit;
   }
 
@@ -100,6 +116,6 @@ export class StateMachineAgent {
   }
 
   getModelParams(): ModelParams {
-    return this.config.modelParams;
+    return this.modelParams;
   }
 }

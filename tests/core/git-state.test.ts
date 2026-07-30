@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../../src/core/types.js';
-import { getNextState, getBaseStateConfigs } from '../../src/core/states.js';
 import { STATE_REGISTRY, GIT_OPERATIONS } from '../../src/core/state-registry.js';
 import { GIT_HARD_DENY, wrapWithGitGuard } from '../../src/core/agent/builder.js';
 import type { GitGuardSpec } from '../../src/core/agent/builder.js';
@@ -305,22 +304,26 @@ describe('Gap 79: State.GIT — complete() schema validation', () => {
 
   it('rejects invalid operation', async () => {
     const out = await runComplete({ operation: 'rebase', result: 'x' });
-    expect(out).toContain('operation must be one of');
+    expect(out).toContain('validation failed');
+    expect(out).toContain('operation');
   });
 
   it('rejects missing operation', async () => {
     const out = await runComplete({ result: 'x' });
-    expect(out).toContain('operation must be one of');
+    expect(out).toContain('validation failed');
+    expect(out).toContain('operation');
   });
 
   it('rejects empty result', async () => {
     const out = await runComplete({ operation: 'commit', result: '' });
-    expect(out).toContain('result must be a non-empty string');
+    expect(out).toContain('validation failed');
+    expect(out).toContain('result');
   });
 
   it('rejects missing result', async () => {
     const out = await runComplete({ operation: 'status' });
-    expect(out).toContain('result must be a non-empty string');
+    expect(out).toContain('validation failed');
+    expect(out).toContain('result');
   });
 });
 
@@ -369,11 +372,6 @@ describe('Gap 83-F4/D2: GIT_OPERATIONS parity (schema union == shared const)', (
 });
 
 describe('Gap 79: State.GIT — state machine integration', () => {
-  it('GIT transitions to DONE', () => {
-    expect(getNextState(State.GIT, true)).toBe(State.DONE);
-    expect(getNextState(State.GIT, false)).toBe(State.DONE);
-  });
-
   it('registry has GIT entry with bash+read+complete', () => {
     const def = STATE_REGISTRY[State.GIT];
     expect(def.allowedTools).toEqual(['bash', 'read', 'complete']);
@@ -382,12 +380,6 @@ describe('Gap 79: State.GIT — state machine integration', () => {
   it('GIT contextNeeds covers MODIFY, RESEARCH, WRITE', () => {
     const def = STATE_REGISTRY[State.GIT];
     expect(def.contextNeeds).toEqual([State.MODIFY, State.RESEARCH, State.WRITE]);
-  });
-
-  it('GIT is in base state configs', () => {
-    const configs = getBaseStateConfigs();
-    expect(configs[State.GIT]).toBeDefined();
-    expect(configs[State.GIT].allowedTools).toContain('bash');
   });
 
   it('GIT completeSchema includes operation union and conflicts field', () => {

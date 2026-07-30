@@ -83,30 +83,40 @@ export const C = {
   hintKey: fg(139, 148, 158),
 };
 
-export const STATE_FN: Record<string, (s: string) => string> = {
-  LOCATE: C.stateLocate,
-  MODIFY: C.stateModify,
-  VERIFY: C.stateVerify,
-  DONE: C.stateDone,
-  REASON: C.stateReason,
-  CLARIFY: C.stateClarify,
-  ANSWER: C.stateAnswer,
-  DIAGNOSE: C.stateDiagnose,
-  REVIEW: C.stateReview,
-  TEST_WRITE: C.stateTestWrite,
-  REFACTOR_PLAN: C.stateRefactorPlan,
-  ROLLBACK: C.stateRollback,
-  RESEARCH: C.stateResearch,
-  SETUP: C.stateSetup,
-  WRITE: C.stateWrite,
-  PLAN: C.statePlan,
-  GIT: C.stateGit,
+import { State } from '../core/types.js';
+
+/**
+ * State → color. Typed as Record<State, ...> so adding a new State member
+ * without a color is a compile error (previously it rendered silently dim).
+ */
+export const STATE_FN: Record<State, (s: string) => string> = {
+  [State.LOCATE]: C.stateLocate,
+  [State.MODIFY]: C.stateModify,
+  [State.VERIFY]: C.stateVerify,
+  [State.DONE]: C.stateDone,
+  [State.REASON]: C.stateReason,
+  [State.CLARIFY]: C.stateClarify,
+  [State.ANSWER]: C.stateAnswer,
+  [State.DIAGNOSE]: C.stateDiagnose,
+  [State.REVIEW]: C.stateReview,
+  [State.TEST_WRITE]: C.stateTestWrite,
+  [State.REFACTOR_PLAN]: C.stateRefactorPlan,
+  [State.ROLLBACK]: C.stateRollback,
+  [State.RESEARCH]: C.stateResearch,
+  [State.SETUP]: C.stateSetup,
+  [State.WRITE]: C.stateWrite,
+  [State.PLAN]: C.statePlan,
+  [State.GIT]: C.stateGit,
+};
+
+/** Pseudo-states emitted in state_change events that are not State members. */
+const PSEUDO_STATE_FN: Record<string, (s: string) => string> = {
   IDLE: C.stateIdle,
   SAMPLING: C.stateSampling,
 };
 
 export function stateColor(s: string): (t: string) => string {
-  return STATE_FN[s] ?? C.dim;
+  return (STATE_FN as Record<string, (s: string) => string>)[s] ?? PSEUDO_STATE_FN[s] ?? C.dim;
 }
 
 export function fillLine(content: string, width: number, _visibleWidthFn: (s: string) => number): string {

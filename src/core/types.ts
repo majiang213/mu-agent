@@ -3,7 +3,7 @@
  * Based on architecture design: deterministic pipeline + constrained LLM
  */
 
-import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 export interface SteerMessage {
   role: 'steer';
@@ -55,20 +55,6 @@ export interface ModelParams {
   strictPlanning: boolean;
 }
 
-/** State configuration */
-export interface StateConfig {
-  name: State;
-  allowedTools: string[];
-}
-
-/** State context passed to LLM */
-export interface StateContext {
-  state: State;
-  task: string;
-  history: StateResult[];
-  availableTools: AgentTool[];
-}
-
 /** Result from state execution */
 export interface StateResult {
   state: State;
@@ -107,11 +93,3 @@ export interface ExecutedStep extends Step {
  * (multiple independent steps executed concurrently with isolated state machines).
  */
 export type StepDirective = Step | { parallel: Step[] } | { subplan: SubplanSpec };
-
-export const STATES_NEEDING_CODE_CONTEXT = new Set([
-  State.LOCATE,
-  State.RESEARCH,
-  State.DIAGNOSE,
-  State.REVIEW,
-  State.REFACTOR_PLAN,
-]);

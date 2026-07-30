@@ -14,16 +14,13 @@ import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
 import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
-import { advanceState } from '../states.js';
 import { buildStepAgent, subscribeStepEvents, wrapWithGitGuard } from './builder.js';
 import { samplePlans, SAMPLING_BATCH_SIZE } from '../heavy/sampler.js';
 import { deliberate, pickShortest } from '../heavy/deliberator.js';
-import { State, STATES_NEEDING_CODE_CONTEXT } from '../types.js';
+import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
-
-const MEMORY_STATES = new Set([State.REASON, State.ANSWER, State.RESEARCH, State.DIAGNOSE, State.PLAN]);
 
 export async function buildModel(
   modelName: string,
@@ -429,11 +426,10 @@ export async function runStep(
   memoryIndex?: string,
   memorySearchTool?: AgentTool<any, any>,
 ): Promise<ExecutedStep> {
-  const trajectory = [step.state, State.DONE];
   cfg.stateMachine.resetForNextTask(step.state);
 
   let stepEnv = cfg.env;
-  if (STATES_NEEDING_CODE_CONTEXT.has(step.state)) {
+  if (STATE_REGISTRY[step.state]?.needsCodeContext === true) {
     try {
       const locator = new CodeGraphLocator(cfg.projectRoot);
       const result = locator.locate(step.focus);
@@ -448,7 +444,7 @@ export async function runStep(
     }
   }
 
-  const injectMemory = MEMORY_STATES.has(step.state) ? memoryIndex : undefined;
+  const injectMemory = STATE_REGISTRY[step.state]?.memoryIndex === true ? memoryIndex : undefined;
   const systemPrompt = buildSystemPrompt({
     state: step.state,
     task: mission.description,
@@ -462,9 +458,8 @@ export async function runStep(
     .getAllowedTools()
     .filter((t) => t.name !== 'complete')
     .map((t) => (t.name === 'bash' ? wrapWithGitGuard(t) : t));
-  const READ_ONLY_STATES = new Set([State.RESEARCH, State.REVIEW, State.DIAGNOSE, State.REFACTOR_PLAN]);
   const stagnationDetector = new StagnationDetector({
-    checkNoProgress: !READ_ONLY_STATES.has(step.state),
+    checkNoProgress: STATE_REGISTRY[step.state]?.readOnly !== true,
   });
   let llmText = '';
   let capturedComplete: Record<string, unknown> | null = null;
@@ -474,7 +469,7 @@ export async function runStep(
   });
   const readFiles = new Set<string>();
   const memoryTools: AgentTool<any, any>[] =
-    memorySearchTool && (step.state === State.REASON || step.state === State.ANSWER) ? [memorySearchTool] : [];
+    memorySearchTool && STATE_REGISTRY[step.state]?.memorySearchTool === true ? [memorySearchTool] : [];
   const agent = buildStepAgent(
     systemPrompt,
     [],
@@ -495,11 +490,8 @@ export async function runStep(
     onEvent,
     () => {
       if (capturedComplete !== null) {
-        const nextState = advanceState(step.state, trajectory);
-        if (nextState !== step.state) {
-          cfg.stateMachine.transitionTo(nextState);
-          onEvent?.({ type: 'state_change', from: step.state, to: nextState });
-        }
+        cfg.stateMachine.transitionTo(State.DONE);
+        onEvent?.({ type: 'state_change', from: step.state, to: State.DONE });
       }
     },
   );

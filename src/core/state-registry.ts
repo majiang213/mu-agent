@@ -26,12 +26,23 @@ export interface StateDefinition {
   reminderFields?: string;
   completeSchema: ReturnType<typeof Type.Object>;
   contextNeeds?: State[];
-  contextFilter?: Partial<Record<State, string[]>>;
+  /** Step is read-only (no edit/write side effects) — disables no-progress stagnation checks. */
+  readOnly?: boolean;
+  /** Inject project tree + BM25/call-graph code context into the system prompt. */
+  needsCodeContext?: boolean;
+  /** Inject the <memory> anchor index into the system prompt. */
+  memoryIndex?: boolean;
+  /** Attach the memory_search tool. */
+  memorySearchTool?: boolean;
+  /** Verb prefix for the per-state user prompt, e.g. "Apply the changes for: <focus>". */
+  verbPrefix?: string;
 }
 
 export const STATE_REGISTRY: Record<State, StateDefinition> = {
   [State.REASON]: {
     allowedTools: ['complete'],
+    memoryIndex: true,
+    memorySearchTool: true,
     instruction: `You have ONE tool: complete(). Do NOT call any other tool. Do NOT read files. Do NOT run commands.
 Your ONLY job is to analyze the task description and call complete() with a plan.
 
@@ -159,6 +170,8 @@ When done, call complete(questions=["<q1>", "<q2>"]).`,
 
   [State.LOCATE]: {
     allowedTools: ['read', 'ast_code_locator', 'complete'],
+    needsCodeContext: true,
+    verbPrefix: 'Locate the code positions for',
     instruction: `Locate the exact code positions that need to change.
 
 Available tools: read, ast_code_locator, complete.
@@ -187,6 +200,7 @@ Do NOT explain your findings before calling complete(). The complete() call IS y
           endLine: Type.Number(),
           snippet: Type.String({ description: 'Current code at this location' }),
         }),
+        { minItems: 1 },
       ),
     }),
     contextNeeds: [State.RESEARCH, State.DIAGNOSE],
@@ -194,6 +208,7 @@ Do NOT explain your findings before calling complete(). The complete() call IS y
 
   [State.MODIFY]: {
     allowedTools: ['read', 'edit', 'write', 'complete'],
+    verbPrefix: 'Apply the changes for',
     instruction: `Apply the code changes identified in the LOCATE step.
 
 The \`edit\` tool does SEARCH/REPLACE: it finds \`oldText\` in the file and replaces it with \`newText\`.
@@ -220,7 +235,7 @@ complete(edited=["calc.js"], linesChanged=1)
 When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
     reminderFields: 'edited (array of file paths), linesChanged (number)',
     completeSchema: Type.Object({
-      edited: Type.Array(Type.String({ description: 'File path that was modified' })),
+      edited: Type.Array(Type.String({ description: 'File path that was modified' }), { minItems: 1 }),
       linesChanged: Type.Number(),
     }),
     contextNeeds: [State.RESEARCH, State.DIAGNOSE, State.LOCATE],
@@ -228,6 +243,7 @@ When done, call complete(edited=["<file>", ...], linesChanged=<n>).`,
 
   [State.VERIFY]: {
     allowedTools: ['read', 'bash', 'complete'],
+    verbPrefix: 'Verify the changes are correct for',
     instruction: `You are a test result reporter. Two steps, no more:
 1. Run the test command with bash.
 2. Call complete() with exactly what the output showed.
@@ -272,7 +288,9 @@ When done, call complete(passed=true|false, issues=[...], summary="<test output>
       issues: Type.Array(Type.String()),
       summary: Type.String(),
     }),
-    contextNeeds: [State.MODIFY, State.LOCATE, State.DIAGNOSE],
+    // NOTE: no contextNeeds here — VERIFY's prior-step context is owned by the
+    // Gap 41/43 special case in fmtPreStepCtx (path audit + multi-MODIFY merge),
+    // which runs before the generic contextNeeds lookup.
   },
 
   [State.DONE]: {
@@ -283,6 +301,8 @@ When done, call complete(passed=true|false, issues=[...], summary="<test output>
 
   [State.ANSWER]: {
     allowedTools: ['complete'],
+    memoryIndex: true,
+    memorySearchTool: true,
     instruction: `Present the result to the user.
 
 You have ONE tool: complete(). Call it directly as a tool. Do NOT call any other tools.
@@ -308,13 +328,16 @@ assistant: complete(answer="calc.js looks good — no bugs found.")
 When done, call complete(answer="<your summary>").`,
     reminderFields: 'answer (string)',
     completeSchema: Type.Object({
-      answer: Type.String({ description: 'Your answer to the user' }),
+      answer: Type.String({ description: 'Your answer to the user', minLength: 1 }),
     }),
     contextNeeds: [State.RESEARCH, State.DIAGNOSE, State.REVIEW, State.VERIFY, State.MODIFY],
   },
 
   [State.DIAGNOSE]: {
     allowedTools: ['read', 'grep', 'bash', 'complete'],
+    readOnly: true,
+    needsCodeContext: true,
+    memoryIndex: true,
     instruction: `Investigate the root cause of the bug or issue.
 
 IMPORTANT: Your ONLY job is to investigate and report findings.
@@ -341,7 +364,7 @@ complete(rootCause="divide() has no guard for b===0, returns Infinity silently",
 When done, call complete(rootCause="<explanation>", location="<file:line>", fix="<suggested fix>").`,
     reminderFields: 'rootCause (string), location (string), fix (string)',
     completeSchema: Type.Object({
-      rootCause: Type.String(),
+      rootCause: Type.String({ minLength: 1 }),
       location: Type.String({ description: 'file:line where the bug is' }),
       fix: Type.String({ description: 'Suggested fix' }),
     }),
@@ -349,6 +372,8 @@ When done, call complete(rootCause="<explanation>", location="<file:line>", fix=
 
   [State.REVIEW]: {
     allowedTools: ['read', 'grep', 'complete'],
+    readOnly: true,
+    needsCodeContext: true,
     instruction: `Review the code for quality, correctness, and issues.
 
 Available tools: read, grep, complete. You do NOT have bash.
@@ -403,6 +428,8 @@ When done, call complete(testFile="<path>", cases=<number>).`,
 
   [State.REFACTOR_PLAN]: {
     allowedTools: ['read', 'complete'],
+    readOnly: true,
+    needsCodeContext: true,
     instruction: `Plan the refactoring without making any changes.
 
 Available tools: read, complete. You do NOT have bash.
@@ -454,6 +481,9 @@ When done, call complete(restored=["<file1>", ...]).`,
 
   [State.RESEARCH]: {
     allowedTools: ['read', 'grep', 'find', 'ls', 'webfetch', 'websearch', 'complete'],
+    readOnly: true,
+    needsCodeContext: true,
+    memoryIndex: true,
     instruction: `Research and investigate the topic.
 
 Available tools: read, ls, grep, find, webfetch, websearch, complete.
@@ -486,7 +516,7 @@ As soon as you have gathered enough information, call complete(report="...") IMM
 Do NOT output a summary to the user before calling complete(). The complete() call IS your output.`,
     reminderFields: 'report (string)',
     completeSchema: Type.Object({
-      report: Type.String({ description: 'Your findings, cite file paths or URLs' }),
+      report: Type.String({ description: 'Your findings, cite file paths or URLs', minLength: 1 }),
     }),
   },
 
@@ -525,6 +555,7 @@ When done, call complete(created="AGENTS.md", summary="<what was captured>").`,
 
   [State.WRITE]: {
     allowedTools: ['read', 'write', 'complete'],
+    verbPrefix: 'Create new files for',
     instruction: `Create a new file. Use read to understand context, then write to create the file.
 
 Available tools: read, write, complete.
@@ -546,7 +577,7 @@ complete(createdFiles=["README.md"], linesWritten=45)
 When done, call complete(createdFiles=["<path>", ...], linesWritten=<n>).`,
     reminderFields: 'createdFiles (array of file paths), linesWritten (number)',
     completeSchema: Type.Object({
-      createdFiles: Type.Array(Type.String({ description: 'File path that was created' })),
+      createdFiles: Type.Array(Type.String({ description: 'File path that was created' }), { minItems: 1 }),
       linesWritten: Type.Number(),
     }),
     contextNeeds: [State.RESEARCH],
@@ -554,6 +585,8 @@ When done, call complete(createdFiles=["<path>", ...], linesWritten=<n>).`,
 
   [State.PLAN]: {
     allowedTools: ['bash', 'read', 'complete'],
+    memoryIndex: true,
+    verbPrefix: 'Analyze and plan execution steps for',
     instruction: `Analyze the current situation and produce a detailed execution plan.
 
 Available tools: bash, read, complete.
@@ -625,6 +658,7 @@ When done, call complete(steps=[...], rationale="<why this grouping>").`,
 
   [State.GIT]: {
     allowedTools: ['bash', 'read', 'complete'],
+    verbPrefix: 'Execute the git operation',
     instruction: `Execute git operations. ONLY run git commands via bash. No other shell commands.
 
 ALLOWED operations:
@@ -672,7 +706,7 @@ When done, call complete(operation="...", result="actual git output").`,
     reminderFields: 'operation (string), result (string)',
     completeSchema: Type.Object({
       operation: Type.Union(GIT_OPERATIONS.map((op) => Type.Literal(op))),
-      result: Type.String({ description: 'Actual git command output' }),
+      result: Type.String({ description: 'Actual git command output', minLength: 1 }),
       branch: Type.Optional(Type.String()),
       commitSha: Type.Optional(Type.String()),
       filesAffected: Type.Optional(Type.Array(Type.String())),
