@@ -1,19 +1,14 @@
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
-import { retryDelayMs, sleep } from '../failure/index.js';
-import {
-  DEFAULT_TEMPERATURE,
-  MAX_TEMPERATURE,
-  RETRY_TEMPERATURE_STEP,
-  DEFAULT_CONTEXT_RATIO,
-} from '../../config/defaults.js';
+import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { fetchContextLength, OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
 import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
+import { runReasonAttempt, runStepAgent } from './reason-runner.js';
 import { samplePlans, SAMPLING_BATCH_SIZE } from '../heavy/sampler.js';
 import { deliberate, pickShortest } from '../heavy/deliberator.js';
 import { State } from '../types.js';
@@ -59,49 +54,6 @@ export async function compressConversationHistory(
 ): Promise<AgentMessage[]> {
   if (messages.length === 0) return [];
   return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
-}
-
-export async function runStepAgent(
-  agent: import('@earendil-works/pi-agent-core').Agent,
-  input: string,
-  cfg: RunConfig,
-  stagnationDetector: StagnationDetector,
-): Promise<void> {
-  const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, 3);
-  const baseTemperature = cfg.temperature;
-  let attempt = 0;
-  let lastError: Error | undefined;
-  try {
-    while (attempt < maxRetries) {
-      try {
-        await agent.prompt(input);
-        return;
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        lastError = error;
-        const isAbort = error.name === 'AbortError' || error.message.includes('aborted');
-        if (isAbort) {
-          return;
-        }
-        await sleep(retryDelayMs(attempt));
-        // Mutate the cfg we were given: buildStepAgent's streamFn closure
-        // reads cfg.temperature lazily at call time, so this escalation
-        // actually reaches the model. Restored in finally (per-step fork or
-        // parent — either way nothing leaks out of this attempt).
-        cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
-        stagnationDetector.reset();
-        cfg.stateMachine.resetForRetry();
-        // Restore + clear only THIS step's checkpoints (owner = this step's
-        // stateMachine instance) — the store is shared, a store-wide wipe
-        // would disarm rollback for parallel siblings and prior steps.
-        await cfg.safeModifier.restoreAndClearWhere(cfg.stateMachine);
-      }
-      attempt++;
-    }
-    throw lastError ?? new Error('runStepAgent: max retries exhausted');
-  } finally {
-    cfg.temperature = baseTemperature;
-  }
 }
 
 export async function runReasonStep(
@@ -229,131 +181,6 @@ export async function runReasonStep(
 
   const fallback = pickShortest(candidates);
   return { steps: fallback.steps };
-}
-
-export interface ReasonAttemptOptions {
-  onEvent?: (event: ExecutionEvent) => void;
-  onNeedsClarify?: (questions: string[]) => Promise<string>;
-  /** Emit a state_change(from -> REASON) event before prompting. */
-  fromState?: State | 'IDLE';
-  memoryIndex?: string;
-  memorySearchTool?: AgentTool;
-  /**
-   * Throw instead of returning { steps: [] } when the attempt never produces
-   * a valid plan (sampler semantics: the sample counts as failed).
-   */
-  throwOnFailure?: boolean;
-}
-
-/**
- * Run one REASON planning attempt: build the agent, prompt, and drive the
- * complete() capture with REMINDER retries and optional clarification.
- * The single implementation behind both the real REASON step and Heavy
- * Thinking samples (which run it with a cloned state machine and
- * throwOnFailure) — the two can no longer drift.
- */
-export async function runReasonAttempt(
-  mission: Mission,
-  cfg: RunConfig,
-  conversationHistory: AgentMessage[],
-  options: ReasonAttemptOptions = {},
-): Promise<{ steps: StepDirective[] }> {
-  const { onEvent, onNeedsClarify, fromState, memoryIndex, memorySearchTool, throwOnFailure } = options;
-  cfg.stateMachine.transitionTo(State.REASON);
-  const systemPrompt = buildSystemPrompt({
-    state: State.REASON,
-    task: mission.description,
-    modelParams: cfg.stateMachine.getModelParams(),
-    env: cfg.env,
-    memoryIndex,
-  });
-
-  const stagnationDetector = new StagnationDetector();
-  let capturedComplete: Record<string, unknown> | null = null;
-  const completeTool = buildCompleteTool(State.REASON, (args) => {
-    capturedComplete = args;
-  });
-
-  const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
-  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool, ...extraTools]);
-  subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
-
-  cfg.registerAgent?.(agent);
-  try {
-    if (fromState !== undefined) {
-      onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
-    }
-    await runStepAgent(agent, mission.description, cfg, stagnationDetector);
-
-    if (capturedComplete === null) {
-      agent.steer({
-        role: 'steer',
-        content: '[REMINDER] You must call complete() to submit your execution plan.',
-        timestamp: Date.now(),
-      });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
-    }
-
-    if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
-      const questions = Array.isArray(capturedComplete['questions']) ? (capturedComplete['questions'] as string[]) : [];
-      const answer = await onNeedsClarify(questions);
-      capturedComplete = null;
-      agent.steer({
-        role: 'steer',
-        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
-        timestamp: Date.now(),
-      });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
-    }
-  } finally {
-    cfg.unregisterAgent?.(agent);
-  }
-
-  let lastParseError: string | null = null;
-  if (capturedComplete !== null) {
-    const c = capturedComplete;
-    if (c['needsClarify'] === true) {
-      return { steps: [] };
-    }
-    const { steps, error } = parseDirectives(c);
-    if (!error) {
-      return { steps };
-    }
-    lastParseError = error;
-    capturedComplete = null;
-    agent.steer({
-      role: 'steer',
-      content: `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
-      timestamp: Date.now(),
-    });
-    await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
-    if (capturedComplete !== null) {
-      const { steps: retrySteps, error: retryError } = parseDirectives(capturedComplete);
-      if (!retryError) {
-        return { steps: retrySteps };
-      }
-      lastParseError = retryError;
-    }
-  } else {
-    agent.steer({
-      role: 'steer',
-      content: '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
-      timestamp: Date.now(),
-    });
-    await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
-    if (capturedComplete !== null) {
-      const { steps, error } = parseDirectives(capturedComplete);
-      if (!error) {
-        return { steps };
-      }
-      lastParseError = error;
-    }
-  }
-
-  if (throwOnFailure) {
-    throw new Error(`bare sample: ${lastParseError ?? 'complete() not called'}`);
-  }
-  return { steps: [] };
 }
 
 export async function runStep(

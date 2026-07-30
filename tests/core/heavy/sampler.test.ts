@@ -32,8 +32,8 @@ vi.mock('../../../src/core/prompts/agent.js', () => ({
   buildUserPrompt: vi.fn(() => 'mocked user prompt'),
 }));
 
-vi.mock('../../../src/core/agent/step-runner.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/agent/step-runner.js')>();
+vi.mock('../../../src/core/agent/reason-runner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/agent/reason-runner.js')>();
   return { ...actual, runReasonAttempt: vi.fn() };
 });
 
@@ -44,7 +44,7 @@ vi.mock('../../../src/tool/safety/index.js', () => ({
 }));
 
 import { samplePlans } from '../../../src/core/heavy/sampler.js';
-import { runReasonAttempt } from '../../../src/core/agent/step-runner.js';
+import { runReasonAttempt } from '../../../src/core/agent/reason-runner.js';
 import type { RunConfig, ExecutionEvent } from '../../../src/core/agent/types.js';
 
 function makeStep(state: State) {

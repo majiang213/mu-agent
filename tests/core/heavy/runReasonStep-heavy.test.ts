@@ -59,8 +59,8 @@ vi.mock('../../../src/tool/lsp.js', () => ({
   LspClient: vi.fn(() => ({ init: vi.fn(), dispose: vi.fn() })),
 }));
 
-vi.mock('../../../src/core/agent/step-runner.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/agent/step-runner.js')>();
+vi.mock('../../../src/core/agent/reason-runner.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/agent/reason-runner.js')>();
   return { ...actual, runStepAgent: vi.fn(async () => {}) };
 });
 

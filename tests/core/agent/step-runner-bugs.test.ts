@@ -88,7 +88,8 @@ vi.mock('../../../src/core/heavy/deliberator.js', () => ({
 // ---- dynamic imports after mocks ----
 
 const { buildStepAgent, subscribeStepEvents } = await import('../../../src/core/agent/builder.js');
-const { runStepAgent, runStep } = await import('../../../src/core/agent/step-runner.js');
+const { runStep } = await import('../../../src/core/agent/step-runner.js');
+const { runStepAgent } = await import('../../../src/core/agent/reason-runner.js');
 
 // ---- helpers ----
 
