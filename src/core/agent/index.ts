@@ -10,6 +10,7 @@ import type { ReasonStepOptions } from './step-runner.js';
 import { buildRunSetup } from './setup.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
 import { parseEditedFiles } from './step-context.js';
+import { isAbortError } from './abort.js';
 import { MemoryStore } from '../memory/index.js';
 
 const MAX_VERIFY_RETRIES = 2;
@@ -337,7 +338,7 @@ export class ReactAgent {
       mission = { ...mission, state: 'completed' as const };
       return finalResult;
     } catch (err) {
-      const isAbort = err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'));
+      const isAbort = isAbortError(err);
       if (!isAbort) {
         const errResult: StateResult = {
           state: State.DONE,

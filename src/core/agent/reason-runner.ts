@@ -6,6 +6,7 @@ import { buildCompleteTool } from '../../tool/complete.js';
 import { buildSystemPrompt } from '../prompts/agent.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { parseDirectives } from './directives.js';
+import { isAbortError } from './abort.js';
 import { State } from '../types.js';
 import type { StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
@@ -36,8 +37,7 @@ export async function runStepAgent(
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err));
         lastError = error;
-        const isAbort = error.name === 'AbortError' || error.message.includes('aborted');
-        if (isAbort) {
+        if (isAbortError(error)) {
           return;
         }
         await sleep(retryDelayMs(attempt));

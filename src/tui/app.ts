@@ -20,6 +20,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
 import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
 import { formatRunResult, assistantMessageForSession, stripLegacyPrefixes } from './presenter.js';
+import { isAbortError } from '../core/agent/abort.js';
 import type { Config } from '../config/types.js';
 import { getLspStatuses } from '../config/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
@@ -778,35 +779,26 @@ export class TuiApp {
   private createEventHandler(
     taskId: string,
     loader: Loader,
-    pendingTools: Map<string, string>,
+    pendingTools: Set<string>,
   ): (event: ExecutionEvent) => void {
     const debugShownForState = new Set<string>();
-    let currentState = 'REASON';
 
     const ensureCurrentTurn = (state = 'REASON'): AssistantTurn => {
-      let turn = currentTurn;
+      let turn = this.currentTurn;
       if (!turn) {
         turn = new AssistantTurn(state);
         const idx = this.tui.children.indexOf(loader);
         this.tui.children.splice(idx, 0, turn);
-        currentTurn = turn;
-        syncTurn();
+        this.currentTurn = turn;
       }
       return turn;
     };
 
     this.currentSamplingBlock = null;
 
-    let currentTurn = this.currentTurn;
-
-    const syncTurn = (): void => {
-      this.currentTurn = currentTurn;
-    };
-
     return (event: ExecutionEvent): void => {
       if (event.type === 'state_change') {
-        const prevState = currentState;
-        currentState = event.to;
+        const prevState = this.loaderState;
         this.loaderState = event.to;
         this.header.setState(event.to);
         loader.setMessage(`[${event.to}]`);
@@ -814,19 +806,18 @@ export class TuiApp {
           const turn = new AssistantTurn(event.to);
           const idx = this.tui.children.indexOf(loader);
           this.tui.children.splice(idx, 0, turn);
-          currentTurn = turn;
+          this.currentTurn = turn;
         }
         if (event.to === 'DONE') {
-          currentTurn = null;
+          this.currentTurn = null;
         }
-        syncTurn();
       } else if (event.type === 'turn_start') {
         const turn = ensureCurrentTurn();
-        const alreadyShown = debugShownForState.has(currentState);
+        const alreadyShown = debugShownForState.has(this.loaderState);
         const debugBlock = turn.startLlmTurn(event.systemPrompt, event.userPrompt, this.debugMode && !alreadyShown);
         if (debugBlock) {
           this.allDebugBlocks.push(debugBlock);
-          debugShownForState.add(currentState);
+          debugShownForState.add(this.loaderState);
         }
       } else if (event.type === 'message_thinking_update') {
         const turn = ensureCurrentTurn();
@@ -846,7 +837,7 @@ export class TuiApp {
         ensureCurrentTurn().finalizeOutput(event.content);
       } else if (event.type === 'tool_execution_start') {
         const turn = ensureCurrentTurn();
-        pendingTools.set(event.toolId, event.tool);
+        pendingTools.add(event.toolId);
         const block = turn.addTool(event.toolId, event.tool, event.args);
         this.allToolBlocks.push(block);
         loader.setMessage(`[${event.tool}]`);
@@ -973,7 +964,7 @@ export class TuiApp {
     this.header.setState('REASON');
 
     this.currentTurn = null;
-    const pendingTools = new Map<string, string>();
+    const pendingTools = new Set<string>();
 
     this.loaderState = 'REASON';
     const loader = new Loader(
@@ -1049,10 +1040,7 @@ export class TuiApp {
       } catch (persistErr) {
         console.error('[TuiApp] session persistence failed in catch:', persistErr);
       }
-      const isAbort =
-        err instanceof Error &&
-        (err.name === 'AbortError' || err.message.includes('abort') || err.message.includes('Abort'));
-      if (isAbort) {
+      if (isAbortError(err)) {
         aborted = true;
         this.metrics.finishTask(taskId, false);
         this.insertBefore(new Text(C.dim('  ⊘  interrupted'), 0, 0));
