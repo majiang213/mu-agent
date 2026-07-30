@@ -1,5 +1,6 @@
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
+import type { FetchLike } from './webfetch.js';
 
 export interface SearchResult {
   title: string;
@@ -7,11 +8,13 @@ export interface SearchResult {
   snippet: string;
 }
 
-async function searchDuckDuckGo(query: string, numResults: number): Promise<SearchResult[]> {
+const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+
+async function searchDuckDuckGo(fetchImpl: FetchLike, query: string, numResults: number): Promise<SearchResult[]> {
   const encoded = encodeURIComponent(query);
   const url = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_redirect=1`;
 
-  const response = await fetch(url, {
+  const response = await fetchImpl(url, {
     headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
     signal: AbortSignal.timeout(10000),
   });
@@ -74,27 +77,32 @@ const _websearchParams = Type.Object({
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const websearchTool: AgentTool<any, SearchResult[]> = {
-  name: 'websearch',
-  label: 'Web Search',
-  description:
-    'Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets. Use this to find documentation, answers to errors, or current information.',
-  parameters: _websearchParams,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute: async (_toolCallId, params: any) => {
-    const numResults = Math.min(params.numResults ?? 5, 10);
-    let text: string;
-    let results: SearchResult[] = [];
-    try {
-      results = await searchDuckDuckGo(params.query, numResults);
-      text = `Search results for: "${params.query}"\n\n${formatResults(results)}`;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      text = `Search failed for "${params.query}": ${msg}`;
-    }
-    return {
-      content: [{ type: 'text' as const, text }],
-      details: results,
-    };
-  },
-};
+export function createWebsearchTool(fetchImpl: FetchLike = defaultFetch): AgentTool<any, SearchResult[]> {
+  return {
+    name: 'websearch',
+    label: 'Web Search',
+    description:
+      'Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets. Use this to find documentation, answers to errors, or current information.',
+    parameters: _websearchParams,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    execute: async (_toolCallId, params: any) => {
+      const numResults = Math.min(params.numResults ?? 5, 10);
+      let text: string;
+      let results: SearchResult[] = [];
+      try {
+        results = await searchDuckDuckGo(fetchImpl, params.query, numResults);
+        text = `Search results for: "${params.query}"\n\n${formatResults(results)}`;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        text = `Search failed for "${params.query}": ${msg}`;
+      }
+      return {
+        content: [{ type: 'text' as const, text }],
+        details: results,
+      };
+    },
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const websearchTool: AgentTool<any, SearchResult[]> = createWebsearchTool();

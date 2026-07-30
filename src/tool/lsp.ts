@@ -1,8 +1,7 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter } from 'vscode-jsonrpc/node';
-import type { MessageConnection } from 'vscode-jsonrpc';
 import { detectLanguages, fileExtToLanguage, isCommandAvailable, LANGUAGE_ENTRIES } from './lsp-utils.js';
 
 function resolveAfter<T>(ms: number, value: T): Promise<T> {
@@ -16,9 +15,43 @@ interface Diagnostic {
   source?: string;
 }
 
+/**
+ * The connection surface LspClient actually uses — the seam where tests plug
+ * in a fake server (architecture review 2026-07-30, candidate 7). Production
+ * uses the stdio vscode-jsonrpc connection below.
+ */
+export interface LspConnection {
+  listen(): void;
+  onNotification(
+    method: 'textDocument/publishDiagnostics',
+    handler: (params: { uri: string; diagnostics: Diagnostic[] }) => void,
+  ): void;
+  sendRequest(method: string, params: unknown): Promise<unknown>;
+  sendNotification(method: string, params: unknown): Promise<unknown>;
+  dispose(): void;
+}
+
+export interface LspServerHandle {
+  connection: LspConnection;
+  kill(): void;
+}
+
+export type LspServerFactory = (cmd: string, args: string[], projectRoot: string) => LspServerHandle | null;
+
+const stdioServerFactory: LspServerFactory = (cmd, args, projectRoot) => {
+  const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd: projectRoot });
+  if (!proc.stdout || !proc.stdin) {
+    proc.kill();
+    return null;
+  }
+  proc.stderr?.on('data', () => {});
+  const connection = createMessageConnection(new StreamMessageReader(proc.stdout), new StreamMessageWriter(proc.stdin));
+  return { connection: connection as unknown as LspConnection, kill: () => proc.kill() };
+};
+
 interface ConnectionState {
-  process: ChildProcess;
-  connection: MessageConnection;
+  kill: () => void;
+  connection: LspConnection;
   diagnosticsMap: Map<string, Diagnostic[]>;
   diagnosticsWaiters: Map<string, (diagnostics: Diagnostic[]) => void>;
   openedUris: Set<string>;
@@ -26,6 +59,8 @@ interface ConnectionState {
 
 export class LspClient {
   private connections = new Map<string, ConnectionState>();
+
+  constructor(private readonly serverFactory: LspServerFactory = stdioServerFactory) {}
 
   async init(projectRoot: string): Promise<void> {
     const root = resolve(projectRoot);
@@ -45,34 +80,24 @@ export class LspClient {
 
   private async startServer(lang: string, cmd: string, args: string[], projectRoot: string): Promise<void> {
     try {
-      const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd: projectRoot });
-      if (!proc.stdout || !proc.stdin) {
-        proc.kill();
-        return;
-      }
-      proc.stderr?.on('data', () => {});
+      const handle = this.serverFactory(cmd, args, projectRoot);
+      if (!handle) return;
 
       const diagnosticsMap = new Map<string, Diagnostic[]>();
       const diagnosticsWaiters = new Map<string, (d: Diagnostic[]) => void>();
       const openedUris = new Set<string>();
 
-      const connection = createMessageConnection(
-        new StreamMessageReader(proc.stdout),
-        new StreamMessageWriter(proc.stdin),
-      );
+      const { connection } = handle;
       connection.listen();
 
-      connection.onNotification(
-        'textDocument/publishDiagnostics',
-        (params: { uri: string; diagnostics: Diagnostic[] }) => {
-          diagnosticsMap.set(params.uri, params.diagnostics);
-          const waiter = diagnosticsWaiters.get(params.uri);
-          if (waiter) {
-            diagnosticsWaiters.delete(params.uri);
-            waiter(params.diagnostics);
-          }
-        },
-      );
+      connection.onNotification('textDocument/publishDiagnostics', (params) => {
+        diagnosticsMap.set(params.uri, params.diagnostics);
+        const waiter = diagnosticsWaiters.get(params.uri);
+        if (waiter) {
+          diagnosticsWaiters.delete(params.uri);
+          waiter(params.diagnostics);
+        }
+      });
 
       await connection.sendRequest('initialize', {
         rootUri: `file://${resolve(projectRoot)}`,
@@ -84,7 +109,7 @@ export class LspClient {
       });
 
       await connection.sendNotification('initialized', {});
-      this.connections.set(lang, { process: proc, connection, diagnosticsMap, diagnosticsWaiters, openedUris });
+      this.connections.set(lang, { kill: handle.kill, connection, diagnosticsMap, diagnosticsWaiters, openedUris });
     } catch (err) {
       console.warn(`[lsp] Failed to start ${cmd}:`, err instanceof Error ? err.message : String(err));
     }
@@ -151,7 +176,7 @@ export class LspClient {
       } catch {
         void 0;
       }
-      state.process.kill();
+      state.kill();
     }
     this.connections.clear();
   }

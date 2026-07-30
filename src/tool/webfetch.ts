@@ -4,6 +4,12 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 const MAX_CONTENT_LENGTH = 32000;
 
+/** The fetch signature the tool relies on — injectable for tests
+ *  (architecture review 2026-07-30, candidate 7). */
+export type FetchLike = typeof fetch;
+
+const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+
 function validateUrl(urlString: string): URL {
   let parsed: URL;
   try {
@@ -34,9 +40,9 @@ function validateUrl(urlString: string): URL {
   return parsed;
 }
 
-async function fetchUrl(url: string, format: 'markdown' | 'text' | 'html'): Promise<string> {
+async function fetchUrl(fetchImpl: FetchLike, url: string, format: 'markdown' | 'text' | 'html'): Promise<string> {
   validateUrl(url);
-  const response = await fetch(url, {
+  const response = await fetchImpl(url, {
     headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
     signal: AbortSignal.timeout(15000),
     redirect: 'manual',
@@ -47,7 +53,7 @@ async function fetchUrl(url: string, format: 'markdown' | 'text' | 'html'): Prom
     const location = response.headers.get('location');
     if (!location) throw new Error(`Redirect with no location header`);
     validateUrl(location);
-    const redirectResponse = await fetch(location, {
+    const redirectResponse = await fetchImpl(location, {
       headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
       signal: AbortSignal.timeout(15000),
       redirect: 'follow',
@@ -111,35 +117,42 @@ const _webfetchParams = Type.Object({
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const webfetchTool: AgentTool<any, { url: string; truncated: boolean }> = {
-  name: 'webfetch',
-  label: 'Web Fetch',
-  description:
-    'Fetches content from a URL and returns it in the specified format (markdown by default). Use this to read documentation, articles, or any web page.',
-  parameters: _webfetchParams,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute: async (_toolCallId, params: any) => {
-    const format = params.format ?? 'markdown';
-    let text: string;
-    try {
-      const raw = await fetchUrl(params.url, format);
-      const result = truncate(raw, MAX_CONTENT_LENGTH);
-      text = result.text;
-      return {
-        content: [{ type: 'text' as const, text }],
-        details: { url: params.url, truncated: result.truncated },
-      };
-    } catch (err) {
-      // Sanitize error message — avoid leaking internal IPs or OS details
-      const raw = err instanceof Error ? err.message : String(err);
-      const msg = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/.test(raw)
-        ? 'Network error: unable to reach the server'
-        : raw.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]').replace(/:\d{2,5}\b/g, ':[port]');
-      text = `Error fetching ${params.url}: ${msg}`;
-      return {
-        content: [{ type: 'text' as const, text }],
-        details: { url: params.url, truncated: false },
-      };
-    }
-  },
-};
+export function createWebfetchTool(
+  fetchImpl: FetchLike = defaultFetch,
+): AgentTool<any, { url: string; truncated: boolean }> {
+  return {
+    name: 'webfetch',
+    label: 'Web Fetch',
+    description:
+      'Fetches content from a URL and returns it in the specified format (markdown by default). Use this to read documentation, articles, or any web page.',
+    parameters: _webfetchParams,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    execute: async (_toolCallId, params: any) => {
+      const format = params.format ?? 'markdown';
+      let text: string;
+      try {
+        const raw = await fetchUrl(fetchImpl, params.url, format);
+        const result = truncate(raw, MAX_CONTENT_LENGTH);
+        text = result.text;
+        return {
+          content: [{ type: 'text' as const, text }],
+          details: { url: params.url, truncated: result.truncated },
+        };
+      } catch (err) {
+        // Sanitize error message — avoid leaking internal IPs or OS details
+        const raw = err instanceof Error ? err.message : String(err);
+        const msg = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/.test(raw)
+          ? 'Network error: unable to reach the server'
+          : raw.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]').replace(/:\d{2,5}\b/g, ':[port]');
+        text = `Error fetching ${params.url}: ${msg}`;
+        return {
+          content: [{ type: 'text' as const, text }],
+          details: { url: params.url, truncated: false },
+        };
+      }
+    },
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const webfetchTool: AgentTool<any, { url: string; truncated: boolean }> = createWebfetchTool();
