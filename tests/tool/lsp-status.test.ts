@@ -110,7 +110,7 @@ describe('getLspStatuses', () => {
     const { readdirSync } = await import('node:fs');
     vi.mocked(existsSync).mockReturnValue(false);
     vi.mocked(readdirSync).mockReturnValue([]);
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     expect(getLspStatuses('/project')).toEqual([]);
   });
 
@@ -119,7 +119,7 @@ describe('getLspStatuses', () => {
     const { execFileSync } = await import('node:child_process');
     vi.mocked(existsSync).mockImplementation((p) => String(p).endsWith('tsconfig.json'));
     vi.mocked(execFileSync).mockReturnValue(Buffer.from(''));
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     const statuses = getLspStatuses('/project');
     const ts = statuses.find((s) => s.lang === 'typescript');
     expect(ts).toBeDefined();
@@ -135,7 +135,7 @@ describe('getLspStatuses', () => {
     vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('not found');
     });
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     const statuses = getLspStatuses('/project');
     const ts = statuses.find((s) => s.lang === 'typescript');
     expect(ts!.lspStatus).toBe('not_installed');
@@ -149,7 +149,7 @@ describe('getLspStatuses', () => {
     vi.mocked(execFileSync).mockImplementation(() => {
       throw new Error('not found');
     });
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     const statuses = getLspStatuses('/project');
     const go = statuses.find((s) => s.lang === 'go');
     expect(go!.lspServer).toBe('gopls');

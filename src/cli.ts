@@ -2,7 +2,7 @@
 import { Command } from 'commander';
 import { loadConfig, saveConfig, ConfigNotFoundError } from './config/loader.js';
 import { DEFAULT_CONFIG } from './config/defaults.js';
-import { getLspStatuses } from './config/lsp-status.js';
+import { getLspStatuses } from './tool/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
 import { SessionStore } from './core/session/store.js';

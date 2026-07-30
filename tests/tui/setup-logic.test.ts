@@ -37,7 +37,7 @@ vi.mock('../../src/config/loader.js', () => ({
   saveConfig: vi.fn(),
 }));
 
-vi.mock('../../src/config/lsp-status.js', () => ({
+vi.mock('../../src/tool/lsp-status.js', () => ({
   getLspStatuses: vi.fn(),
 }));
 
@@ -127,7 +127,7 @@ describe('stepDone graphOk logic', () => {
     mkdirSync(join(dir, '.mu-agent'), { recursive: true });
     writeFileSync(join(dir, '.mu-agent', 'graph.db'), '');
 
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     vi.mocked(getLspStatuses).mockReturnValue([
       { lang: 'typescript', lspServer: 'typescript-language-server', lspStatus: 'active', lspInstallCmd: null },
     ]);
@@ -160,7 +160,7 @@ describe('stepDone graphOk logic', () => {
     const dir = join(tmpdir(), `setup-test-${Date.now()}`);
     mkdirSync(dir, { recursive: true });
 
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     vi.mocked(getLspStatuses).mockReturnValue([]);
 
     const origCwd = process.cwd;
@@ -192,7 +192,7 @@ describe('stepDone graphOk logic', () => {
     mkdirSync(join(dir, '.mu-agent'), { recursive: true });
     writeFileSync(join(dir, '.mu-agent', 'graph.db'), '');
 
-    const { getLspStatuses } = await import('../../src/config/lsp-status.js');
+    const { getLspStatuses } = await import('../../src/tool/lsp-status.js');
     vi.mocked(getLspStatuses).mockReturnValue([]);
 
     const origCwd = process.cwd;

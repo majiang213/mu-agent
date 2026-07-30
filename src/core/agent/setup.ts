@@ -7,7 +7,7 @@ import { webfetchTool } from '../../tool/webfetch.js';
 import { websearchTool } from '../../tool/websearch.js';
 import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
-import { StateMachineAgent } from '../session/index.js';
+import { StateMachineAgent } from './state-machine.js';
 import { LspClient } from '../../tool/lsp.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { MemoryStore } from '../memory/index.js';

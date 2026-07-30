@@ -27,7 +27,7 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
   runStep: vi.fn(),
 }));
 
-vi.mock('../../../src/core/session/index.js', () => ({
+vi.mock('../../../src/core/agent/state-machine.js', () => ({
   StateMachineAgent: vi.fn(function () {
     return {
       getModelParams: vi.fn(() => ({

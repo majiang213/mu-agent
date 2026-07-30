@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { StateMachineAgent } from '../../src/core/session/index.js';
-import { State } from '../../src/core/types.js';
+import { StateMachineAgent } from '../../../src/core/agent/state-machine.js';
+import { State } from '../../../src/core/types.js';
 
 describe('StateMachineAgent', () => {
   describe('initialization', () => {

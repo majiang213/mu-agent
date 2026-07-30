@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { StateMachineAgent } from '../../src/core/session/index.js';
+import { StateMachineAgent } from '../../src/core/agent/state-machine.js';
 import { ReactAgent } from '../../src/core/agent/index.js';
 import { StagnationDetector } from '../../src/core/cognitive/index.js';
 import { ASTLocator } from '../../src/tool/locator.js';

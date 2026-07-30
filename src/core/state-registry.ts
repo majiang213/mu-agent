@@ -600,7 +600,7 @@ assistant: [bash("git status")] → 6 files changed in src/core/, 2 docs files
 complete(steps=[
   {state:"GIT", focus:"stage src/core/types.ts src/core/state-registry.ts, commit: 'feat(state): add State.GIT core'"},
   {state:"GIT", focus:"stage src/core/agent/builder.ts, commit: 'feat(state): add harness git guard'"},
-  {state:"GIT", focus:"stage src/core/session/index.ts src/tool/complete.ts src/core/prompts/agent.ts, commit: 'feat(state): wire GIT state'"},
+  {state:"GIT", focus:"stage src/core/agent/state-machine.ts src/tool/complete.ts src/core/prompts/agent.ts, commit: 'feat(state): wire GIT state'"},
   {state:"GIT", focus:"stage src/tui/theme.ts, commit: 'feat(state): add GIT TUI theme'"},
   {state:"GIT", focus:"stage AGENTS.md .claude/PRPs/GAPS.md, commit: 'docs: sync Gap 79 GIT state'"},
 ], rationale="types+registry inseparable; builder guard independent safety layer; wiring trio depends on types; theme UI-only; docs separate")

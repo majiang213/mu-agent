@@ -8,7 +8,7 @@ import { setImmediate } from 'node:timers/promises';
 
 import { saveConfig } from '../config/loader.js';
 import { MU_AGENT_DIR } from '../config/defaults.js';
-import { getLspStatuses } from '../config/lsp-status.js';
+import { getLspStatuses } from '../tool/lsp-status.js';
 import { fetchOllamaModels, fetchOpenAICompatModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
 import { C } from './theme.js';

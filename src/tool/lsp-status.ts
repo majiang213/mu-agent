@@ -1,4 +1,4 @@
-import { detectLanguages, isCommandAvailable, LANGUAGE_ENTRIES } from '../tool/lsp-utils.js';
+import { detectLanguages, isCommandAvailable, LANGUAGE_ENTRIES } from './lsp-utils.js';
 
 export interface LspStatus {
   lang: string;

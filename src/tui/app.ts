@@ -22,7 +22,7 @@ import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './the
 import { formatRunResult, assistantMessageForSession, stripLegacyPrefixes } from './presenter.js';
 import { isAbortError } from '../core/agent/abort.js';
 import type { Config } from '../config/types.js';
-import { getLspStatuses } from '../config/lsp-status.js';
+import { getLspStatuses } from '../tool/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
 
 export interface TuiAppOptions {
