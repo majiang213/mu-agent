@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import type { EpisodeRow, EpisodeRecord, StructuredSummary } from './types.js';
+import type { EpisodeRow, StructuredSummary } from './types.js';
 import type { ExecutedStep, StateResult } from '../types.js';
 import type { Mission } from '../agent/types.js';
 import { buildStructuredSummary, extractEntitiesForWrite } from './extractor.js';
@@ -25,11 +25,7 @@ export function writeEpisodeSync(
     output: s.output.slice(0, 4096),
   }));
 
-  const entities = extractEntitiesForWrite(mission.description, allStepResults, structuredSummary);
-
-  const episodeRecord: EpisodeRecord = {
-    userInput: mission.description,
-  };
+  const entities = extractEntitiesForWrite(mission.description, structuredSummary);
 
   db.transaction(() => {
     db.prepare(
@@ -79,7 +75,7 @@ export function writeEpisodeSync(
       }
     }
 
-    updateSemanticFacts(db, episodeRecord, projectRoot);
+    updateSemanticFacts(db, mission.description, projectRoot);
   })();
 
   return episodeId;

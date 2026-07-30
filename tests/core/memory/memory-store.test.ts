@@ -132,7 +132,7 @@ describe('graphRetrieve', () => {
 describe('updateSemanticFacts', () => {
   it('writes language preference when user input contains 中文', () => {
     const db = makeDb();
-    updateSemanticFacts(db, { userInput: '用中文回答我' }, projectRoot);
+    updateSemanticFacts(db, '用中文回答我', projectRoot);
     const facts = readSemanticFacts(db, projectRoot);
     const pref = facts.find((f) => f.category === 'preference' && f.key === 'language' && f.value === 'zh');
     expect(pref).toBeDefined();

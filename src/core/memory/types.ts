@@ -67,8 +67,3 @@ export interface EntityNode {
   name: string;
   role: string;
 }
-
-// 传给 updateSemanticFacts 的内存对象（不存 DB）
-export interface EpisodeRecord {
-  userInput: string;
-}

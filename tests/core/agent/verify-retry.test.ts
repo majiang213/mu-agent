@@ -15,7 +15,6 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
     contextWindow: 128000,
     maxTokens: 100000,
   })),
-  compressConversationHistory: vi.fn(async (msgs: unknown[]) => msgs),
   runReasonStep: vi.fn(),
   executeSteps: vi.fn(async () => []),
   runStep: vi.fn(),

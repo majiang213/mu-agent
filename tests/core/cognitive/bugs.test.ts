@@ -34,8 +34,7 @@ describe('Bug 19: cognitive cycle detection window too large', () => {
     // Then for size=2: a = history[0..2), b = history[2..4) → checks if they match.
     // This should detect the cycle.
     // The bug may be that the default window is 4, requiring 8 records.
-    expect(result.detected).toBe(true);
-    expect(result.type).toBe('cycle');
+    expect(result).toMatchObject({ detected: true, type: 'cycle' });
   });
 });
 
@@ -67,8 +66,7 @@ describe('Bug 19: detectNoProgress false positive in read-heavy states', () => {
     // checkNoProgress: false for read-only states, but the detector itself
     // doesn't distinguish between "reading for research" and "stuck in a loop".
     // This test documents the expected behavior when checkNoProgress is true.
-    expect(result.detected).toBe(true); // Bug: this IS detected as no-progress
-    expect(result.type).toBe('no_progress');
+    expect(result).toMatchObject({ detected: true, type: 'no_progress' });
   });
 
   it('does not trigger no-progress when tool calls include non-read tools', () => {

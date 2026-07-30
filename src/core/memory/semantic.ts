@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { SemanticFact, EpisodeRecord } from './types.js';
+import type { SemanticFact } from './types.js';
 
 export function readSemanticFacts(db: Database.Database, projectRoot: string): SemanticFact[] {
   return db
@@ -17,7 +17,7 @@ export function readSemanticFacts(db: Database.Database, projectRoot: string): S
     .all(projectRoot) as SemanticFact[];
 }
 
-export function updateSemanticFacts(db: Database.Database, episode: EpisodeRecord, projectRoot: string): void {
+export function updateSemanticFacts(db: Database.Database, userInput: string, projectRoot: string): void {
   const upsertFact = (category: string, key: string, value: string, source: 'inferred' | 'explicit') => {
     db.prepare(
       `
@@ -29,8 +29,8 @@ export function updateSemanticFacts(db: Database.Database, episode: EpisodeRecor
     ).run(randomUUID(), projectRoot, category, key, value, Math.floor(Date.now() / 1000), source);
   };
 
-  if (/中文|chinese|用中文/i.test(episode.userInput)) upsertFact('preference', 'language', 'zh', 'explicit');
-  if (/英文|english|用英文/i.test(episode.userInput)) upsertFact('preference', 'language', 'en', 'explicit');
+  if (/中文|chinese|用中文/i.test(userInput)) upsertFact('preference', 'language', 'zh', 'explicit');
+  if (/英文|english|用英文/i.test(userInput)) upsertFact('preference', 'language', 'en', 'explicit');
 
   const allFilesChanged = db
     .prepare(

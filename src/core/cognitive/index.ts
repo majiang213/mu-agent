@@ -27,15 +27,19 @@ export interface StagnationDetectorConfig {
 }
 
 /**
- * Ineffective loop detection result
+ * Ineffective loop detection result — a discriminated union. The negative
+ * case carries no phantom fields (previously every negative path returned
+ * `{ detected: false } as IneffectiveLoopDetection` with type/message/
+ * suggestion silently undefined).
  */
-export interface IneffectiveLoopDetection {
-  detected: boolean;
-  type: 'repeated_tool' | 'repeated_error' | 'no_progress' | 'cycle';
-  message: string;
-  suggestion: string;
-  toolCalls: ToolCall[];
-}
+export type IneffectiveLoopDetection =
+  | {
+      detected: true;
+      type: 'repeated_tool' | 'repeated_error' | 'no_progress' | 'cycle';
+      message: string;
+      suggestion: string;
+    }
+  | { detected: false };
 
 /**
  * Stagnation detection — identifies and stops ineffective agent loops
@@ -89,13 +93,7 @@ export class StagnationDetector {
       if (noProgress.detected) return noProgress;
     }
 
-    return {
-      detected: false,
-      type: 'no_progress',
-      message: 'No ineffective loop detected',
-      suggestion: 'Continue with current approach',
-      toolCalls: [],
-    };
+    return { detected: false };
   }
 
   /**
@@ -103,12 +101,12 @@ export class StagnationDetector {
    */
   private detectRepeatedToolCalls(): IneffectiveLoopDetection {
     if (this.toolCallHistory.length < this.config.maxRepeatedToolCalls) {
-      return { detected: false } as IneffectiveLoopDetection;
+      return { detected: false };
     }
 
     const recent = this.toolCallHistory.slice(-this.config.maxRepeatedToolCalls);
     const first = recent[0];
-    if (!first) return { detected: false } as IneffectiveLoopDetection;
+    if (!first) return { detected: false };
 
     const allSame = recent.every((call) => call.tool === first.tool && deepEqual(call.input, first.input));
 
@@ -118,17 +116,16 @@ export class StagnationDetector {
         type: 'repeated_tool',
         message: `Repeated ${first.tool} calls detected`,
         suggestion: 'Try a different approach or ask for clarification',
-        toolCalls: recent,
       };
     }
 
-    return { detected: false } as IneffectiveLoopDetection;
+    return { detected: false };
   }
 
   private detectCycle(): IneffectiveLoopDetection {
     const w = this.config.cycleWindowSize;
     if (this.toolCallHistory.length < w * 2) {
-      return { detected: false } as IneffectiveLoopDetection;
+      return { detected: false };
     }
 
     const history = this.toolCallHistory;
@@ -145,12 +142,11 @@ export class StagnationDetector {
           type: 'cycle',
           message: `Repeating tool sequence detected (${size} steps): ${toolNames}`,
           suggestion: 'Break the cycle: try a different tool, different input, or call complete()',
-          toolCalls: [...a, ...b],
         };
       }
     }
 
-    return { detected: false } as IneffectiveLoopDetection;
+    return { detected: false };
   }
 
   /**
@@ -158,7 +154,7 @@ export class StagnationDetector {
    */
   private detectRepeatedErrors(): IneffectiveLoopDetection {
     if (this.errorHistory.length < this.config.maxRepeatedErrors) {
-      return { detected: false } as IneffectiveLoopDetection;
+      return { detected: false };
     }
 
     const recent = this.errorHistory.slice(-this.config.maxRepeatedErrors);
@@ -170,11 +166,10 @@ export class StagnationDetector {
         type: 'repeated_error',
         message: `Same error repeated: ${recent[0]}`,
         suggestion: 'Stop and analyze the root cause before retrying',
-        toolCalls: [],
       };
     }
 
-    return { detected: false } as IneffectiveLoopDetection;
+    return { detected: false };
   }
 
   /**
@@ -182,7 +177,7 @@ export class StagnationDetector {
    */
   private detectNoProgress(): IneffectiveLoopDetection {
     if (this.toolCallHistory.length < 5) {
-      return { detected: false } as IneffectiveLoopDetection;
+      return { detected: false };
     }
 
     // Check if last 5 tool calls are all reads without modifications
@@ -195,11 +190,10 @@ export class StagnationDetector {
         type: 'no_progress',
         message: 'Only reading files without making changes',
         suggestion: 'Either make the modification or ask for clarification',
-        toolCalls: recent,
       };
     }
 
-    return { detected: false } as IneffectiveLoopDetection;
+    return { detected: false };
   }
 
   /**

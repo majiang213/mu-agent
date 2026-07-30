@@ -32,11 +32,7 @@ export function extractEntitiesForQuery(userInput: string): string[] {
   return [...userInput.matchAll(fileRegex)].map((m) => m[0]);
 }
 
-export function extractEntitiesForWrite(
-  description: string,
-  _steps: ExecutedStep[],
-  summary: StructuredSummary,
-): EntityNode[] {
+export function extractEntitiesForWrite(description: string, summary: StructuredSummary): EntityNode[] {
   const results: EntityNode[] = [];
 
   for (const f of summary.files) {

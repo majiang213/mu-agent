@@ -14,8 +14,6 @@ export interface CompactionConfig {
 export interface CompactionResult {
   compacted: boolean;
   originalCount: number;
-  compactedCount: number;
-  removedCount: number;
   messages: AgentMessage[];
 }
 
@@ -91,8 +89,6 @@ export class ContextCompactor {
       return {
         compacted: false,
         originalCount: messages.length,
-        compactedCount: messages.length,
-        removedCount: 0,
         messages,
       };
     }
@@ -110,8 +106,6 @@ export class ContextCompactor {
     return {
       compacted: true,
       originalCount: total,
-      compactedCount: result.length,
-      removedCount: total - result.length,
       messages: result,
     };
   }

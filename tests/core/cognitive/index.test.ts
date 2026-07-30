@@ -20,8 +20,7 @@ describe('StagnationDetector', () => {
       }
 
       const result = gate.check();
-      expect(result.detected).toBe(true);
-      expect(result.type).toBe('repeated_tool');
+      expect(result).toMatchObject({ detected: true, type: 'repeated_tool' });
     });
 
     it('should not detect with different tool calls', () => {
@@ -49,8 +48,7 @@ describe('StagnationDetector', () => {
       gate.recordError('File not found');
 
       const result = gate.check();
-      expect(result.detected).toBe(true);
-      expect(result.type).toBe('repeated_error');
+      expect(result).toMatchObject({ detected: true, type: 'repeated_error' });
     });
 
     it('different error strings do not trigger repeated_error', () => {
@@ -74,8 +72,7 @@ describe('StagnationDetector', () => {
       }
 
       const result = gate.check();
-      expect(result.detected).toBe(true);
-      expect(result.type).toBe('no_progress');
+      expect(result).toMatchObject({ detected: true, type: 'no_progress' });
     });
   });
 

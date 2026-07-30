@@ -5,8 +5,9 @@ import type { Config } from '../../config/types.js';
 import { State } from '../types.js';
 import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
-import { compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
+import { runReasonStep, executeSteps, runStep } from './step-runner.js';
 import type { ReasonStepOptions } from './step-runner.js';
+import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildRunSetup } from './setup.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
 import { parseEditedFiles } from './step-context.js';
@@ -265,7 +266,7 @@ export class ReactAgent {
     const allStepResults: ExecutedStep[] = [];
 
     try {
-      const conversationHistory = await compressConversationHistory(
+      const conversationHistory = await compressConversationHistoryWithLLM(
         initialMessages ?? [],
         cfg.model,
         cfg.contextRatio,

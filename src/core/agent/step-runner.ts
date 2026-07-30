@@ -2,11 +2,9 @@ import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { resolve as pathResolve, relative } from 'node:path';
 import { StagnationDetector } from '../cognitive/index.js';
-import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
-import { fetchContextLength, OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
+import { fetchContextLength } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
-import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
 import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { runReasonAttempt, runStepAgent } from './reason-runner.js';
@@ -45,16 +43,6 @@ export async function buildModel(
     contextWindow,
     maxTokens: Math.floor(contextWindow * (1 - contextRatio)),
   };
-}
-
-export async function compressConversationHistory(
-  messages: AgentMessage[],
-  model: Model<'openai-completions'>,
-  contextRatio = DEFAULT_CONTEXT_RATIO,
-  apiKey = OLLAMA_DUMMY_API_KEY,
-): Promise<AgentMessage[]> {
-  if (messages.length === 0) return [];
-  return compressConversationHistoryWithLLM(messages, model, contextRatio, apiKey);
 }
 
 /** Options threaded through step execution (4c — replaces 7-9 positional params). */
