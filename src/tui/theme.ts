@@ -150,3 +150,12 @@ export const editorTheme: EditorTheme = {
     noMatch: C.dim,
   },
 };
+
+/** SelectList theme — the ONE source (setup wizard, session picker). */
+export const selectTheme = {
+  selectedPrefix: (s: string): string => C.ok(s),
+  selectedText: (s: string): string => `\x1b[1m${s}\x1b[22m`,
+  description: (s: string): string => C.dim(s),
+  scrollInfo: (s: string): string => C.dim(s),
+  noMatch: (s: string): string => C.err(s),
+};

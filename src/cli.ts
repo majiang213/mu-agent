@@ -69,7 +69,12 @@ program
       console.log(`🚀 Starting task: ${task}`);
       console.log(`🤖 Model: ${config.model.provider}/${config.model.name}`);
       console.log('\n📋 Executing task...\n');
-      const result = await new ReactAgent().run(task, config);
+
+      const { ensureGraphBuilt } = await import('./core/graph/builder.js');
+      ensureGraphBuilt(process.cwd());
+
+      const { createConsolePresenter } = await import('./tui/console-presenter.js');
+      const result = await new ReactAgent().run(task, config, createConsolePresenter());
 
       if (result.success) {
         console.log('\n✅ Task completed successfully');
@@ -113,16 +118,9 @@ async function pickSession(): Promise<SessionStore | null> {
   }
 
   const { ProcessTerminal, SelectList, Text, TUI } = await import('@earendil-works/pi-tui');
+  const { selectTheme, C } = await import('./tui/theme.js');
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
-
-  const selectTheme = {
-    selectedPrefix: (s: string) => `\x1b[32m${s}\x1b[0m`,
-    selectedText: (s: string) => `\x1b[1m${s}\x1b[22m`,
-    description: (s: string) => `\x1b[2m${s}\x1b[22m`,
-    scrollInfo: (s: string) => `\x1b[2m${s}\x1b[22m`,
-    noMatch: (s: string) => `\x1b[31m${s}\x1b[0m`,
-  };
 
   const items = sessions.map((s) => ({
     value: s.filePath,
@@ -131,7 +129,7 @@ async function pickSession(): Promise<SessionStore | null> {
   }));
 
   return new Promise((resolve, reject) => {
-    const header = new Text('\x1b[2m  Select a session to resume  ↑↓ navigate  Enter confirm  Esc cancel\x1b[0m', 0, 0);
+    const header = new Text(C.dim('  Select a session to resume  ↑↓ navigate  Enter confirm  Esc cancel'), 0, 0);
     tui.addChild(header);
 
     const list = new SelectList(items, 10, selectTheme);
@@ -195,15 +193,8 @@ program
       sessionStore = picked;
     }
 
-    const { GraphBuilder } = await import('./core/graph/builder.js');
-    try {
-      const builder = new GraphBuilder(process.cwd());
-      if (builder.needsRebuild()) {
-        builder.buildFull();
-      }
-    } catch (e) {
-      void e;
-    }
+    const { ensureGraphBuilt } = await import('./core/graph/builder.js');
+    ensureGraphBuilt(process.cwd());
 
     const { createTuiApp } = await import('./tui/app.js');
     const app = createTuiApp({ config, sessionStore });

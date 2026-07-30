@@ -271,3 +271,25 @@ export class GraphBuilder {
     }
   }
 }
+
+/**
+ * Build the project code graph when stale (or when forced). Never throws —
+ * entry points degrade gracefully without a graph. ONE implementation for
+ * `mu-agent tui`, `mu-agent run`, and the setup wizard (third-pass review,
+ * candidate 13).
+ */
+export function ensureGraphBuilt(
+  projectRoot: string,
+  options: { force?: boolean } = {},
+): { built: boolean; error?: string } {
+  try {
+    const builder = new GraphBuilder(projectRoot);
+    if (options.force === true || builder.needsRebuild()) {
+      builder.buildFull();
+      return { built: true };
+    }
+    return { built: false };
+  } catch (e) {
+    return { built: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

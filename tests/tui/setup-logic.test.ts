@@ -33,9 +33,10 @@ vi.mock('@earendil-works/pi-tui', () => ({
   SelectList: vi.fn(),
 }));
 
-vi.mock('../../src/config/loader.js', () => ({
-  saveConfig: vi.fn(),
-}));
+vi.mock('../../src/config/loader.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/config/loader.js')>();
+  return { ...actual, saveConfig: vi.fn() };
+});
 
 vi.mock('../../src/tool/lsp-status.js', () => ({
   getLspStatuses: vi.fn(),

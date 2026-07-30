@@ -7,6 +7,16 @@ import { mergeWithDefaults, MU_AGENT_DIR } from './defaults.js';
 const GLOBAL_CONFIG_PATH = join(homedir(), '.config', 'mu-agent', 'config.json');
 const PROJECT_CONFIG_PATH = join(MU_AGENT_DIR, 'config.json');
 
+/**
+ * Absolute paths of the two config files, in precedence order (project
+ * first, then global). The ONE place that knows where config lives — the
+ * setup wizard reads its defaults through this instead of re-hardcoding
+ * (third-pass review, candidate 13).
+ */
+export function configPaths(cwd: string = process.cwd()): string[] {
+  return [join(cwd, PROJECT_CONFIG_PATH), GLOBAL_CONFIG_PATH];
+}
+
 export class ConfigNotFoundError extends Error {
   constructor() {
     super('Config not found. Run setup first:\n  mu-agent setup');

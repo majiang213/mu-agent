@@ -2,26 +2,15 @@ import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@earendil
 import type { SelectItem } from '@earendil-works/pi-tui';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 
-import { saveConfig } from '../config/loader.js';
+import { saveConfig, configPaths } from '../config/loader.js';
 import { MU_AGENT_DIR } from '../config/defaults.js';
 import { getLspStatuses } from '../tool/lsp-status.js';
 import { fetchOllamaModels, fetchOpenAICompatModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
-import { C } from './theme.js';
-
-// ─── SelectList theme (matches project style) ────────────────────────────────
-
-const selectTheme = {
-  selectedPrefix: (s: string) => C.ok(s),
-  selectedText: (s: string) => `\x1b[1m${s}\x1b[22m`,
-  description: (s: string) => C.dim(s),
-  scrollInfo: (s: string) => C.dim(s),
-  noMatch: (s: string) => C.err(s),
-};
+import { C, selectTheme } from './theme.js';
 
 // ─── SetupWizard ─────────────────────────────────────────────────────────────
 
@@ -81,11 +70,10 @@ export class SetupWizard {
   // ─── Step 1: Model config ──────────────────────────────────────────────────
 
   private async loadExistingModel(): Promise<Partial<Config['model']>> {
-    const paths = [
-      join(process.cwd(), MU_AGENT_DIR, 'config.json'),
-      join(homedir(), '.config', 'mu-agent', 'config.json'),
-    ];
-    for (const p of paths) {
+    // Shared path knowledge (configPaths): project first, then global. The
+    // wizard reads first-existing-wins as defaults; loadConfig() merges —
+    // close enough for defaults, and the paths can no longer drift.
+    for (const p of configPaths()) {
       if (existsSync(p)) {
         try {
           const parsed = JSON.parse(await readFile(p, 'utf-8')) as Partial<Config>;
@@ -256,11 +244,11 @@ export class SetupWizard {
       loader.start();
       this.tui.requestRender();
 
-      let buildError: string | null = null;
+      let buildError: string | null;
       try {
-        const { GraphBuilder } = await import('../core/graph/builder.js');
-        const builder = new GraphBuilder(process.cwd());
-        builder.buildFull();
+        const { ensureGraphBuilt } = await import('../core/graph/builder.js');
+        const result = ensureGraphBuilt(process.cwd(), { force: true });
+        buildError = result.error ?? null;
       } catch (e) {
         buildError = e instanceof Error ? e.message : String(e);
       }

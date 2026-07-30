@@ -68,6 +68,17 @@ export function fmtTokens(n: number): string {
   return (n / 1_000_000).toFixed(1) + 'M';
 }
 
+/** One-line summary of a tool call's most telling argument (≤60 chars). */
+export function fmtToolArgs(tool: string, args?: Record<string, unknown>): string {
+  if (!args || tool === 'complete') return '';
+  for (const key of ['filePath', 'path', 'file', 'command', 'cmd', 'query']) {
+    const v = args[key];
+    if (typeof v === 'string') return v.slice(0, 60);
+  }
+  const first = Object.values(args).find((v) => typeof v === 'string');
+  return typeof first === 'string' ? first.slice(0, 60) : '';
+}
+
 /**
  * Per-task summary line segments (Gap 55), unstyled — the TUI applies color.
  * Success: "✓ done  100% success  llm×N  tokens≈X"; failure: "✗ failed …".
