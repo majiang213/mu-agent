@@ -127,3 +127,71 @@ describe('Gap 67: createCheckpoint receives absolute path not relative', () => {
     expect(cfg.safeModifier.createCheckpoint).toHaveBeenCalledWith('/tmp/test-project/calc.js', cfg.stateMachine);
   });
 });
+
+// ---- Gap 84 F1: [GIT GUARD] block hard-aborts the step ----
+
+describe('Gap 84 F1: [GIT GUARD] bash result aborts the step', () => {
+  beforeEach(() => {
+    vi.mocked(Agent).mockClear();
+  });
+
+  type AfterToolCallFn = (ctx: {
+    toolCall: { name: string };
+    isError: boolean;
+    result?: { content: Array<{ type: string; text?: string }> };
+    args: unknown;
+  }) => Promise<unknown>;
+
+  function captureAfterToolCall(): { afterToolCall: AfterToolCallFn; agent: { abort: ReturnType<typeof vi.fn> } } {
+    expect(vi.mocked(Agent)).toHaveBeenCalledOnce();
+    const opts = vi.mocked(Agent).mock.calls[0][0] as { afterToolCall?: AfterToolCallFn };
+    expect(opts.afterToolCall).toBeDefined();
+    const agent = vi.mocked(Agent).mock.results[0]!.value as { abort: ReturnType<typeof vi.fn> };
+    return { afterToolCall: opts.afterToolCall!, agent };
+  }
+
+  it('aborts when a bash result starts with [GIT GUARD]', async () => {
+    const cfg = makeMinimalCfg('/tmp/test-project');
+    buildStepAgent('system prompt', [], cfg, undefined, []);
+    const { afterToolCall, agent } = captureAfterToolCall();
+
+    await afterToolCall({
+      toolCall: { name: 'bash' },
+      isError: false,
+      result: { content: [{ type: 'text', text: '[GIT GUARD] Blocked: subcommand not allowlisted: rebase' }] },
+      args: { command: 'git rebase' },
+    });
+
+    expect(agent.abort).toHaveBeenCalled();
+  });
+
+  it('does NOT abort for ordinary bash output', async () => {
+    const cfg = makeMinimalCfg('/tmp/test-project');
+    buildStepAgent('system prompt', [], cfg, undefined, []);
+    const { afterToolCall, agent } = captureAfterToolCall();
+
+    await afterToolCall({
+      toolCall: { name: 'bash' },
+      isError: false,
+      result: { content: [{ type: 'text', text: 'On branch main, nothing to commit' }] },
+      args: { command: 'git status' },
+    });
+
+    expect(agent.abort).not.toHaveBeenCalled();
+  });
+
+  it('does NOT abort for [GIT GUARD] text in non-bash tools', async () => {
+    const cfg = makeMinimalCfg('/tmp/test-project');
+    buildStepAgent('system prompt', [], cfg, undefined, []);
+    const { afterToolCall, agent } = captureAfterToolCall();
+
+    await afterToolCall({
+      toolCall: { name: 'read' },
+      isError: false,
+      result: { content: [{ type: 'text', text: '[GIT GUARD] is a marker string in a file' }] },
+      args: { path: 'x' },
+    });
+
+    expect(agent.abort).not.toHaveBeenCalled();
+  });
+});

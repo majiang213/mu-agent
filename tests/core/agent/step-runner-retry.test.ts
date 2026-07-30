@@ -7,7 +7,14 @@ import type { RunConfig } from '../../../src/core/agent/types.js';
 vi.mock('../../../src/core/agent/builder.js', () => ({
   buildStepAgent: vi.fn(),
   subscribeStepEvents: vi.fn(),
+  wrapWithGitGuard: vi.fn((t) => t),
 }));
+
+// Keep the retry loop fast: real retryDelayMs logic, no-op sleep.
+vi.mock('../../../src/core/failure/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/core/failure/index.js')>();
+  return { ...actual, sleep: vi.fn(async () => {}) };
+});
 
 vi.mock('../../../src/core/cognitive/index.js', () => ({
   StagnationDetector: vi.fn(function () {
@@ -16,15 +23,6 @@ vi.mock('../../../src/core/cognitive/index.js', () => ({
       recordError: vi.fn(),
       check: vi.fn(() => ({ detected: false })),
       reset: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/core/failure/handler.js', () => ({
-  FailureHandler: vi.fn(function () {
-    return {
-      createContext: vi.fn(() => ({})),
-      handleFailure: vi.fn(async () => ({ action: 'retry_with_backoff' })),
     };
   }),
 }));

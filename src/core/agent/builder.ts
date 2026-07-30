@@ -447,9 +447,9 @@ export const GIT_HARD_DENY: GitGuardSpec = {
  *
  * On block, returns a `[GIT GUARD]` text block WITHOUT echoing the verbatim
  * blocked command (F1: omitting the command avoids telegraphing the exact
- * bypass string the model tried) and WITHOUT `terminate` — stage 2 will wire
- * an abort so the model cannot iterate obfuscated variants against the guard
- * within the same step.
+ * bypass string the model tried); the afterToolCall hook in this same module
+ * then aborts the step so the model cannot iterate obfuscated variants
+ * against the guard within the same step.
  */
 export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
   const originalExecute = bashTool.execute.bind(bashTool);

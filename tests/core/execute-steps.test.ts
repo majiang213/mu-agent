@@ -11,6 +11,7 @@ vi.mock('../../src/core/agent/builder.js', () => ({
     off: vi.fn(),
   })),
   subscribeStepEvents: vi.fn(),
+  wrapWithGitGuard: vi.fn((t) => t),
 }));
 
 vi.mock('../../src/core/cognitive/index.js', () => ({
@@ -29,15 +30,6 @@ vi.mock('../../src/core/graph/locator.js', () => ({
     return {
       locate: vi.fn(() => ({ tree: '', suggestedFiles: [], snippets: {} })),
       updateFiles: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../src/core/failure/handler.js', () => ({
-  FailureHandler: vi.fn(function () {
-    return {
-      createContext: vi.fn(() => ({})),
-      handleFailure: vi.fn(async () => ({ action: 'abort' })),
     };
   }),
 }));
@@ -209,6 +201,79 @@ describe('executeSteps', () => {
       const types = events.map((e) => e.type);
       expect(types).not.toContain('state_change');
       expect(types).not.toContain('task_start');
+    });
+
+    it('emits parallel_overlap when two branches edit the same file', async () => {
+      const cfg = makeCfg();
+      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
+
+      for (const edited of [
+        ['a.ts', 'b.ts'],
+        ['b.ts', 'c.ts'],
+      ]) {
+        vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+          name: 'complete',
+          label: 'Complete',
+          description: '',
+          parameters: {} as never,
+          execute: async () => {
+            onComplete({ edited, linesChanged: 1 });
+            return { content: [{ type: 'text', text: 'ok' }], details: undefined };
+          },
+        }));
+      }
+
+      const events: ExecutionEvent[] = [];
+      const directives: StepDirective[] = [
+        {
+          parallel: [
+            { state: State.MODIFY, focus: 'fix A' },
+            { state: State.MODIFY, focus: 'fix B' },
+          ],
+        },
+      ];
+
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, (e) =>
+        events.push(e),
+      );
+
+      const overlap = events.find((e) => e.type === 'parallel_overlap');
+      expect(overlap).toBeDefined();
+      expect((overlap as { files: string[] }).files).toEqual(['b.ts']);
+    });
+
+    it('does NOT emit parallel_overlap when branches edit disjoint files', async () => {
+      const cfg = makeCfg();
+      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
+
+      for (const edited of [['a.ts'], ['c.ts']]) {
+        vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
+          name: 'complete',
+          label: 'Complete',
+          description: '',
+          parameters: {} as never,
+          execute: async () => {
+            onComplete({ edited, linesChanged: 1 });
+            return { content: [{ type: 'text', text: 'ok' }], details: undefined };
+          },
+        }));
+      }
+
+      const events: ExecutionEvent[] = [];
+      const directives: StepDirective[] = [
+        {
+          parallel: [
+            { state: State.MODIFY, focus: 'fix A' },
+            { state: State.MODIFY, focus: 'fix B' },
+          ],
+        },
+      ];
+
+      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, (e) =>
+        events.push(e),
+      );
+
+      expect(events.some((e) => e.type === 'parallel_overlap')).toBe(false);
     });
 
     it('returns one result per parallel branch', async () => {

@@ -2,20 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { wrapWithGitGuard } from '../../src/core/agent/builder.js';
+import { applyStateToolPolicy } from '../../src/core/agent/step-context.js';
 import { State } from '../../src/core/types.js';
 import { STATE_REGISTRY } from '../../src/core/state-registry.js';
 
 /**
  * Gap 83 (part E): pin the step-runner wiring contract for the git guard.
  *
- * step-runner.ts line ~513 does:
- *   .map((t) => (t.name === 'bash' ? wrapWithGitGuard(t) : t));
- *
- * applied to the bash tool of EVERY state (the guard is state-agnostic — it
- * protects bash regardless of state, so a misrouted state cannot bypass it).
- * runStep() needs a full RunConfig to invoke, which is too heavy to construct
- * here, so this file replicates the exact wiring LOGIC against fake tools and
- * asserts the contract directly.
+ * Production wiring is the named applyStateToolPolicy() in step-context.ts
+ * (every bash tool of every state gets the guard — state-agnostic, so a
+ * misrouted state cannot bypass it). These tests drive the REAL function.
  */
 
 // ---- Fake bash tool recording whether execute was called ----
@@ -51,16 +47,10 @@ function makeFakeReadTool(): { tool: AgentTool; calls: number } {
   return { tool, calls };
 }
 
-/** Replicate the step-runner `.map` line: wrap bash, pass others through. */
-function applyWiring(tools: AgentTool[]): AgentTool[] {
-  // Mirrors step-runner.ts: (t.name === 'bash' ? wrapWithGitGuard(t) : t)
-  return tools.map((t) => (t.name === 'bash' ? wrapWithGitGuard(t) : t));
-}
-
-describe('Gap 83: step-runner git guard wiring', () => {
+describe('Gap 83: step-runner git guard wiring (real applyStateToolPolicy)', () => {
   it('wraps the bash tool (guarded tool blocks forbidden commands)', async () => {
     const { tool: bash, calls } = makeFakeBashTool();
-    const [guarded] = applyWiring([bash]);
+    const [guarded] = applyStateToolPolicy([bash]);
     const result = await guarded.execute('id', { command: 'git push --force origin main' });
     const text = result.content.flatMap((c) => (c.type === 'text' && c.text ? [c.text] : [])).join('');
     expect(text.startsWith('[GIT GUARD]')).toBe(true);
@@ -69,7 +59,7 @@ describe('Gap 83: step-runner git guard wiring', () => {
 
   it('wrapped bash tool passes safe commands through to the original execute', async () => {
     const { tool: bash, calls } = makeFakeBashTool();
-    const [guarded] = applyWiring([bash]);
+    const [guarded] = applyStateToolPolicy([bash]);
     const result = await guarded.execute('id', { command: 'git status' });
     const text = result.content.flatMap((c) => (c.type === 'text' && c.text ? [c.text] : [])).join('');
     expect(text).toBe('executed');
@@ -78,7 +68,7 @@ describe('Gap 83: step-runner git guard wiring', () => {
 
   it('passes non-bash tools through UNWRAPPED (guard is bash-only)', async () => {
     const { tool: read, calls } = makeFakeReadTool();
-    const [passed] = applyWiring([read]);
+    const [passed] = applyStateToolPolicy([read]);
     // The reference is the SAME object — no wrapping proxy applied.
     expect(passed).toBe(read);
     await passed.execute('id', { filePath: '/x' });
@@ -87,7 +77,7 @@ describe('Gap 83: step-runner git guard wiring', () => {
 
   it('preserves tool identity (name/label/description/parameters) on the wrapped bash tool', () => {
     const { tool: bash } = makeFakeBashTool();
-    const [guarded] = applyWiring([bash]);
+    const [guarded] = applyStateToolPolicy([bash]);
     expect(guarded.name).toBe('bash');
     expect(guarded.label).toBe('Bash');
     expect(guarded.description).toBe('fake bash');

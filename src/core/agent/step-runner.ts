@@ -13,7 +13,7 @@ import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
 import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
-import { buildStepAgent, subscribeStepEvents, wrapWithGitGuard } from './builder.js';
+import { buildStepAgent, subscribeStepEvents } from './builder.js';
 import { samplePlans, SAMPLING_BATCH_SIZE } from '../heavy/sampler.js';
 import { deliberate, pickShortest } from '../heavy/deliberator.js';
 import { State } from '../types.js';
@@ -21,7 +21,12 @@ import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 import { parseDirectives, flattenDirectives } from './directives.js';
-import { forkParallelBranchConfig, findOverlappingEdits, parseEditedFiles } from './step-context.js';
+import {
+  forkParallelBranchConfig,
+  findOverlappingEdits,
+  parseEditedFiles,
+  applyStateToolPolicy,
+} from './step-context.js';
 
 export async function buildModel(
   modelName: string,
@@ -390,10 +395,7 @@ export async function runStep(
     memoryIndex: injectMemory,
   });
 
-  const allowedTools = cfg.stateMachine
-    .getAllowedTools()
-    .filter((t) => t.name !== 'complete')
-    .map((t) => (t.name === 'bash' ? wrapWithGitGuard(t) : t));
+  const allowedTools = applyStateToolPolicy(cfg.stateMachine.getAllowedTools());
   const stagnationDetector = new StagnationDetector({
     checkNoProgress: STATE_REGISTRY[step.state]?.readOnly !== true,
   });
@@ -565,23 +567,6 @@ export async function executeSteps(
       }
     } else if ('parallel' in directive) {
       const parallelSteps = directive.parallel;
-
-      if (parallelSteps.length === 1) {
-        const snapshot = [...allStepResults, ...thisRoundResults];
-        const result = await runStep(
-          parallelSteps[0]!,
-          i,
-          total,
-          mission,
-          snapshot,
-          cfg,
-          onEvent,
-          memoryIndex,
-          memorySearchTool,
-        );
-        thisRoundResults.push(result);
-        continue;
-      }
 
       onEvent?.({ type: 'parallel_start', stepCount: parallelSteps.length });
 

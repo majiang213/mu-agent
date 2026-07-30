@@ -24,8 +24,8 @@ import { buildCompleteTool } from '../../src/tool/complete.js';
  * `GIT_HARD_DENY` keeps its export name for compat but now carries the
  * ALLOWLIST spec `{ summary, isForbidden }` where `isForbidden` returns a
  * reason string when the command is NOT allowlisted (forbidden), or null when
- * allowed. The block result no longer carries `terminate` (stage 2 will wire
- * an abort; F1 — verbatim command is omitted from the block message).
+ * allowed. The block result omits the verbatim command (F1), and the
+ * afterToolCall hook aborts the step on a `[GIT GUARD]` result.
  *
  * Tests cover:
  *   - GIT_HARD_DENY export shape (GitGuardSpec, not RegExp[])
@@ -36,7 +36,6 @@ import { buildCompleteTool } from '../../src/tool/complete.js';
  *   - chaining defeat (the allowlist rejects ALL `&`/`;`/`|` — GIT needs none)
  *   - complete() schema validation (operation enum + result non-empty)
  *   - GIT_OPERATIONS parity: schema union literals == [...GIT_OPERATIONS] (Gap 83-F4/D2)
- *   - state transition GIT → DONE
  *   - registry configuration (allowedTools, contextNeeds)
  */
 

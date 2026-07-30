@@ -1,4 +1,16 @@
+import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { RunConfig } from './types.js';
+import { wrapWithGitGuard } from './builder.js';
+
+/**
+ * Per-step tool policy: EVERY bash tool gets the git guard (Gap 83/84 —
+ * the guard is state-agnostic so a misrouted state cannot bypass it).
+ * Named and exported so the wiring is tested directly, not mirrored by a
+ * copy in tests (second-pass review, candidate 8).
+ */
+export function applyStateToolPolicy(tools: AgentTool[]): AgentTool[] {
+  return tools.map((t) => (t.name === 'bash' ? wrapWithGitGuard(t) : t));
+}
 
 /**
  * Per-step / per-branch RunConfig fork semantics — one place that knows

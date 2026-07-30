@@ -72,9 +72,9 @@ export class StateMachineAgent {
   }
 
   clone(): StateMachineAgent {
-    const cloned = new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount, this.projectRoot);
-    cloned.fileCount = this.fileCount;
-    return cloned;
+    // Parallel-branch clone: independent file-count budget (per-branch limit)
+    // and independent currentState — runStep resets both at entry anyway.
+    return new StateMachineAgent(this.modelName, [...this.extraTools], this.paramCount, this.projectRoot);
   }
 
   getAllowedTools(): AgentTool[] {
