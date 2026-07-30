@@ -1,7 +1,6 @@
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
-import { SafeModifier } from '../../tool/safety/checkpoint.js';
 import { retryDelayMs, sleep } from '../failure/index.js';
 import {
   DEFAULT_TEMPERATURE,
@@ -22,6 +21,7 @@ import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 import { parseDirectives, flattenDirectives } from './directives.js';
+import { forkParallelBranchConfig, findOverlappingEdits, parseEditedFiles } from './step-context.js';
 
 export async function buildModel(
   modelName: string,
@@ -63,30 +63,37 @@ export async function runStepAgent(
   stagnationDetector: StagnationDetector,
 ): Promise<void> {
   const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, 3);
+  const baseTemperature = cfg.temperature;
   let attempt = 0;
   let lastError: Error | undefined;
-  while (attempt < maxRetries) {
-    try {
-      await agent.prompt(input);
-      return;
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      lastError = error;
-      const isAbort = error.name === 'AbortError' || error.message.includes('aborted');
-      if (isAbort) {
+  try {
+    while (attempt < maxRetries) {
+      try {
+        await agent.prompt(input);
         return;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        lastError = error;
+        const isAbort = error.name === 'AbortError' || error.message.includes('aborted');
+        if (isAbort) {
+          return;
+        }
+        await sleep(retryDelayMs(attempt));
+        // Mutate the cfg we were given: buildStepAgent's streamFn closure
+        // reads cfg.temperature lazily at call time, so this escalation
+        // actually reaches the model. Restored in finally (per-step fork or
+        // parent — either way nothing leaks out of this attempt).
+        cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
+        stagnationDetector.reset();
+        cfg.stateMachine.resetForRetry();
+        cfg.safeModifier.clearAll();
       }
-      await sleep(retryDelayMs(attempt));
-      const localTemp = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
-      const retryCfg = { ...cfg, temperature: localTemp };
-      stagnationDetector.reset();
-      retryCfg.stateMachine.resetForRetry();
-      retryCfg.safeModifier.clearAll();
-      cfg = retryCfg;
+      attempt++;
     }
-    attempt++;
+    throw lastError ?? new Error('runStepAgent: max retries exhausted');
+  } finally {
+    cfg.temperature = baseTemperature;
   }
-  throw lastError ?? new Error('runStepAgent: max retries exhausted');
 }
 
 export async function runReasonStep(
@@ -583,9 +590,11 @@ export async function executeSteps(
 
       const settled = await Promise.allSettled(
         parallelSteps.map((step) => {
-          const clonedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone(), safeModifier: new SafeModifier() };
+          // forkParallelBranchConfig: cloned state machine per branch, but a
+          // SHARED safeModifier — rollback must see every branch's checkpoints.
+          const branchCfg = forkParallelBranchConfig(cfg);
           const snapshot = [...allStepResults, ...thisRoundResults];
-          return runStep(step, i, total, mission, snapshot, clonedCfg, branchOnEvent, memoryIndex, memorySearchTool);
+          return runStep(step, i, total, mission, snapshot, branchCfg, branchOnEvent, memoryIndex, memorySearchTool);
         }),
       );
 
@@ -595,6 +604,13 @@ export async function executeSteps(
         const reason = r.reason instanceof Error ? r.reason.message : String(r.reason);
         return { state: step.state, focus: step.focus, output: JSON.stringify({ error: reason }) };
       });
+
+      // Overlap audit: two branches editing the same file makes checkpoint
+      // ordering undefined, so rollback may not restore the original content.
+      const overlapping = findOverlappingEdits(parallelResults.map((r) => parseEditedFiles(r.output)));
+      if (overlapping.length > 0) {
+        onEvent?.({ type: 'parallel_overlap', files: overlapping });
+      }
 
       thisRoundResults.push(...parallelResults);
       onEvent?.({ type: 'parallel_complete', stepCount: parallelSteps.length });

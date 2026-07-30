@@ -4,7 +4,7 @@ import { streamSimple } from '@earendil-works/pi-ai';
 import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 
 import { astLocatorTool } from '../../tool/locator.js';
-import { syntaxCheckHook, damageCheckHook } from '../../tool/safety/index.js';
+import { runEditPostCheck } from '../../tool/safety/modification.js';
 import { StagnationDetector } from '../cognitive/index.js';
 import { ContextCompactor } from '../compaction/index.js';
 import type { ExecutionEvent, RunConfig } from './types.js';
@@ -688,39 +688,17 @@ export function subscribeStepEvents(
         (cfg.safetyConfig.enableCheckpoint ?? true) &&
         cfg.safeModifier.hasCheckpoint(filePath)
       ) {
-        const checkpoint = cfg.safeModifier.getCheckpoint(filePath);
-        const originalContent = checkpoint?.originalContent ?? '';
-        void Promise.all([
-          syntaxCheckHook.check(filePath, originalContent),
-          damageCheckHook.check(filePath, originalContent),
-        ])
-          .then(([syntaxOk, damageOk]) => {
-            if (!syntaxOk || !damageOk) {
+        void runEditPostCheck(cfg.safeModifier, filePath)
+          .then(({ ok, steerMessage }) => {
+            if (!ok) {
               stagnationDetector.recordError(`post_check_failed:${filePath}`);
-              cfg.safeModifier
-                .restore(filePath)
-                .then(() => {
-                  agent.steer({
-                    role: 'steer',
-                    content: `[SAFE MODIFIER] Post-check failed for ${filePath} (syntax=${syntaxOk}, damage=${damageOk}). File restored.`,
-                    timestamp: Date.now(),
-                  });
-                })
-                .catch((restoreErr) => {
-                  console.error('[SafeModifier] restore() failed for', filePath, ':', restoreErr);
-                  agent.steer({
-                    role: 'steer',
-                    content:
-                      '[SAFE MODIFIER] Post-check failed AND restore failed for ' +
-                      filePath +
-                      ': ' +
-                      String(restoreErr) +
-                      '. File may be damaged.',
-                    timestamp: 0,
-                  });
+              if (steerMessage) {
+                agent.steer({
+                  role: 'steer',
+                  content: steerMessage,
+                  timestamp: Date.now(),
                 });
-            } else {
-              cfg.safeModifier.clearCheckpoint(filePath);
+              }
             }
           })
           .catch((checkErr) => {

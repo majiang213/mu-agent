@@ -14,6 +14,7 @@ import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import { buildModel, compressConversationHistory, runReasonStep, executeSteps, runStep } from './step-runner.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
+import { parseEditedFiles } from './step-context.js';
 import { fetchOllamaParamCount } from '../../provider/model-info.js';
 
 import type { EnvContext } from '../prompts/agent.js';
@@ -29,16 +30,7 @@ async function rollbackEditedFiles(
   safeModifier: SafeModifier,
   onEvent?: (e: ExecutionEvent) => void,
 ): Promise<void> {
-  const editedFiles = allStepResults
-    .filter((r) => r.state === State.MODIFY)
-    .flatMap((r) => {
-      try {
-        const parsed = JSON.parse(r.output) as { edited?: unknown };
-        return Array.isArray(parsed.edited) ? parsed.edited.filter((f): f is string => typeof f === 'string') : [];
-      } catch {
-        return [];
-      }
-    });
+  const editedFiles = allStepResults.filter((r) => r.state === State.MODIFY).flatMap((r) => parseEditedFiles(r.output));
   const uniqueEdited = [...new Set(editedFiles)];
   for (const filePath of uniqueEdited) {
     await safeModifier.restore(filePath);

@@ -116,26 +116,3 @@ function detectSignatureChanges(original: string, modified: string): string[] {
 
   return changed;
 }
-
-/**
- * Run all post-check hooks
- */
-export async function runPostChecks(
-  filePath: string,
-  originalContent: string,
-  hooks: PostCheckHook[] = [syntaxCheckHook, damageCheckHook],
-): Promise<{ success: boolean; failedHooks: string[] }> {
-  const failedHooks: string[] = [];
-
-  for (const hook of hooks) {
-    const passed = await hook.check(filePath, originalContent);
-    if (!passed) {
-      failedHooks.push(hook.name);
-    }
-  }
-
-  return {
-    success: failedHooks.length === 0,
-    failedHooks,
-  };
-}

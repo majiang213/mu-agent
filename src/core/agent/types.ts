@@ -32,6 +32,7 @@ export type ExecutionEvent =
   | { type: 'deliberation_clarification'; question: string }
   | { type: 'parallel_start'; stepCount: number }
   | { type: 'parallel_complete'; stepCount: number }
+  | { type: 'parallel_overlap'; files: string[] }
   | { type: 'sampling_expand'; round: number; reason: 'divergent' }
   | { type: 'sampling_stopped'; reason: 'converged' | 'max_count' | 'max_rounds' | 'no_new_info' }
   | { type: 'subplan_start'; analyzerState: string; focus: string }

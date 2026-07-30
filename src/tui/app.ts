@@ -907,6 +907,14 @@ export class TuiApp {
         this.header.setState(`⇉ parallel ${event.stepCount} steps`, undefined, undefined);
       } else if (event.type === 'parallel_complete') {
         void event;
+      } else if (event.type === 'parallel_overlap') {
+        this.insertBefore(
+          new Text(
+            `\n  ${C.err('⚠')} parallel branches edited the same file(s): ${event.files.join(', ')} — rollback may be unreliable for these\n`,
+            0,
+            0,
+          ),
+        );
       } else if (event.type === 'sampling_expand') {
         this.currentSamplingBlock?.addLine(`  ↻ round ${event.round} divergence, expanding sampling`);
       } else if (event.type === 'subplan_start') {
