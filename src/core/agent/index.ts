@@ -1,200 +1,23 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { SafeModifier } from '../../tool/safety/index.js';
 import type { Config } from '../../config/types.js';
 import { State } from '../types.js';
-import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
-import type { ExecutionEvent, Mission, RunConfig } from './types.js';
-import { runReasonStep, executeSteps, runStep } from './step-runner.js';
-import type { ReasonStepOptions } from './step-runner.js';
+import type { StateResult, ExecutedStep } from '../types.js';
+import type { ExecutionEvent, Mission } from './types.js';
+import { runReasonStep, runStep } from './step-runner.js';
 import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildRunSetup } from './setup.js';
-import { flattenDirectives, planFingerprint } from './directives.js';
-import { parseEditedFiles } from './step-context.js';
 import { isAbortError } from './abort.js';
+import { runWithVerifyRetry } from './verify-retry.js';
 import { MemoryStore } from '../memory/index.js';
-
-const MAX_VERIFY_RETRIES = 2;
-
-async function rollbackEditedFiles(
-  allStepResults: ExecutedStep[],
-  safeModifier: SafeModifier,
-  onEvent?: (e: ExecutionEvent) => void,
-): Promise<void> {
-  const editedFiles = allStepResults.filter((r) => r.state === State.MODIFY).flatMap((r) => parseEditedFiles(r.output));
-  const uniqueEdited = [...new Set(editedFiles)];
-  for (const filePath of uniqueEdited) {
-    await safeModifier.restore(filePath);
-  }
-  if (uniqueEdited.length > 0) {
-    onEvent?.({
-      type: 'tool_execution_start',
-      toolId: 'rollback',
-      tool: 'rollback',
-      args: { restored: uniqueEdited },
-    });
-  }
-}
-
-function stepsSignature(directives: StepDirective[]): string {
-  return planFingerprint(directives);
-}
-
-function _buildVerifyFailureContext(
-  allStepResults: ExecutedStep[],
-  verifyResult: { passed: boolean; issues: string[]; summary: string },
-  retryCount: number,
-): string {
-  const historyLines = allStepResults.map((r) => `- [${r.state}] ${r.focus}: ${r.output.slice(0, 300)}`).join('\n');
-
-  return `[RETRY ${retryCount}/${MAX_VERIFY_RETRIES}]
-Previous execution history:
-${historyLines}
-
-VERIFY FAILED:
-Summary: ${verifyResult.summary}
-Issues:
-${verifyResult.issues.map((i) => `  - ${i}`).join('\n')}
-
-Analyze what went wrong and plan a new approach. Consider:
-- If the code change was wrong → use DIAGNOSE to find root cause, then MODIFY again
-- If tests reveal a deeper bug → use DIAGNOSE first
-- If the modification made things worse → start with ROLLBACK`;
-}
-
-export type VerifyLoopOutcome =
-  | { kind: 'completed'; allStepResults: ExecutedStep[]; mission: Mission }
-  | { kind: 'failed'; result: StateResult; mission: Mission };
-
-export interface VerifyRetryOptions extends ReasonStepOptions {
-  memoryStore?: MemoryStore | null;
-}
-
-export async function runWithVerifyRetry(
-  initialSteps: StepDirective[],
-  mission: Mission,
-  conversationHistory: AgentMessage[],
-  cfg: RunConfig,
-  options: VerifyRetryOptions = {},
-): Promise<VerifyLoopOutcome> {
-  const { onEvent, memoryIndex, memorySearchTool, onNeedsClarify, memoryStore = null } = options;
-  const allStepResults: ExecutedStep[] = [];
-  let currentSteps = initialSteps;
-  let prevStepsSignature = '';
-  let verifySeen = false;
-  let verifyFailed = false;
-  let verifyRetryCount = 0;
-
-  while (true) {
-    const thisRoundResults = await executeSteps(currentSteps, mission, allStepResults, cfg, {
-      onEvent,
-      memoryIndex,
-      memorySearchTool,
-    });
-
-    allStepResults.push(...thisRoundResults);
-
-    const lastVerify = [...thisRoundResults].reverse().find((h) => h.state === State.VERIFY);
-
-    if (lastVerify) {
-      verifySeen = true;
-      let verifyResult: { passed: boolean; issues: string[]; summary: string };
-      try {
-        verifyResult = JSON.parse(lastVerify.output) as typeof verifyResult;
-      } catch {
-        break;
-      }
-      if (verifyResult.passed === true) {
-        break;
-      }
-      verifyFailed = true;
-      verifyRetryCount++;
-
-      if (verifyRetryCount > MAX_VERIFY_RETRIES) {
-        const result: StateResult = {
-          state: State.DONE,
-          success: false,
-          output: `Task failed after ${MAX_VERIFY_RETRIES} verification retries. Last error: ${verifyResult.summary}`,
-          nextState: State.DONE,
-          messages: [],
-        };
-        const failedMission = { ...mission, state: 'failed' as const };
-        memoryStore?.writeEpisodeSync(failedMission, allStepResults, result);
-        return { kind: 'failed', result, mission: failedMission };
-      }
-
-      const verifyFailureHistory: AgentMessage[] = [
-        ...conversationHistory,
-        {
-          role: 'user' as const,
-          content: _buildVerifyFailureContext(allStepResults, verifyResult, verifyRetryCount),
-          timestamp: Date.now(),
-        },
-      ];
-      const { steps: verifyRetrySteps } = await runReasonStep(mission, cfg, verifyFailureHistory, {
-        onEvent,
-        onNeedsClarify,
-        memoryIndex,
-        memorySearchTool,
-      });
-      if (verifyRetrySteps.length === 0) {
-        const result: StateResult = {
-          state: State.DONE,
-          success: false,
-          output: `Task failed: verification failed and retry produced no steps. Last error: ${verifyResult.summary}`,
-          nextState: State.DONE,
-          messages: [],
-        };
-        const failedMission = { ...mission, state: 'failed' as const };
-        memoryStore?.writeEpisodeSync(failedMission, allStepResults, result);
-        return { kind: 'failed', result, mission: failedMission };
-      }
-
-      const verifySig = stepsSignature(verifyRetrySteps);
-      if (verifySig === prevStepsSignature) {
-        const result: StateResult = {
-          state: State.DONE,
-          success: false,
-          output: `Task failed: retry plan identical to previous. Last error: ${verifyResult.summary}`,
-          nextState: State.DONE,
-          messages: [],
-        };
-        const failedMission = { ...mission, state: 'failed' as const };
-        memoryStore?.writeEpisodeSync(failedMission, allStepResults, result);
-        return { kind: 'failed', result, mission: failedMission };
-      }
-      prevStepsSignature = verifySig;
-
-      const flatVerifyRetry = flattenDirectives(verifyRetrySteps);
-      const verifyRetryHasModify = flatVerifyRetry.some((s) => s.state === State.MODIFY);
-      const verifyRetryHasRollback = flatVerifyRetry.some((s) => s.state === State.ROLLBACK);
-      if (verifyRetryHasModify && !verifyRetryHasRollback) {
-        await rollbackEditedFiles(allStepResults, cfg.safeModifier, onEvent);
-      }
-
-      currentSteps = verifyRetrySteps;
-    } else {
-      if (verifySeen && verifyFailed) {
-        const result: StateResult = {
-          state: State.DONE,
-          success: false,
-          output: `Task failed: verification failed and retry plan did not include a VERIFY step.`,
-          nextState: State.DONE,
-          messages: [],
-        };
-        const failedMission = { ...mission, state: 'failed' as const };
-        memoryStore?.writeEpisodeSync(failedMission, allStepResults, result);
-        return { kind: 'failed', result, mission: failedMission };
-      }
-      break;
-    }
-  }
-
-  return { kind: 'completed', allStepResults, mission };
-}
 
 export type { ExecutionEvent };
 
+/**
+ * ReactAgent — the facade. run() reads as a pipeline:
+ * setup → reason → verify-retry loop → fixed ANSWER → episode.
+ * The retry policy lives in verify-retry.ts, assembly in setup.ts.
+ */
 export class ReactAgent {
   private _pendingClarification: ((answer: string) => void) | null = null;
   private _activeAgents: Set<Agent> = new Set();

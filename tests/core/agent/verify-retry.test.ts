@@ -38,7 +38,7 @@ vi.mock('../../../src/tool/safety/index.js', () => ({
 }));
 
 const { runReasonStep, executeSteps } = await import('../../../src/core/agent/step-runner.js');
-const { runWithVerifyRetry } = await import('../../../src/core/agent/index.js');
+const { runWithVerifyRetry } = await import('../../../src/core/agent/verify-retry.js');
 
 function makeMission() {
   return { id: 'test-task', description: 'test task', state: 'running' as const };
