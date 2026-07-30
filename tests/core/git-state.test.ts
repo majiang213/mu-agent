@@ -3,8 +3,8 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../../src/core/types.js';
 import { STATE_REGISTRY, GIT_OPERATIONS } from '../../src/core/state-registry.js';
-import { GIT_HARD_DENY, wrapWithGitGuard } from '../../src/core/agent/builder.js';
-import type { GitGuardSpec } from '../../src/core/agent/builder.js';
+import { GIT_HARD_DENY, wrapWithGitGuard } from '../../src/tool/safety/git-guard.js';
+import type { GitGuardSpec } from '../../src/tool/safety/git-guard.js';
 import { buildCompleteTool } from '../../src/tool/complete.js';
 
 /**

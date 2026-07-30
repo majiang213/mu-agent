@@ -11,6 +11,9 @@ vi.mock('../../src/core/agent/builder.js', () => ({
     off: vi.fn(),
   })),
   subscribeStepEvents: vi.fn(),
+}));
+
+vi.mock('../../src/tool/safety/git-guard.js', () => ({
   wrapWithGitGuard: vi.fn((t) => t),
 }));
 

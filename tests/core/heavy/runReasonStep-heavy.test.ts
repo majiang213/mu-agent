@@ -19,6 +19,9 @@ vi.mock('../../../src/core/agent/builder.js', () => ({
     throw new Error('phase0 mocked failure');
   }),
   subscribeStepEvents: vi.fn(),
+}));
+
+vi.mock('../../../src/tool/safety/git-guard.js', () => ({
   wrapWithGitGuard: vi.fn((t) => t),
 }));
 

@@ -7,6 +7,9 @@ import type { RunConfig } from '../../../src/core/agent/types.js';
 vi.mock('../../../src/core/agent/builder.js', () => ({
   buildStepAgent: vi.fn(),
   subscribeStepEvents: vi.fn(),
+}));
+
+vi.mock('../../../src/tool/safety/git-guard.js', () => ({
   wrapWithGitGuard: vi.fn((t) => t),
 }));
 

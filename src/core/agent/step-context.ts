@@ -1,6 +1,6 @@
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import type { RunConfig } from './types.js';
-import { wrapWithGitGuard } from './builder.js';
+import { wrapWithGitGuard } from '../../tool/safety/git-guard.js';
 
 /**
  * Per-step tool policy: EVERY bash tool gets the git guard (Gap 83/84 —
