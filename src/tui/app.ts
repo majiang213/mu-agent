@@ -1,651 +1,31 @@
-import {
-  Editor,
-  Loader,
-  matchesKey,
-  ProcessTerminal,
-  Text,
-  TUI,
-  truncateToWidth,
-  visibleWidth,
-  wrapTextWithAnsi,
-} from '@earendil-works/pi-tui';
+import { Editor, Loader, matchesKey, ProcessTerminal, Text, TUI } from '@earendil-works/pi-tui';
 import type { Component } from '@earendil-works/pi-tui';
-import { Markdown } from '@earendil-works/pi-tui';
-import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
 import { ReactAgent } from '../core/agent/index.js';
-import type { ExecutionEvent } from '../core/agent/index.js';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
-import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
-import { formatRunResult, assistantMessageForSession, stripLegacyPrefixes } from './presenter.js';
+import { C, stateColor, editorTheme } from './theme.js';
+import { formatRunResult, formatTaskSummary, assistantMessageForSession, stripLegacyPrefixes } from './presenter.js';
 import { isAbortError } from '../core/agent/abort.js';
 import type { Config } from '../config/types.js';
 import { getLspStatuses } from '../tool/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
+import { detectGitBranch, HeaderLine, HintLine, UserMessage } from './blocks.js';
+import { RunView } from './run-view.js';
+import type { RunViewHost } from './run-view.js';
 
 export interface TuiAppOptions {
   config: Config;
   sessionStore?: SessionStore;
 }
-// ─── Components ───────────────────────────────────────────────────────────────
 
-class HintLine implements Component {
-  private debugMode = false;
-  setDebugMode(v: boolean): void {
-    this.debugMode = v;
-  }
-  invalidate(): void {}
-  render(width: number): string[] {
-    const debugLabel = this.debugMode ? C.ok(' [debug on]') : C.dim(' debug');
-    const line =
-      '  ' +
-      C.hintKey('Ctrl+C') +
-      C.dim(' quit') +
-      '  ' +
-      C.hintKey('Esc') +
-      C.dim(' interrupt') +
-      '  ' +
-      C.hintKey('Ctrl+T') +
-      C.dim(' thinking') +
-      '  ' +
-      C.hintKey('Ctrl+O') +
-      C.dim(' tools') +
-      '  ' +
-      C.hintKey('Ctrl+D') +
-      debugLabel;
-    return [truncateToWidth(line, width)];
-  }
-}
-
-function fmtTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 10000) return (n / 1000).toFixed(1) + 'k';
-  if (n < 1_000_000) return Math.round(n / 1000) + 'k';
-  return (n / 1_000_000).toFixed(1) + 'M';
-}
-
-class HeaderLine implements Component {
-  private cwd: string;
-  private branch: string;
-  private model: string;
-  private state = 'IDLE';
-  private taskLabel = '';
-  private totalPromptTokens = 0;
-  private totalResponseTokens = 0;
-  private latestContextTokens = 0;
-  private contextWindow = 0;
-  private provider = '';
-  private tier = '';
-
-  constructor(model: string) {
-    this.model = model;
-    const home = homedir();
-    const cwd = process.cwd();
-    this.cwd = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
-    try {
-      this.branch = execSync('git branch --show-current', {
-        encoding: 'utf-8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    } catch {
-      this.branch = '';
-    }
-  }
-
-  setState(state: string, taskIndex = 0, taskTotal = 0): void {
-    this.state = state;
-    this.taskLabel = taskTotal > 0 ? ` [${taskIndex}/${taskTotal}]` : '';
-  }
-
-  setProviderInfo(provider: string, tier: string, contextWindow: number): void {
-    this.provider = provider;
-    this.tier = tier.toLowerCase();
-    this.contextWindow = contextWindow;
-  }
-
-  updateTokenStats(promptTokens: number, responseTokens: number, contextTokens: number): void {
-    this.totalPromptTokens += promptTokens;
-    this.totalResponseTokens += responseTokens;
-    this.latestContextTokens = contextTokens;
-  }
-
-  resetTaskStats(): void {
-    this.totalPromptTokens = 0;
-    this.totalResponseTokens = 0;
-    this.latestContextTokens = 0;
-  }
-
-  getState(): string {
-    return this.state;
-  }
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    const leftParts = [C.headerCwd(this.cwd), ...(this.branch ? [C.headerBranch(this.branch)] : [])];
-    const left = leftParts.join(C.headerSep('  │  '));
-
-    const rightParts: string[] = [];
-
-    if (this.totalPromptTokens > 0 || this.totalResponseTokens > 0) {
-      rightParts.push(
-        C.headerTokenUp('↑' + fmtTokens(this.totalPromptTokens)) +
-          ' ' +
-          C.headerTokenDown('↓' + fmtTokens(this.totalResponseTokens)),
-      );
-    }
-
-    if (this.contextWindow > 0) {
-      const pct = (this.latestContextTokens / this.contextWindow) * 100;
-      const pctStr = pct.toFixed(1) + '%/' + fmtTokens(this.contextWindow);
-      const ctxColor = pct >= 90 ? C.headerCtxCrit : pct >= 70 ? C.headerCtxWarn : C.dim;
-      rightParts.push(ctxColor(pctStr));
-    } else if (this.latestContextTokens > 0) {
-      rightParts.push(C.dim('ctx ' + fmtTokens(this.latestContextTokens)));
-    }
-
-    if (this.provider) rightParts.push(C.headerProvider('(' + this.provider + ')'));
-
-    const modelTierPart = this.tier
-      ? C.headerModel(this.model) + ' ' + C.headerTier('• ' + this.tier)
-      : C.headerModel(this.model);
-    rightParts.push(modelTierPart);
-
-    rightParts.push(stateColor(this.state)(this.state + this.taskLabel));
-
-    const right = rightParts.join(C.headerSep('  '));
-    const leftW = visibleWidth(left);
-    const rightW = visibleWidth(right);
-    const gap = Math.max(1, width - leftW - rightW - 2);
-    const line = ' ' + left + ' '.repeat(gap) + right + ' ';
-    return [truncateToWidth(line, width)];
-  }
-}
-
-// ─── UserMessage ──────────────────────────────────────────────────────────────
-
-class UserMessage implements Component {
-  private text: string;
-  constructor(text: string) {
-    this.text = text;
-  }
-  invalidate(): void {}
-  render(width: number): string[] {
-    const innerWidth = Math.max(1, width - 4);
-    const lines = wrapTextWithAnsi(this.text, innerWidth);
-    if (lines.length === 0) lines.push('');
-    const pad = truncateToWidth(C.userMsgBg(' '.repeat(width)), width);
-    const contentLines = lines.map((l) => {
-      const truncated = truncateToWidth(l, innerWidth, '...', true);
-      return truncateToWidth(C.userMsgBg('  ' + C.userText(truncated) + '  '), width);
-    });
-    return ['', pad, ...contentLines, pad, ''];
-  }
-}
-
-// ─── ThinkingBlock ────────────────────────────────────────────────────────────
-
-class ThinkingBlock implements Component {
-  private content: string;
-  expanded = false;
-  private streaming = false;
-
-  constructor(content: string, streaming = false) {
-    this.content = content;
-    this.streaming = streaming;
-    this.expanded = streaming;
-  }
-
-  setContent(content: string): void {
-    this.content = content;
-  }
-
-  finalize(): void {
-    this.streaming = false;
-    this.expanded = false;
-  }
-
-  toggle(): void {
-    this.expanded = !this.expanded;
-  }
-  setExpanded(v: boolean): void {
-    this.expanded = v;
-  }
-  invalidate(): void {}
-  render(width: number): string[] {
-    if (!this.expanded) {
-      return ['  ' + C.dimItalic('Thinking...')];
-    }
-    const lines: string[] = [];
-    for (const line of this.content.split('\n')) {
-      lines.push('  ' + C.dimItalic(truncateToWidth(line, width - 4)));
-    }
-    if (lines.length > 0) lines.push('');
-    return lines;
-  }
-}
-
-// ─── DebugBlock ───────────────────────────────────────────────────────────────
-
-class DebugBlock implements Component {
-  private systemPrompt: string;
-  private userPrompt: string;
-  expanded = false;
-  visible = false;
-
-  constructor(systemPrompt: string, userPrompt: string) {
-    this.systemPrompt = systemPrompt;
-    this.userPrompt = userPrompt;
-  }
-
-  toggle(): void {
-    this.expanded = !this.expanded;
-  }
-
-  setExpanded(v: boolean): void {
-    this.expanded = v;
-  }
-
-  setVisible(v: boolean): void {
-    this.visible = v;
-    if (!v) this.expanded = false;
-  }
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    if (!this.visible) return [];
-    const arrow = this.expanded ? '▾' : '▸';
-    const header = '  ' + C.dimItalic(arrow + ' debug: raw input');
-    if (!this.expanded) return [header];
-
-    const lines: string[] = [header];
-    const maxW = width - 6;
-
-    lines.push('    ' + C.dim('── system prompt ──'));
-    for (const line of this.systemPrompt.split('\n')) {
-      lines.push('    ' + C.dim(truncateToWidth(line, maxW)));
-    }
-    lines.push('');
-    lines.push('    ' + C.dim('── user prompt ──'));
-    for (const line of this.userPrompt.split('\n')) {
-      lines.push('    ' + C.dim(truncateToWidth(line, maxW)));
-    }
-    lines.push('');
-    return lines;
-  }
-}
-
-// ─── LlmOutput ───────────────────────────────────────────────────────────────
-
-class LlmOutput implements Component {
-  private inner: Markdown;
-  constructor(content: string) {
-    this.inner = new Markdown(content, 0, 0, markdownTheme);
-  }
-  setContent(content: string): void {
-    this.inner = new Markdown(content, 0, 0, markdownTheme);
-    this.inner.invalidate();
-  }
-  invalidate(): void {
-    this.inner.invalidate();
-  }
-  render(width: number): string[] {
-    const innerWidth = Math.max(1, width - 4);
-    const childLines = this.inner.render(innerWidth);
-    const result: string[] = [];
-    for (const line of childLines) {
-      result.push(fillLine('  ' + truncateToWidth(line, innerWidth), width, visibleWidth));
-    }
-    if (result.length > 0) {
-      result.push('');
-    }
-    return result;
-  }
-}
-
-// ─── ToolExecutionBlock ───────────────────────────────────────────────────────
-
-function fmtToolArgs(tool: string, args?: Record<string, unknown>): string {
-  if (!args || tool === 'complete') return '';
-  for (const key of ['filePath', 'path', 'file', 'command', 'cmd', 'query']) {
-    const v = args[key];
-    if (typeof v === 'string') return v.slice(0, 60);
-  }
-  const first = Object.values(args).find((v) => typeof v === 'string');
-  return typeof first === 'string' ? first.slice(0, 60) : '';
-}
-
-class ToolExecutionBlock implements Component {
-  private tool: string;
-  private argStr: string;
-  private resultText = '';
-  status: 'pending' | 'ok' | 'error' = 'pending';
-  expanded = false;
-
-  constructor(tool: string, args?: Record<string, unknown>) {
-    this.tool = tool;
-    this.argStr = fmtToolArgs(tool, args);
-  }
-
-  setResult(isError: boolean, output?: string): void {
-    this.status = isError ? 'error' : 'ok';
-    this.resultText = output ?? '';
-  }
-
-  setExpanded(v: boolean): void {
-    this.expanded = v;
-  }
-
-  invalidate(): void {}
-
-  private bgFn(): (s: string) => string {
-    if (this.status === 'error') return C.toolErrorBg;
-    if (this.status === 'ok') return C.toolSuccessBg;
-    return C.toolPendingBg;
-  }
-
-  render(width: number): string[] {
-    const bg = this.bgFn();
-    const mark = this.status === 'ok' ? C.ok('✓') : this.status === 'error' ? C.err('✗') : C.pending('…');
-    const namePad = (this.tool + '                ').slice(0, 12);
-    const nameStr = bold(C.toolTitle(namePad));
-    const maxArgW = Math.max(0, width - 14 - 6);
-    const argStr = this.argStr ? C.toolArg(truncateToWidth(this.argStr, maxArgW)) : '';
-    const resultLines = this.resultText ? this.resultText.split('\n') : [];
-    const hint =
-      !this.expanded && resultLines.length > 0 && this.status !== 'pending' && this.tool !== 'complete'
-        ? C.dimK(` (${resultLines.length} lines)`)
-        : '';
-    const titleContent = ' ' + nameStr + argStr + hint;
-    const maxTitleW = Math.max(1, width - 3);
-    const truncatedTitle = truncateToWidth(titleContent, maxTitleW);
-    const truncatedTitleW = visibleWidth(truncatedTitle);
-    const gap = Math.max(1, width - truncatedTitleW - 2);
-    const titleLine = truncateToWidth(bg(truncatedTitle + ' '.repeat(gap) + mark + ' '), width);
-
-    if (!this.expanded || resultLines.length === 0) return [titleLine];
-
-    const contentLines = resultLines.slice(0, 100).map((l) => {
-      const inner = truncateToWidth(l, width - 2);
-      return truncateToWidth(bg(' ' + C.toolOutput(inner) + ' '), width);
-    });
-    return [titleLine, ...contentLines];
-  }
-}
-
-// ─── AssistantTurn ────────────────────────────────────────────────────────────
-
-class LlmTurn {
-  debugBlock: DebugBlock | null = null;
-  thinkingBlock: ThinkingBlock | null = null;
-  outputComp: LlmOutput | null = null;
-  toolLines: ToolExecutionBlock[] = [];
-  toolMap = new Map<string, ToolExecutionBlock>();
-
-  setDebug(systemPrompt: string, userPrompt: string): void {
-    this.debugBlock = new DebugBlock(systemPrompt, userPrompt);
-  }
-
-  updateThinking(content: string): void {
-    if (!this.thinkingBlock) {
-      this.thinkingBlock = new ThinkingBlock(content, true);
-    } else {
-      this.thinkingBlock.setContent(content);
-    }
-  }
-
-  updateOutput(content: string): void {
-    if (!this.outputComp) {
-      this.outputComp = new LlmOutput(content);
-    } else {
-      this.outputComp.setContent(content);
-    }
-  }
-
-  finalizeThinking(content: string): void {
-    if (this.thinkingBlock) {
-      this.thinkingBlock.setContent(content);
-      this.thinkingBlock.finalize();
-    } else {
-      this.thinkingBlock = new ThinkingBlock(content, false);
-    }
-  }
-
-  finalizeOutput(content: string): void {
-    if (this.outputComp) {
-      this.outputComp.setContent(content);
-    } else {
-      this.outputComp = new LlmOutput(content);
-    }
-  }
-
-  addTool(id: string, tool: string, args?: Record<string, unknown>): ToolExecutionBlock {
-    const block = new ToolExecutionBlock(tool, args);
-    this.toolLines.push(block);
-    this.toolMap.set(id, block);
-    return block;
-  }
-
-  resolveTool(id: string, isError: boolean, output?: string): void {
-    this.toolMap.get(id)?.setResult(isError, output);
-  }
-
-  invalidate(): void {
-    this.thinkingBlock?.invalidate();
-    this.outputComp?.invalidate();
-    for (const t of this.toolLines) t.invalidate();
-  }
-
-  render(width: number): string[] {
-    const lines: string[] = [];
-    if (this.debugBlock) lines.push(...this.debugBlock.render(width));
-    if (this.thinkingBlock) lines.push(...this.thinkingBlock.render(width));
-    if (this.outputComp) lines.push(...this.outputComp.render(width));
-    for (const tl of this.toolLines) lines.push(...tl.render(width));
-    return lines;
-  }
-}
-
-class AssistantTurn implements Component {
-  private state: string;
-  private llmTurns: LlmTurn[] = [];
-  private currentLlmTurn: LlmTurn | null = null;
-
-  constructor(state: string) {
-    this.state = state;
-  }
-
-  private ensureLlmTurn(): LlmTurn {
-    if (!this.currentLlmTurn) {
-      this.currentLlmTurn = new LlmTurn();
-      this.llmTurns.push(this.currentLlmTurn);
-    }
-    return this.currentLlmTurn;
-  }
-
-  startLlmTurn(systemPrompt: string, userPrompt: string, debugMode: boolean): DebugBlock | null {
-    this.currentLlmTurn = new LlmTurn();
-    this.llmTurns.push(this.currentLlmTurn);
-    if (debugMode) {
-      this.currentLlmTurn.setDebug(systemPrompt, userPrompt);
-      if (this.currentLlmTurn.debugBlock) {
-        this.currentLlmTurn.debugBlock.setVisible(debugMode);
-        this.currentLlmTurn.debugBlock.setExpanded(debugMode);
-        return this.currentLlmTurn.debugBlock;
-      }
-    }
-    return null;
-  }
-
-  get thinkingBlock(): ThinkingBlock | null {
-    return this.currentLlmTurn?.thinkingBlock ?? null;
-  }
-
-  updateThinking(content: string): void {
-    this.ensureLlmTurn().updateThinking(content);
-  }
-
-  updateOutput(content: string): void {
-    this.ensureLlmTurn().updateOutput(content);
-  }
-
-  finalizeThinking(content: string): void {
-    this.ensureLlmTurn().finalizeThinking(content);
-  }
-
-  finalizeOutput(content: string): void {
-    this.ensureLlmTurn().finalizeOutput(content);
-  }
-
-  addTool(id: string, tool: string, args?: Record<string, unknown>): ToolExecutionBlock {
-    return this.ensureLlmTurn().addTool(id, tool, args);
-  }
-
-  resolveTool(id: string, isError: boolean, output?: string): void {
-    for (const t of this.llmTurns) {
-      if (t.toolMap.has(id)) {
-        t.resolveTool(id, isError, output);
-        return;
-      }
-    }
-  }
-
-  invalidate(): void {
-    for (const t of this.llmTurns) t.invalidate();
-  }
-
-  render(width: number): string[] {
-    const colorFn = stateColor(this.state);
-    const stateLabel = truncateToWidth('  ' + colorFn(this.state), width);
-    const lines: string[] = ['', stateLabel];
-    for (const t of this.llmTurns) lines.push(...t.render(width));
-    return lines;
-  }
-}
-
-// ─── SampleTurn ───────────────────────────────────────────────────────────────
-
-class SampleTurn implements Component {
-  private index: number;
-  private total: number;
-  private thinking = '';
-  private steps: import('../core/types.js').StepDirective[] | null = null;
-  private failed = false;
-  private streaming = true;
-  expanded = false;
-
-  constructor(index: number, total: number) {
-    this.index = index;
-    this.total = total;
-  }
-
-  updateThinking(content: string): void {
-    this.thinking = content;
-  }
-
-  complete(steps: import('../core/types.js').StepDirective[]): void {
-    this.steps = steps;
-    this.streaming = false;
-  }
-
-  fail(): void {
-    this.failed = true;
-    this.streaming = false;
-  }
-
-  toggle(): void {
-    this.expanded = !this.expanded;
-  }
-
-  setExpanded(v: boolean): void {
-    this.expanded = v;
-  }
-
-  invalidate(): void {}
-
-  private isLast(): boolean {
-    return this.index === this.total - 1;
-  }
-
-  render(width: number): string[] {
-    const branch = this.isLast() ? '└' : '├';
-    const label = C.dim(`  ${branch} plan ${this.index + 1}`);
-
-    let status: string;
-    if (this.failed) {
-      status = C.err('✗');
-    } else if (this.streaming) {
-      status = C.dim('⠿');
-    } else if (this.steps !== null) {
-      const chain =
-        this.steps.length > 0
-          ? this.steps
-              .map((d) => {
-                if ('parallel' in d) return `P[${d.parallel.map((s) => s.state).join(',')}]`;
-                if ('subplan' in d) return 'PLAN';
-                return d.state;
-              })
-              .join(' → ')
-          : 'direct answer';
-      status = C.ok('✓') + C.dim('  ' + chain);
-    } else {
-      status = C.dim('?');
-    }
-
-    const arrow = this.expanded ? '▾' : '▸';
-    const toggle = C.dim(` ${arrow}`);
-    const header = truncateToWidth(label + toggle + '  ' + status, width);
-    const lines: string[] = [header];
-
-    if (this.expanded && this.thinking) {
-      for (const line of this.thinking.split('\n').slice(0, 20)) {
-        lines.push('  │  ' + C.dimItalic(truncateToWidth(line, width - 8)));
-      }
-    }
-
-    return lines;
-  }
-}
-
-// ─── SamplingBlock ────────────────────────────────────────────────────────────
-
-class SamplingBlock implements Component {
-  private sampleTurns: SampleTurn[] = [];
-  private extraLines: string[] = [];
-
-  addSample(turn: SampleTurn): void {
-    this.sampleTurns.push(turn);
-  }
-
-  getSample(index: number): SampleTurn | undefined {
-    return this.sampleTurns[index];
-  }
-
-  addLine(text: string): void {
-    this.extraLines.push(text);
-  }
-
-  allSampleTurns(): SampleTurn[] {
-    return this.sampleTurns;
-  }
-
-  invalidate(): void {}
-
-  render(width: number): string[] {
-    if (this.sampleTurns.length === 0 && this.extraLines.length === 0) return [];
-    const lines: string[] = ['', C.dim('  ⚡ Heavy Thinking')];
-    for (const turn of this.sampleTurns) lines.push(...turn.render(width));
-    for (const l of this.extraLines) lines.push(truncateToWidth(C.dim(l), width));
-    lines.push('');
-    return lines;
-  }
-}
-
-// ─── TuiApp ───────────────────────────────────────────────────────────────────
-
+/**
+ * TuiApp — terminal orchestration shell: editor/loader lifecycle, keybindings,
+ * submit pipeline, session persistence. View classes live in blocks.ts,
+ * per-run event handling in run-view.ts (behind the RunViewHost seam),
+ * formatting in presenter.ts (third-pass review, candidate 9).
+ */
 export class TuiApp {
   private tui: TUI;
   private editor: Editor;
@@ -654,17 +34,11 @@ export class TuiApp {
   private metrics = new MetricsCollector();
   private running = false;
   private debugMode = false;
-  private allThinkingBlocks: ThinkingBlock[] = [];
-  private allDebugBlocks: DebugBlock[] = [];
-  private allSampleTurns: SampleTurn[] = [];
-  private allToolBlocks: ToolExecutionBlock[] = [];
   private conversationHistory: AgentMessage[] = [];
   private sessionStore: SessionStore;
-  private currentAgent: import('../core/agent/index.js').ReactAgent | null = null;
-  private pendingClarificationAgent: import('../core/agent/index.js').ReactAgent | null = null;
-  private currentTurn: AssistantTurn | null = null;
-  private currentSamplingBlock: SamplingBlock | null = null;
-  private loaderState = 'REASON';
+  private currentAgent: ReactAgent | null = null;
+  private pendingClarificationAgent: ReactAgent | null = null;
+  private runView: RunView | null = null;
   private _sigwinchHandler = (): void => {
     try {
       this.tui.requestRender(true);
@@ -676,7 +50,11 @@ export class TuiApp {
   constructor(private options: TuiAppOptions) {
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
-    this.header = new HeaderLine(options.config.model.name);
+
+    const home = homedir();
+    const rawCwd = process.cwd();
+    const cwdDisplay = rawCwd.startsWith(home) ? '~' + rawCwd.slice(home.length) : rawCwd;
+    this.header = new HeaderLine(options.config.model.name, cwdDisplay, detectGitBranch());
     this.hintLine = new HintLine();
 
     {
@@ -710,7 +88,7 @@ export class TuiApp {
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+t')) {
-        const thinkingExpandables = [...this.allThinkingBlocks, ...this.allSampleTurns];
+        const thinkingExpandables = [...(this.runView?.thinkingBlocks ?? []), ...(this.runView?.sampleTurns ?? [])];
         if (thinkingExpandables.length > 0) {
           const anyExpanded = thinkingExpandables.some((b) => b.expanded);
           for (const b of thinkingExpandables) b.setExpanded(!anyExpanded);
@@ -719,7 +97,7 @@ export class TuiApp {
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+o')) {
-        const toolExpandables = [...this.allToolBlocks];
+        const toolExpandables = this.runView?.toolBlocks ?? [];
         if (toolExpandables.length > 0) {
           const anyExpanded = toolExpandables.some((b) => b.expanded);
           for (const b of toolExpandables) b.setExpanded(!anyExpanded);
@@ -730,7 +108,7 @@ export class TuiApp {
       if (matchesKey(data, 'ctrl+d')) {
         this.debugMode = !this.debugMode;
         this.hintLine.setDebugMode(this.debugMode);
-        for (const b of this.allDebugBlocks) {
+        for (const b of this.runView?.debugBlocks ?? []) {
           b.setVisible(this.debugMode);
           b.setExpanded(this.debugMode);
         }
@@ -776,166 +154,21 @@ export class TuiApp {
     this.tui.children.splice(idx, 0, component);
   }
 
-  private createEventHandler(
-    taskId: string,
-    loader: Loader,
-    pendingTools: Set<string>,
-  ): (event: ExecutionEvent) => void {
-    const debugShownForState = new Set<string>();
-
-    const ensureCurrentTurn = (state = 'REASON'): AssistantTurn => {
-      let turn = this.currentTurn;
-      if (!turn) {
-        turn = new AssistantTurn(state);
-        const idx = this.tui.children.indexOf(loader);
-        this.tui.children.splice(idx, 0, turn);
-        this.currentTurn = turn;
-      }
-      return turn;
-    };
-
-    this.currentSamplingBlock = null;
-
-    return (event: ExecutionEvent): void => {
-      if (event.type === 'state_change') {
-        const prevState = this.loaderState;
-        this.loaderState = event.to;
-        this.header.setState(event.to);
-        loader.setMessage(`[${event.to}]`);
-        if (event.to !== 'DONE' && event.to !== 'SAMPLING' && event.to !== prevState) {
-          const turn = new AssistantTurn(event.to);
-          const idx = this.tui.children.indexOf(loader);
-          this.tui.children.splice(idx, 0, turn);
-          this.currentTurn = turn;
-        }
-        if (event.to === 'DONE') {
-          this.currentTurn = null;
-        }
-      } else if (event.type === 'turn_start') {
-        const turn = ensureCurrentTurn();
-        const alreadyShown = debugShownForState.has(this.loaderState);
-        const debugBlock = turn.startLlmTurn(event.systemPrompt, event.userPrompt, this.debugMode && !alreadyShown);
-        if (debugBlock) {
-          this.allDebugBlocks.push(debugBlock);
-          debugShownForState.add(this.loaderState);
-        }
-      } else if (event.type === 'message_thinking_update') {
-        const turn = ensureCurrentTurn();
-        turn.updateThinking(event.content);
-        if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
-          this.allThinkingBlocks.push(turn.thinkingBlock);
-        }
-      } else if (event.type === 'message_update') {
-        ensureCurrentTurn().updateOutput(event.content);
-      } else if (event.type === 'message_thinking_end') {
-        const turn = ensureCurrentTurn();
-        turn.finalizeThinking(event.content);
-        if (turn.thinkingBlock && !this.allThinkingBlocks.includes(turn.thinkingBlock)) {
-          this.allThinkingBlocks.push(turn.thinkingBlock);
-        }
-      } else if (event.type === 'message_end') {
-        ensureCurrentTurn().finalizeOutput(event.content);
-      } else if (event.type === 'tool_execution_start') {
-        const turn = ensureCurrentTurn();
-        pendingTools.add(event.toolId);
-        const block = turn.addTool(event.toolId, event.tool, event.args);
-        this.allToolBlocks.push(block);
-        loader.setMessage(`[${event.tool}]`);
-      } else if (event.type === 'tool_execution_end') {
-        const turn = this.currentTurn;
-        if (turn && pendingTools.has(event.toolId)) {
-          turn.resolveTool(event.toolId, event.isError, event.output);
-          pendingTools.delete(event.toolId);
-        }
-      } else if (event.type === 'session_info') {
-        this.header.setProviderInfo(event.provider, event.tier, event.contextWindow);
-      } else if (event.type === 'turn_end') {
-        this.metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
-        this.header.updateTokenStats(event.promptLen, event.responseLen, event.contextTokens);
-      } else if (event.type === 'task_start') {
-        this.header.setState(event.description.slice(0, 20), event.taskIndex + 1, event.taskTotal);
-      } else if (event.type === 'task_end') {
-        void event;
-      } else if (event.type === 'clarification_needed') {
-        const questions = event.questions.map((q, i) => `  ${i + 1}. ${q}`).join('\n');
-        this.insertBefore(new Text(C.dim('  Please confirm:\n') + questions, 0, 0));
-        this.pendingClarificationAgent = this.currentAgent;
-        this.editor.disableSubmit = false;
-      } else if (event.type === 'deliberation_start') {
-        this.currentSamplingBlock = new SamplingBlock();
-        const idx = this.tui.children.indexOf(loader);
-        this.tui.children.splice(idx, 0, this.currentSamplingBlock);
-      } else if (event.type === 'sample_start') {
-        if (this.currentSamplingBlock) {
-          const turn = new SampleTurn(event.index, event.total);
-          this.currentSamplingBlock.addSample(turn);
-          this.allSampleTurns.push(turn);
-        }
-      } else if (event.type === 'sample_thinking') {
-        this.currentSamplingBlock?.getSample(event.index)?.updateThinking(event.content);
-      } else if (event.type === 'sample_complete') {
-        this.currentSamplingBlock?.getSample(event.index)?.complete(event.steps);
-      } else if (event.type === 'sample_failed') {
-        this.currentSamplingBlock?.getSample(event.index)?.fail();
-      } else if (event.type === 'sampling_progress') {
-        void event;
-      } else if (event.type === 'deliberation_refinement') {
-        const label =
-          event.verdict === 'converged'
-            ? 'converged'
-            : event.verdict === 'BETTER'
-              ? 'better'
-              : event.verdict === 'SAME'
-                ? 'same'
-                : 'worse';
-        this.currentSamplingBlock?.addLine(`  ↻ Refinement ${event.round}: ${label}`);
-      } else if (event.type === 'deliberation_complete') {
-        void event;
-      } else if (event.type === 'deliberation_fallback') {
-        this.currentSamplingBlock?.addLine(`  ⚠ ${event.reason}`);
-      } else if (event.type === 'deliberation_clarification') {
-        this.currentSamplingBlock?.addLine(`  ? ${event.question}`);
-        this.pendingClarificationAgent = this.currentAgent;
-        this.editor.disableSubmit = false;
-      } else if (event.type === 'parallel_start') {
-        this.header.setState(`⇉ parallel ${event.stepCount} steps`, undefined, undefined);
-      } else if (event.type === 'parallel_complete') {
-        void event;
-      } else if (event.type === 'parallel_overlap') {
-        this.insertBefore(
-          new Text(
-            `\n  ${C.err('⚠')} parallel branches edited the same file(s): ${event.files.join(', ')} — rollback may be unreliable for these\n`,
-            0,
-            0,
-          ),
-        );
-      } else if (event.type === 'sampling_expand') {
-        this.currentSamplingBlock?.addLine(`  ↻ round ${event.round} divergence, expanding sampling`);
-      } else if (event.type === 'subplan_start') {
-        this.header.setState(`◎ ${event.analyzerState} (two-level planning)`, undefined, undefined);
-      } else if (event.type === 'subplan_complete') {
-        void event;
-      } else if (event.type === 'plan_parse_error') {
-        const errBlock = new ToolExecutionBlock('PLAN', { analyzerState: event.analyzerState });
-        errBlock.setResult(true, event.output.slice(0, 300));
-        this.insertBefore(errBlock);
-      } else if (event.type === 'sampling_stopped') {
-        const labels: Record<typeof event.reason, string> = {
-          converged: 'converged',
-          max_count: 'max count reached',
-          max_rounds: 'max rounds reached',
-          no_new_info: 'no new info',
-        };
-        this.currentSamplingBlock?.addLine(`  ✓ sampling done (${labels[event.reason]})`);
-      } else {
-        // Exhaustiveness: adding an ExecutionEvent variant without handling it
-        // here is a compile error (the leftover type is not assignable to never).
-        const _exhaustive: never = event;
-        void _exhaustive;
-      }
-
-      this.tui.requestRender();
-    };
+  /**
+   * Append the turn to history + session store. The SessionMessage →
+   * AgentMessage boundary casts are contained HERE (previously three inline
+   * copies across the success and catch paths).
+   */
+  private async persistTurn(input: string, display?: string): Promise<void> {
+    const ts = Date.now();
+    const userMsg = { role: 'user' as const, content: input, timestamp: ts };
+    this.conversationHistory.push(userMsg as AgentMessage);
+    await this.sessionStore.append({ type: 'message', ...userMsg });
+    if (display) {
+      const assistantMsg = assistantMessageForSession(display, ts + 1);
+      this.conversationHistory.push(assistantMsg as unknown as AgentMessage);
+      await this.sessionStore.append({ type: 'message', ...assistantMsg });
+    }
   }
 
   private async handleSubmit(value: string): Promise<void> {
@@ -944,10 +177,6 @@ export class TuiApp {
 
     this.editor.disableSubmit = true;
     this.editor.addToHistory(input);
-    this.allThinkingBlocks = [];
-    this.allSampleTurns = [];
-    this.allDebugBlocks = [];
-    this.allToolBlocks = [];
     this.header.resetTaskStats();
     this.insertBefore(new UserMessage(input));
     this.tui.requestRender();
@@ -963,37 +192,52 @@ export class TuiApp {
     const taskId = `task-${Date.now()}`;
     this.header.setState('REASON');
 
-    this.currentTurn = null;
-    const pendingTools = new Set<string>();
-
-    this.loaderState = 'REASON';
     const loader = new Loader(
       this.tui,
-      (s) => stateColor(this.loaderState)(s),
+      (s) => stateColor(this.runView?.loaderState ?? 'REASON')(s),
       (s) => C.dim(s),
       'running...',
     );
     this.insertBefore(loader);
+
+    const host: RunViewHost = {
+      insertBeforeLoader: (component) => {
+        const idx = this.tui.children.indexOf(loader);
+        this.tui.children.splice(idx, 0, component);
+      },
+      insertBeforeEditor: (component) => this.insertBefore(component),
+      removeComponent: (component) => {
+        this.tui.removeChild(component);
+      },
+      requestRender: () => this.tui.requestRender(),
+    };
+    const runView = new RunView({
+      host,
+      header: this.header,
+      loader,
+      metrics: this.metrics,
+      taskId,
+      isDebugMode: () => this.debugMode,
+      onClarification: () => {
+        this.pendingClarificationAgent = this.currentAgent;
+        this.editor.disableSubmit = false;
+      },
+    });
+    this.runView = runView;
     loader.start();
     this.tui.requestRender();
 
     this.metrics.startTask(taskId);
-
-    const onEvent = this.createEventHandler(taskId, loader, pendingTools);
 
     const agent = new ReactAgent();
     this.currentAgent = agent;
     let aborted = false;
     let threw = false;
     try {
-      const result = await agent.run(input, this.options.config, onEvent, this.conversationHistory);
+      const result = await agent.run(input, this.options.config, runView.handleEvent, this.conversationHistory);
       loader.stop();
       this.tui.removeChild(loader);
-      const samplingBlock = this.currentSamplingBlock;
-      if (samplingBlock) {
-        this.tui.removeChild(samplingBlock);
-        this.currentSamplingBlock = null;
-      }
+      runView.dispose();
       this.metrics.finishTask(taskId, result.success);
 
       const display = formatRunResult(result.output);
@@ -1001,18 +245,8 @@ export class TuiApp {
         this.insertBefore(new Text(display, 0, 0));
       }
 
-      const ts = Date.now();
-      const userMsg = { role: 'user' as const, content: input, timestamp: ts };
       try {
-        this.conversationHistory.push(userMsg as import('@earendil-works/pi-agent-core').AgentMessage);
-        await this.sessionStore.append({ type: 'message', ...userMsg });
-        if (display) {
-          const assistantMsg = assistantMessageForSession(display, ts + 1);
-          this.conversationHistory.push(
-            assistantMsg as unknown as import('@earendil-works/pi-agent-core').AgentMessage,
-          );
-          await this.sessionStore.append({ type: 'message', ...assistantMsg });
-        }
+        await this.persistTurn(input, display);
       } catch (persistErr) {
         console.error('[TuiApp] session persistence failed:', persistErr);
       }
@@ -1024,19 +258,12 @@ export class TuiApp {
         /* cleanup best-effort */
       }
       try {
-        const samplingBlock = this.currentSamplingBlock;
-        if (samplingBlock) {
-          this.tui.removeChild(samplingBlock);
-          this.currentSamplingBlock = null;
-        }
+        runView.dispose();
       } catch {
         /* cleanup best-effort */
       }
       try {
-        const ts = Date.now();
-        const userMsg = { role: 'user' as const, content: input, timestamp: ts };
-        this.conversationHistory.push(userMsg as import('@earendil-works/pi-agent-core').AgentMessage);
-        await this.sessionStore.append({ type: 'message', ...userMsg });
+        await this.persistTurn(input);
       } catch (persistErr) {
         console.error('[TuiApp] session persistence failed in catch:', persistErr);
       }
@@ -1051,22 +278,16 @@ export class TuiApp {
       }
     } finally {
       this.currentAgent = null;
+      this.runView = null;
     }
 
     const m = this.metrics.getMetrics(taskId);
     if (m) {
-      const tokens = fmtTokens(m.estimatedTokens);
-      const llmCalls = m.llmCalls;
+      const { status, stats } = formatTaskSummary(m);
       if (m.success) {
-        this.insertBefore(
-          new Text(
-            '\n' + C.successText('  ✓  done') + C.dim(`  100% success  llm×${llmCalls}  tokens≈${tokens}`),
-            0,
-            0,
-          ),
-        );
+        this.insertBefore(new Text('\n' + C.successText(status) + C.dim(stats), 0, 0));
       } else if (!aborted && !threw) {
-        this.insertBefore(new Text('\n' + C.err('  ✗  failed') + C.dim(`  llm×${llmCalls}  tokens≈${tokens}`), 0, 0));
+        this.insertBefore(new Text('\n' + C.err(status) + C.dim(stats), 0, 0));
       }
     }
     this.header.setState('IDLE');

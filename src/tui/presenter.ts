@@ -60,6 +60,29 @@ export function assistantMessageForSession(
   return { role: 'assistant', content: display, timestamp };
 }
 
+/** Compact token count: 999 → "999", 1.2k, 34k, 1.5M. */
+export function fmtTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 10000) return (n / 1000).toFixed(1) + 'k';
+  if (n < 1_000_000) return Math.round(n / 1000) + 'k';
+  return (n / 1_000_000).toFixed(1) + 'M';
+}
+
+/**
+ * Per-task summary line segments (Gap 55), unstyled — the TUI applies color.
+ * Success: "✓ done  100% success  llm×N  tokens≈X"; failure: "✗ failed …".
+ */
+export function formatTaskSummary(m: { success: boolean; llmCalls: number; estimatedTokens: number }): {
+  status: string;
+  stats: string;
+} {
+  const tokens = fmtTokens(m.estimatedTokens);
+  if (m.success) {
+    return { status: '  ✓  done', stats: `  100% success  llm×${m.llmCalls}  tokens≈${tokens}` };
+  }
+  return { status: '  ✗  failed', stats: `  llm×${m.llmCalls}  tokens≈${tokens}` };
+}
+
 /** Strip the legacy presentation prefix from a loaded assistant message. */
 export function stripLegacyPrefix(content: string): string {
   return content.startsWith(LEGACY_ASSISTANT_PREFIX) ? content.slice(LEGACY_ASSISTANT_PREFIX.length) : content;

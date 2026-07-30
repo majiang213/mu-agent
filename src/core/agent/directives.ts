@@ -166,6 +166,17 @@ export function planFingerprint(directives: StepDirective[]): string {
   return directives.map(directiveFingerprint).join('|');
 }
 
+/**
+ * Compact one-token label for a directive — the TUI plan chain (`A → B →
+ * P[X,Y] → PLAN`). The third copy of this mapping used to live inline in
+ * SampleTurn; it belongs here beside the fingerprint it mirrors.
+ */
+export function directiveLabel(d: StepDirective): string {
+  if ('parallel' in d) return `P[${d.parallel.map((s) => s.state).join(',')}]`;
+  if ('subplan' in d) return State.PLAN;
+  return d.state;
+}
+
 function formatStep(step: Step): string {
   const why = step.why ? `\n        why: ${step.why}` : '';
   return `  [${step.state}] ${step.focus}${why}`;
