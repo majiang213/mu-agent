@@ -5,6 +5,7 @@ import { execSync } from 'node:child_process';
 import { glob } from 'glob';
 import ts from 'typescript';
 import { GRAPH_DB_DIRNAME, IGNORE_DIRS, getDbPath } from './constants.js';
+import { extractSymbols } from './symbols.js';
 
 export interface GraphNode {
   id: number;
@@ -199,60 +200,17 @@ export class GraphBuilder {
     let nodeCount = 0;
     let edgeCount = 0;
 
-    const getLineNumber = (node: ts.Node): number => {
-      return sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1;
-    };
-    const getEndLine = (node: ts.Node): number => {
-      return sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
-    };
-
-    const functionNames = new Map<ts.Node, string>();
-
-    const extractFunctions = (node: ts.Node): void => {
-      if (ts.isFunctionDeclaration(node) && node.name) {
-        const name = node.name.text;
-        functionNames.set(node, name);
-        insertNode.run(name, relPath, getLineNumber(node), getEndLine(node), 'function', name, this.projectRoot);
-        nodeCount++;
-      } else if (ts.isClassDeclaration(node) && node.name) {
-        const className = node.name.text;
-        insertNode.run(className, relPath, getLineNumber(node), getEndLine(node), 'class', className, this.projectRoot);
-        nodeCount++;
-        ts.forEachChild(node, (child) => {
-          if (ts.isMethodDeclaration(child) && ts.isIdentifier(child.name)) {
-            const methodName = child.name.text;
-            const qualName = `${className}.${methodName}`;
-            functionNames.set(child, qualName);
-            insertNode.run(
-              qualName,
-              relPath,
-              getLineNumber(child),
-              getEndLine(child),
-              'method',
-              `${className} ${methodName}`,
-              this.projectRoot,
-            );
-            nodeCount++;
-          }
-        });
-      } else if (ts.isVariableStatement(node)) {
-        for (const decl of node.declarationList.declarations) {
-          if (
-            ts.isIdentifier(decl.name) &&
-            decl.initializer &&
-            (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
-          ) {
-            const name = decl.name.text;
-            functionNames.set(node, name);
-            insertNode.run(name, relPath, getLineNumber(node), getEndLine(node), 'arrow', name, this.projectRoot);
-            nodeCount++;
-          }
-        }
-      }
-      ts.forEachChild(node, extractFunctions);
-    };
-
-    ts.forEachChild(sourceFile, extractFunctions);
+    // Symbols come from the one shared walker (./symbols.ts). The graph keeps
+    // its own vocabulary on top of the raw records: qualified Class.method
+    // names with '<class> <method>' search text, and no constructors (the
+    // model-facing locator's concern, not the index's).
+    for (const sym of extractSymbols(sourceFile)) {
+      if (sym.kind === 'constructor') continue;
+      const name = sym.kind === 'method' ? `${sym.className}.${sym.name}` : sym.name;
+      const searchText = sym.kind === 'method' ? `${sym.className} ${sym.name}` : sym.name;
+      insertNode.run(name, relPath, sym.startLine, sym.endLine, sym.kind, searchText, this.projectRoot);
+      nodeCount++;
+    }
 
     const extractCalls = (node: ts.Node, enclosingFn: string | null): void => {
       let currentFn = enclosingFn;

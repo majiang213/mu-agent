@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { IGNORE_DIRS } from '../core/graph/constants.js';
+import { extractSymbols } from '../core/graph/symbols.js';
 
 export interface ASTSearchResult {
   functionName: string;
@@ -60,48 +61,16 @@ export class ASTLocator {
     const results: ASTSearchResult[] = [];
     const lowerQuery = query.toLowerCase();
 
-    const visit = (node: ts.Node): void => {
-      if (ts.isFunctionDeclaration(node) && node.name) {
-        const name = node.name.text;
-        if (this.matches(name, lowerQuery)) {
-          results.push(this.makeResult(name, relativePath, sourceFile, node, 'function', query));
-        }
-      } else if (ts.isClassDeclaration(node) && node.name) {
-        const name = node.name.text;
-        if (this.matches(name, lowerQuery)) {
-          results.push(this.makeResult(name, relativePath, sourceFile, node, 'class', query));
-        }
-        ts.forEachChild(node, (child) => {
-          if (ts.isMethodDeclaration(child) || ts.isConstructorDeclaration(child)) {
-            const methodName = ts.isConstructorDeclaration(child)
-              ? 'constructor'
-              : ts.isIdentifier((child as ts.MethodDeclaration).name)
-                ? ((child as ts.MethodDeclaration).name as ts.Identifier).text
-                : '';
-            if (methodName && this.matches(methodName, lowerQuery)) {
-              results.push(this.makeResult(methodName, relativePath, sourceFile, child, 'method', query));
-            }
-          }
-        });
-      } else if (ts.isVariableStatement(node)) {
-        for (const decl of node.declarationList.declarations) {
-          if (
-            ts.isIdentifier(decl.name) &&
-            decl.initializer &&
-            (ts.isArrowFunction(decl.initializer) || ts.isFunctionExpression(decl.initializer))
-          ) {
-            const name = decl.name.text;
-            if (this.matches(name, lowerQuery)) {
-              results.push(this.makeResult(name, relativePath, sourceFile, node, 'arrow', query));
-            }
-          }
-        }
-      }
+    // Symbols come from the one shared walker (core/graph/symbols.ts). The
+    // locator keeps its own vocabulary on top of the raw records: bare names
+    // everywhere, and constructors surface as kind 'method' named
+    // 'constructor' (the graph builder's index drops them instead).
+    for (const sym of extractSymbols(sourceFile)) {
+      if (!this.matches(sym.name, lowerQuery)) continue;
+      const kind: ASTSearchResult['kind'] = sym.kind === 'constructor' ? 'method' : sym.kind;
+      results.push(this.makeResult(sym.name, relativePath, source, sym.startLine, sym.endLine, kind, query));
+    }
 
-      ts.forEachChild(node, visit);
-    };
-
-    ts.forEachChild(sourceFile, visit);
     return results;
   }
 
@@ -112,22 +81,21 @@ export class ASTLocator {
   private makeResult(
     name: string,
     filePath: string,
-    sourceFile: ts.SourceFile,
-    node: ts.Node,
+    sourceText: string,
+    startLine: number,
+    endLine: number,
     kind: ASTSearchResult['kind'],
     query: string,
   ): ASTSearchResult {
-    const start = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-    const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
-    const lines = sourceFile.text.split('\n');
-    const signature = lines[start.line]?.trim().slice(0, 120);
+    const lines = sourceText.split('\n');
+    const signature = lines[startLine - 1]?.trim().slice(0, 120);
 
     return {
       functionName: name,
       filePath,
       location: {
-        startLine: start.line + 1,
-        endLine: end.line + 1,
+        startLine,
+        endLine,
       },
       signature,
       score: this.calculateScore(name, query),
