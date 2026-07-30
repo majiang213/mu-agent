@@ -19,6 +19,7 @@ import type { ExecutionEvent } from '../core/agent/index.js';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
 import { C, bold, stateColor, fillLine, markdownTheme, editorTheme } from './theme.js';
+import { formatRunResult, assistantMessageForSession, stripLegacyPrefixes } from './presenter.js';
 import type { Config } from '../config/types.js';
 import { getLspStatuses } from '../config/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
@@ -686,7 +687,9 @@ export class TuiApp {
 
     if (options.sessionStore) {
       this.sessionStore = options.sessionStore;
-      this.conversationHistory = options.sessionStore.load();
+      // Legacy sessions persisted assistant messages with a presentation
+      // prefix; strip it so it doesn't flow back into the model's context.
+      this.conversationHistory = stripLegacyPrefixes(options.sessionStore.load());
     } else {
       this.sessionStore = SessionStore.create(process.cwd());
     }
@@ -933,6 +936,11 @@ export class TuiApp {
           no_new_info: 'no new info',
         };
         this.currentSamplingBlock?.addLine(`  ✓ sampling done (${labels[event.reason]})`);
+      } else {
+        // Exhaustiveness: adding an ExecutionEvent variant without handling it
+        // here is a compile error (the leftover type is not assignable to never).
+        const _exhaustive: never = event;
+        void _exhaustive;
       }
 
       this.tui.requestRender();
@@ -997,51 +1005,18 @@ export class TuiApp {
       }
       this.metrics.finishTask(taskId, result.success);
 
-      let display = '';
-      if (result.output && result.output !== 'Task completed') {
-        display = result.output;
-        try {
-          const parsed = JSON.parse(result.output) as Record<string, unknown>;
-          const text =
-            typeof parsed['answer'] === 'string'
-              ? parsed['answer']
-              : typeof parsed['report'] === 'string'
-                ? parsed['report']
-                : typeof parsed['summary'] === 'string'
-                  ? parsed['summary']
-                  : null;
-          if (text) {
-            display = text;
-          } else if (Array.isArray(parsed['edited'])) {
-            const files = (parsed['edited'] as string[]).join(', ');
-            const lines = typeof parsed['linesChanged'] === 'number' ? `, ${parsed['linesChanged']} lines` : '';
-            display = `Edited: ${files}${lines}`;
-          } else if (Array.isArray(parsed['locations'])) {
-            const locs = parsed['locations'] as Array<{ file: string; startLine?: number }>;
-            display = locs.map((l) => `${l.file}${l.startLine ? `:${l.startLine}` : ''}`).join(', ');
-          } else {
-            display = '';
-          }
-        } catch (_) {
-          void _;
-        }
-        if (display) {
-          this.insertBefore(new Text(display, 0, 0));
-        }
+      const display = formatRunResult(result.output);
+      if (display) {
+        this.insertBefore(new Text(display, 0, 0));
       }
 
-      const assistantPrefix = '[Assistant]: ';
       const ts = Date.now();
       const userMsg = { role: 'user' as const, content: input, timestamp: ts };
       try {
         this.conversationHistory.push(userMsg as import('@earendil-works/pi-agent-core').AgentMessage);
         await this.sessionStore.append({ type: 'message', ...userMsg });
         if (display) {
-          const assistantMsg = {
-            role: 'assistant' as const,
-            content: `${assistantPrefix}${display}`,
-            timestamp: ts + 1,
-          };
+          const assistantMsg = assistantMessageForSession(display, ts + 1);
           this.conversationHistory.push(
             assistantMsg as unknown as import('@earendil-works/pi-agent-core').AgentMessage,
           );
