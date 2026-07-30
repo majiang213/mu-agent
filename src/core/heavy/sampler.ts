@@ -18,7 +18,7 @@ export interface SamplerConfig {
   /** Injected into every sample's REASON prompt (Gap 42 anchor). */
   memoryIndex?: string;
   /** Attached to every sample's tool list. */
-  memorySearchTool?: AgentTool<any, any>;
+  memorySearchTool?: AgentTool;
 }
 
 function roundConverged(roundCandidates: PlanCandidate[]): boolean {

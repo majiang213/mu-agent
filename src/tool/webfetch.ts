@@ -116,27 +116,26 @@ const _webfetchParams = Type.Object({
   ),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function createWebfetchTool(
   fetchImpl: FetchLike = defaultFetch,
-): AgentTool<any, { url: string; truncated: boolean }> {
+): AgentTool<typeof _webfetchParams, { url: string; truncated: boolean }> {
   return {
     name: 'webfetch',
     label: 'Web Fetch',
     description:
       'Fetches content from a URL and returns it in the specified format (markdown by default). Use this to read documentation, articles, or any web page.',
     parameters: _webfetchParams,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params) => {
       const format = params.format ?? 'markdown';
+      const url = params.url!; // required by the schema (validated upstream of execute)
       let text: string;
       try {
-        const raw = await fetchUrl(fetchImpl, params.url, format);
+        const raw = await fetchUrl(fetchImpl, url, format);
         const result = truncate(raw, MAX_CONTENT_LENGTH);
         text = result.text;
         return {
           content: [{ type: 'text' as const, text }],
-          details: { url: params.url, truncated: result.truncated },
+          details: { url, truncated: result.truncated },
         };
       } catch (err) {
         // Sanitize error message — avoid leaking internal IPs or OS details
@@ -144,15 +143,15 @@ export function createWebfetchTool(
         const msg = /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT/.test(raw)
           ? 'Network error: unable to reach the server'
           : raw.replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '[ip]').replace(/:\d{2,5}\b/g, ':[port]');
-        text = `Error fetching ${params.url}: ${msg}`;
+        text = `Error fetching ${url}: ${msg}`;
         return {
           content: [{ type: 'text' as const, text }],
-          details: { url: params.url, truncated: false },
+          details: { url, truncated: false },
         };
       }
     },
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const webfetchTool: AgentTool<any, { url: string; truncated: boolean }> = createWebfetchTool();
+export const webfetchTool: AgentTool<typeof _webfetchParams, { url: string; truncated: boolean }> =
+  createWebfetchTool();

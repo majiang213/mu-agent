@@ -76,25 +76,26 @@ const _websearchParams = Type.Object({
   numResults: Type.Optional(Type.Number({ description: 'Number of results to return (default: 5, max: 10).' })),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function createWebsearchTool(fetchImpl: FetchLike = defaultFetch): AgentTool<any, SearchResult[]> {
+export function createWebsearchTool(
+  fetchImpl: FetchLike = defaultFetch,
+): AgentTool<typeof _websearchParams, SearchResult[]> {
   return {
     name: 'websearch',
     label: 'Web Search',
     description:
       'Search the web using DuckDuckGo. Returns a list of results with titles, URLs, and snippets. Use this to find documentation, answers to errors, or current information.',
     parameters: _websearchParams,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params) => {
       const numResults = Math.min(params.numResults ?? 5, 10);
+      const query = params.query!; // required by the schema (validated upstream of execute)
       let text: string;
       let results: SearchResult[] = [];
       try {
-        results = await searchDuckDuckGo(fetchImpl, params.query, numResults);
-        text = `Search results for: "${params.query}"\n\n${formatResults(results)}`;
+        results = await searchDuckDuckGo(fetchImpl, query, numResults);
+        text = `Search results for: "${query}"\n\n${formatResults(results)}`;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        text = `Search failed for "${params.query}": ${msg}`;
+        text = `Search failed for "${query}": ${msg}`;
       }
       return {
         content: [{ type: 'text' as const, text }],
@@ -104,5 +105,4 @@ export function createWebsearchTool(fetchImpl: FetchLike = defaultFetch): AgentT
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const websearchTool: AgentTool<any, SearchResult[]> = createWebsearchTool();
+export const websearchTool: AgentTool<typeof _websearchParams, SearchResult[]> = createWebsearchTool();

@@ -1,9 +1,7 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentEvent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import { streamSimple } from '@earendil-works/pi-ai';
-import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 
-import { astLocatorTool } from '../../tool/locator.js';
 import { runEditPostCheck } from '../../tool/safety/modification.js';
 import { StagnationDetector } from '../cognitive/index.js';
 import { ContextCompactor } from '../compaction/index.js';
@@ -491,14 +489,7 @@ export function buildStepAgent(
   initialMessages: AgentMessage[],
   cfg: RunConfig,
   onEvent: ((event: ExecutionEvent) => void) | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  tools: any[] = [
-    ...createCodingTools(cfg.projectRoot),
-    createGrepTool(cfg.projectRoot),
-    createLsTool(cfg.projectRoot),
-    createFindTool(cfg.projectRoot),
-    astLocatorTool,
-  ],
+  tools: AgentTool[],
   readFiles?: Set<string>,
 ): Agent {
   let agentRef: Agent | null = null;
@@ -717,17 +708,21 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'message_update') {
-      const ae = (event as any).assistantMessageEvent as { type: string };
-      const msg = (event as any).message as { content?: Array<{ type: string; text?: string; thinking?: string }> };
+      // pi-agent-core's AgentEvent union does not type these payloads — the
+      // structural shape is asserted here (upstream type gap, documented).
+      const ae = (event as unknown as { assistantMessageEvent?: { type: string } }).assistantMessageEvent;
+      const msg = (
+        event as unknown as { message?: { content?: Array<{ type: string; text?: string; thinking?: string }> } }
+      ).message;
       if (msg?.content) {
         const parts = msg.content;
-        if (ae.type === 'thinking_delta' || ae.type === 'thinking_start') {
+        if (ae?.type === 'thinking_delta' || ae?.type === 'thinking_start') {
           const thinking = parts
             .flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking as string] : []))
             .join('');
           if (thinking) onEvent?.({ type: 'message_thinking_update', content: thinking });
         }
-        if (ae.type === 'text_delta' || ae.type === 'text_start') {
+        if (ae?.type === 'text_delta' || ae?.type === 'text_start') {
           const text = parts
             .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
             .join('')

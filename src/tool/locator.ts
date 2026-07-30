@@ -152,17 +152,15 @@ const _astLocatorParams = Type.Object({
   limit: Type.Optional(Type.Number({ description: 'Maximum results to return (default: 5)' })),
 });
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const astLocatorTool: AgentTool<any, ASTSearchResult[]> = {
+export const astLocatorTool: AgentTool<typeof _astLocatorParams, ASTSearchResult[]> = {
   name: 'ast_code_locator',
   label: 'AST Code Locator',
   description:
     'Find functions, classes, methods, or arrow functions by name using TypeScript AST. Returns file paths and exact line numbers.',
   parameters: _astLocatorParams,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  execute: async (_toolCallId, params: any) => {
+  execute: async (_toolCallId, params) => {
     const results = await _astLocatorInstance.search({
-      query: params.query,
+      query: params.query!, // required by the schema (validated upstream of execute)
       scope: params.scope,
       limit: params.limit,
     });

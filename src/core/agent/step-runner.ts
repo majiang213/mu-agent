@@ -111,7 +111,7 @@ export async function runReasonStep(
   onEvent?: (event: ExecutionEvent) => void,
   onNeedsClarify?: (questions: string[]) => Promise<string>,
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<{ steps: StepDirective[] }> {
   const htCfg = cfg.heavyThinking;
   const tier = cfg.stateMachine.getModelParams().tier;
@@ -237,7 +237,7 @@ export interface ReasonAttemptOptions {
   /** Emit a state_change(from -> REASON) event before prompting. */
   fromState?: State | 'IDLE';
   memoryIndex?: string;
-  memorySearchTool?: AgentTool<any, any>;
+  memorySearchTool?: AgentTool;
   /**
    * Throw instead of returning { steps: [] } when the attempt never produces
    * a valid plan (sampler semantics: the sample counts as failed).
@@ -274,7 +274,7 @@ export async function runReasonAttempt(
     capturedComplete = args;
   });
 
-  const extraTools: AgentTool<any, any>[] = memorySearchTool ? [memorySearchTool] : [];
+  const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
   const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool, ...extraTools]);
   subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
 
@@ -365,7 +365,7 @@ export async function runStep(
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<ExecutedStep> {
   cfg.stateMachine.resetForNextTask(step.state);
 
@@ -406,7 +406,7 @@ export async function runStep(
     capturedComplete = args;
   });
   const readFiles = new Set<string>();
-  const memoryTools: AgentTool<any, any>[] =
+  const memoryTools: AgentTool[] =
     memorySearchTool && STATE_REGISTRY[step.state]?.memorySearchTool === true ? [memorySearchTool] : [];
   const agent = buildStepAgent(
     systemPrompt,
@@ -489,7 +489,7 @@ export async function executeSteps(
   cfg: RunConfig,
   onEvent?: (event: ExecutionEvent) => void,
   memoryIndex?: string,
-  memorySearchTool?: AgentTool<any, any>,
+  memorySearchTool?: AgentTool,
 ): Promise<ExecutedStep[]> {
   const thisRoundResults: ExecutedStep[] = [];
   const total = directives.length;
