@@ -114,6 +114,10 @@ export class RunView {
       }
     } else if (event.type === 'message_end') {
       this.ensureCurrentTurn().finalizeOutput(event.content);
+    } else if (event.type === 'rollback_performed') {
+      const block = new ToolExecutionBlock('rollback', { restored: event.files.join(', ') });
+      block.setResult(false, event.files.join('\n'));
+      host.insertBeforeLoader(block);
     } else if (event.type === 'tool_execution_start') {
       const turn = this.ensureCurrentTurn();
       this.pendingTools.add(event.toolId);

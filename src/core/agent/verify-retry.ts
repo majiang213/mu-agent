@@ -37,12 +37,7 @@ async function rollbackEditedFiles(
     await safeModifier.restore(filePath);
   }
   if (uniqueEdited.length > 0) {
-    onEvent?.({
-      type: 'tool_execution_start',
-      toolId: 'rollback',
-      tool: 'rollback',
-      args: { restored: uniqueEdited },
-    });
+    onEvent?.({ type: 'rollback_performed', files: uniqueEdited });
   }
 }
 

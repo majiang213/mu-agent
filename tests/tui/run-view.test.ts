@@ -3,7 +3,7 @@ import type { Component, Loader } from '@earendil-works/pi-tui';
 
 import { RunView } from '../../src/tui/run-view.js';
 import type { RunViewHost } from '../../src/tui/run-view.js';
-import { AssistantTurn, HeaderLine, SamplingBlock } from '../../src/tui/blocks.js';
+import { AssistantTurn, HeaderLine, SamplingBlock, ToolExecutionBlock } from '../../src/tui/blocks.js';
 import { MetricsCollector } from '../../src/tui/metrics.js';
 
 /**
@@ -108,6 +108,16 @@ describe('clarification events', () => {
     runView.handleEvent({ type: 'deliberation_start', candidateCount: 2 });
     runView.handleEvent({ type: 'deliberation_clarification', question: 'which file?' });
     expect(onClarification).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('rollback_performed', () => {
+  it('renders a completed rollback block before the loader', () => {
+    const { runView, insertedLoader } = makeHarness();
+    runView.handleEvent({ type: 'rollback_performed', files: ['a.ts', 'b.ts'] });
+    const block = insertedLoader.find((c) => c instanceof ToolExecutionBlock);
+    expect(block).toBeDefined();
+    expect((block as ToolExecutionBlock).status).toBe('ok');
   });
 });
 

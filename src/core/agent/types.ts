@@ -6,9 +6,20 @@ import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';
 import type { SafeModifier } from '../../tool/safety/index.js';
 import type { LspClient } from '../../tool/lsp.js';
 import type { CodeGraphLocator } from '../graph/locator.js';
+import type { State } from '../types.js';
+
+/**
+ * Run lifecycle phases reported via state_change: every real State plus the
+ * two harness phases that are not States — IDLE (before the first REASON)
+ * and SAMPLING (Heavy Thinking). Declared here so the TUI special-cases
+ * declared vocabulary instead of names core smuggled through a bare string.
+ */
+export type RunPhase = State | 'IDLE' | 'SAMPLING';
 
 export type ExecutionEvent =
-  | { type: 'state_change'; from: string; to: string }
+  | { type: 'state_change'; from: RunPhase; to: RunPhase }
+  /** Rollback restored files — a harness action, not a model tool call. */
+  | { type: 'rollback_performed'; files: string[] }
   | { type: 'tool_execution_start'; tool: string; toolId: string; args?: Record<string, unknown> }
   | { type: 'tool_execution_end'; tool: string; toolId: string; isError: boolean; output?: string }
   | { type: 'session_info'; provider: string; tier: 'SMALL' | 'MEDIUM' | 'LARGE'; contextWindow: number }

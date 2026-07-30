@@ -9,7 +9,7 @@ import { parseDirectives } from './directives.js';
 import { isAbortError } from './abort.js';
 import { State } from '../types.js';
 import type { StepDirective } from '../types.js';
-import type { ExecutionEvent, Mission, RunConfig } from './types.js';
+import type { ExecutionEvent, Mission, RunConfig, RunPhase } from './types.js';
 
 /**
  * Reason runner — the LLM-call engine of the agent loop: runStepAgent
@@ -65,7 +65,7 @@ export interface ReasonAttemptOptions {
   onEvent?: (event: ExecutionEvent) => void;
   onNeedsClarify?: (questions: string[]) => Promise<string>;
   /** Emit a state_change(from -> REASON) event before prompting. */
-  fromState?: State | 'IDLE';
+  fromState?: RunPhase;
   memoryIndex?: string;
   memorySearchTool?: AgentTool;
   /**
