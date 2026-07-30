@@ -125,7 +125,10 @@ function makeCfg(overrides?: Partial<RunConfig>): RunConfig {
     model: {} as RunConfig['model'],
     stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
-    safeModifier: { createCheckpoint: vi.fn(), clearAll: vi.fn() } as unknown as RunConfig['safeModifier'],
+    safeModifier: {
+      createCheckpoint: vi.fn(),
+      restoreAndClearWhere: vi.fn(async () => {}),
+    } as unknown as RunConfig['safeModifier'],
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
     temperature: 0,
     contextRatio: 0.2,

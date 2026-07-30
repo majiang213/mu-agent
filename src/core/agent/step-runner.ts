@@ -86,7 +86,10 @@ export async function runStepAgent(
         cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
         stagnationDetector.reset();
         cfg.stateMachine.resetForRetry();
-        cfg.safeModifier.clearAll();
+        // Restore + clear only THIS step's checkpoints (owner = this step's
+        // stateMachine instance) — the store is shared, a store-wide wipe
+        // would disarm rollback for parallel siblings and prior steps.
+        await cfg.safeModifier.restoreAndClearWhere(cfg.stateMachine);
       }
       attempt++;
     }

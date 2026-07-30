@@ -7,7 +7,7 @@ import { join } from 'node:path';
 const TEST_DIR = '.test-checkpoint-bugs';
 const CHECKPOINT_DIR = join(TEST_DIR, 'checkpoints');
 
-describe('Bug 28: clearAll() only clears memory, not disk .bak files', () => {
+describe('restoreAndClearWhere(owner): per-step checkpoint cleanup', () => {
   beforeEach(async () => {
     if (!existsSync(TEST_DIR)) {
       await mkdir(TEST_DIR, { recursive: true });
@@ -23,79 +23,76 @@ describe('Bug 28: clearAll() only clears memory, not disk .bak files', () => {
     }
   });
 
-  it('clearAll() removes .bak files from disk, not just from memory', async () => {
-    // Arrange: create a file, checkpoint it (which saves to disk).
+  it('restores the owner file content and removes its .bak from disk', async () => {
     const testFile = join(TEST_DIR, 'test.ts');
     await writeFile(testFile, 'original content', 'utf-8');
 
+    const owner = { step: 'A' };
     const modifier = new SafeModifier(CHECKPOINT_DIR);
-    await modifier.createCheckpoint(testFile);
+    await modifier.createCheckpoint(testFile, owner);
 
-    // Verify .bak file was written to disk
-    const entries = await readdir(CHECKPOINT_DIR);
-    const bakFiles = entries.filter((e) => e.endsWith('.bak'));
-    expect(bakFiles.length).toBeGreaterThan(0);
+    // The failed step partially edited the file.
+    await writeFile(testFile, 'partial edit', 'utf-8');
+    expect((await readdir(CHECKPOINT_DIR)).filter((e) => e.endsWith('.bak')).length).toBe(1);
 
-    // Act: clearAll()
-    modifier.clearAll();
+    await modifier.restoreAndClearWhere(owner);
 
-    // Bug 28: clearAll() only calls this.checkpoints.clear() (line 87),
-    // it does NOT delete the .bak files from disk.
-    // After fix, the .bak files should also be deleted.
-    const entriesAfter = await readdir(CHECKPOINT_DIR);
-    const bakFilesAfter = entriesAfter.filter((e) => e.endsWith('.bak'));
-    expect(bakFilesAfter.length).toBe(0);
+    // Partial edit undone; checkpoint and its .bak gone.
+    expect(await readFile(testFile, 'utf-8')).toBe('original content');
+    expect(modifier.hasCheckpoint(testFile)).toBe(false);
+    expect((await readdir(CHECKPOINT_DIR)).filter((e) => e.endsWith('.bak')).length).toBe(0);
   });
 
-  it('restore() does not load stale .bak from a previous run after clearAll()', async () => {
-    // Arrange: first "run" creates a checkpoint.
+  it('leaves other owners checkpoints and .bak files intact (parallel-branch safety)', async () => {
+    const fileA = join(TEST_DIR, 'a.ts');
+    const fileB = join(TEST_DIR, 'b.ts');
+    await writeFile(fileA, 'content a', 'utf-8');
+    await writeFile(fileB, 'content b', 'utf-8');
+
+    const branchA = { branch: 'A' };
+    const branchB = { branch: 'B' };
+    const modifier = new SafeModifier(CHECKPOINT_DIR);
+    await modifier.createCheckpoint(fileA, branchA);
+    await modifier.createCheckpoint(fileB, branchB);
+
+    // Branch A fails and retries: only its own checkpoint is restored+cleared.
+    await writeFile(fileA, 'partial a', 'utf-8');
+    await modifier.restoreAndClearWhere(branchA);
+
+    expect(await readFile(fileA, 'utf-8')).toBe('content a');
+    expect(modifier.hasCheckpoint(fileA)).toBe(false);
+    // Branch B's checkpoint is fully intact — rollback for B stays armed.
+    expect(modifier.hasCheckpoint(fileB)).toBe(true);
+    expect((await readdir(CHECKPOINT_DIR)).filter((e) => e.endsWith('.bak')).length).toBe(1);
+
+    await writeFile(fileB, 'partial b', 'utf-8');
+    expect(await modifier.restore(fileB)).toBe(true);
+    expect(await readFile(fileB, 'utf-8')).toBe('content b');
+  });
+
+  it('checkpoints without an owner are never touched', async () => {
+    const testFile = join(TEST_DIR, 'legacy.ts');
+    await writeFile(testFile, 'content', 'utf-8');
+
+    const modifier = new SafeModifier(CHECKPOINT_DIR);
+    await modifier.createCheckpoint(testFile); // no owner
+
+    await modifier.restoreAndClearWhere({ some: 'step' });
+    expect(modifier.hasCheckpoint(testFile)).toBe(true);
+  });
+
+  it('restore() no longer finds the .bak after restoreAndClearWhere', async () => {
     const testFile = join(TEST_DIR, 'stale.ts');
     await writeFile(testFile, 'current content', 'utf-8');
 
-    const modifier1 = new SafeModifier(CHECKPOINT_DIR);
-    await modifier1.createCheckpoint(testFile);
-
-    // Modify the file
+    const owner = { step: 'run1' };
+    const modifier = new SafeModifier(CHECKPOINT_DIR);
+    await modifier.createCheckpoint(testFile, owner);
     await writeFile(testFile, 'modified content', 'utf-8');
 
-    // clearAll() — simulates end of run 1
-    modifier1.clearAll();
-
-    // Act: second "run" tries to restore.
-    // Bug 28: loadFromDisk() finds the old .bak from run 1 and restores it,
-    // overwriting the current content with stale data from the previous run.
-    const modifier2 = new SafeModifier(CHECKPOINT_DIR);
-    const restored = await modifier2.restore(testFile);
-
-    // After fix: clearAll() should have deleted the .bak, so restore() returns false.
-    // Bug: restore() returns true and overwrites with stale content.
-    if (restored) {
-      const content = await readFile(testFile, 'utf-8');
-      // If restored, it should be from the CURRENT run's checkpoint, not a stale one.
-      // Since modifier2 has no checkpoint, restore should return false.
-      expect(content).toBe('modified content');
-    } else {
-      expect(restored).toBe(false);
-    }
-  });
-
-  it('multiple .bak files from different files are all cleaned up by clearAll()', async () => {
-    const file1 = join(TEST_DIR, 'a.ts');
-    const file2 = join(TEST_DIR, 'b.ts');
-    await writeFile(file1, 'content a', 'utf-8');
-    await writeFile(file2, 'content b', 'utf-8');
-
-    const modifier = new SafeModifier(CHECKPOINT_DIR);
-    await modifier.createCheckpoint(file1);
-    await modifier.createCheckpoint(file2);
-
-    const entriesBefore = await readdir(CHECKPOINT_DIR);
-    expect(entriesBefore.filter((e) => e.endsWith('.bak')).length).toBe(2);
-
-    modifier.clearAll();
-
-    // Bug 28: both .bak files remain on disk.
-    const entriesAfter = await readdir(CHECKPOINT_DIR);
-    expect(entriesAfter.filter((e) => e.endsWith('.bak')).length).toBe(0);
+    await modifier.restoreAndClearWhere(owner);
+    // File was restored to pre-edit; the .bak is gone, so a later restore
+    // cannot resurrect stale content.
+    expect(await modifier.restore(testFile)).toBe(false);
   });
 });

@@ -1,18 +1,28 @@
 import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
-import { dirname, join, basename } from 'node:path';
 import { existsSync, unlinkSync } from 'node:fs';
+import { join, dirname, basename } from 'node:path';
 
-/**
- * Checkpoint for file modification
- */
 export interface Checkpoint {
   filePath: string;
   originalContent: string;
   timestamp: number;
+  /**
+   * Identity of the step/branch that created this checkpoint — the step's
+   * stateMachine instance. Parallel branches hold clones, so owner identity
+   * is unique per branch; sequential steps share an owner but never have
+   * pending checkpoints at each other's retry windows (a successful edit's
+   * checkpoint is cleared by its post-check).
+   */
+  owner?: unknown;
 }
 
 /**
- * Safe modifier with checkpoint support
+ * File checkpointing before modification.
+ *
+ * The store is SHARED across parallel branches (architecture review
+ * 2026-07-30): rollback must see every branch's edits, and retry cleanup
+ * must only ever touch the retrying step's own checkpoints — use
+ * restoreAndClearWhere, never a store-wide wipe.
  */
 export class SafeModifier {
   private checkpoints: Map<string, Checkpoint> = new Map();
@@ -22,10 +32,18 @@ export class SafeModifier {
     this.checkpointDir = checkpointDir;
   }
 
+  private escapePath(filePath: string): string {
+    return filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%');
+  }
+
+  private checkpointPathFor(checkpoint: Checkpoint): string {
+    return join(this.checkpointDir, `${checkpoint.timestamp}_${this.escapePath(checkpoint.filePath)}.bak`);
+  }
+
   /**
    * Create checkpoint before modification
    */
-  async createCheckpoint(filePath: string): Promise<void> {
+  async createCheckpoint(filePath: string, owner?: unknown): Promise<void> {
     if (!existsSync(filePath)) return;
     const content = await readFile(filePath, 'utf-8');
 
@@ -33,6 +51,7 @@ export class SafeModifier {
       filePath,
       originalContent: content,
       timestamp: Date.now(),
+      owner,
     };
 
     this.checkpoints.set(filePath, checkpoint);
@@ -75,40 +94,37 @@ export class SafeModifier {
   }
 
   /**
-   * Clear checkpoint after successful modification
+   * Clear a single checkpoint's in-memory entry. The .bak file is kept on
+   * disk on purpose: rollbackEditedFiles relies on restore()'s disk fallback
+   * even after a successful post-check cleared the in-memory entry.
    */
   clearCheckpoint(filePath: string): void {
     this.checkpoints.delete(filePath);
   }
 
   /**
-   * Clear all checkpoints
+   * Restore then clear every checkpoint created by `owner` (undo a failed
+   * step's partial edits before retrying it), leaving all other checkpoints
+   * — other steps and parallel siblings — and their .bak files intact.
    */
-  clearAll(): void {
-    // Delete .bak files from disk before clearing the in-memory map
-    for (const checkpoint of this.checkpoints.values()) {
-      const checkpointPath = join(
-        this.checkpointDir,
-        `${checkpoint.timestamp}_${checkpoint.filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%')}.bak`,
-      );
+  async restoreAndClearWhere(owner: unknown): Promise<void> {
+    for (const [filePath, checkpoint] of [...this.checkpoints.entries()]) {
+      if (checkpoint.owner !== owner) continue;
+      await writeFile(filePath, checkpoint.originalContent, 'utf-8');
       try {
-        unlinkSync(checkpointPath);
+        unlinkSync(this.checkpointPathFor(checkpoint));
       } catch {
-        // File may already be deleted — non-fatal
+        // .bak already gone — non-fatal
       }
+      this.checkpoints.delete(filePath);
     }
-    this.checkpoints.clear();
   }
 
   /**
    * Save checkpoint to disk
    */
   private async saveToDisk(checkpoint: Checkpoint): Promise<void> {
-    const checkpointPath = join(
-      this.checkpointDir,
-      `${checkpoint.timestamp}_${checkpoint.filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%')}.bak`,
-    );
-
+    const checkpointPath = this.checkpointPathFor(checkpoint);
     await mkdir(dirname(checkpointPath), { recursive: true });
     await writeFile(checkpointPath, checkpoint.originalContent, 'utf-8');
   }
@@ -117,7 +133,7 @@ export class SafeModifier {
     if (!existsSync(this.checkpointDir)) return null;
     try {
       const entries = await readdir(this.checkpointDir);
-      const escapedPath = filePath.replace(/%/g, '%%').replace(/[/\\]/g, '%');
+      const escapedPath = this.escapePath(filePath);
       const matching = entries
         .filter((e) => e.endsWith(`_${escapedPath}.bak`))
         .sort()

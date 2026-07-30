@@ -107,8 +107,8 @@ describe('Gap 67: createCheckpoint receives absolute path not relative', () => {
       args: { path: 'src/calc.js', oldText: 'foo', newText: 'bar' },
     });
 
-    // Gap 67 fix: must be called with absolute resolved path
-    expect(cfg.safeModifier.createCheckpoint).toHaveBeenCalledWith(join(projectRoot, 'src/calc.js'));
+    // Gap 67 fix: must be called with absolute resolved path (+ owner tag)
+    expect(cfg.safeModifier.createCheckpoint).toHaveBeenCalledWith(join(projectRoot, 'src/calc.js'), cfg.stateMachine);
   });
 
   it('passes absolute path unchanged when filePath is already absolute', async () => {
@@ -124,6 +124,6 @@ describe('Gap 67: createCheckpoint receives absolute path not relative', () => {
       args: { path: '/tmp/test-project/calc.js', content: 'hello' },
     });
 
-    expect(cfg.safeModifier.createCheckpoint).toHaveBeenCalledWith('/tmp/test-project/calc.js');
+    expect(cfg.safeModifier.createCheckpoint).toHaveBeenCalledWith('/tmp/test-project/calc.js', cfg.stateMachine);
   });
 });

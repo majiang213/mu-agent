@@ -40,7 +40,7 @@ vi.mock('../../../src/core/agent/step-runner.js', async (importOriginal) => {
 vi.mock('../../../src/tool/safety/index.js', () => ({
   syntaxCheckHook: vi.fn(),
   damageCheckHook: vi.fn(),
-  SafeModifier: vi.fn(() => ({ clearAll: vi.fn() })),
+  SafeModifier: vi.fn(() => ({ restoreAndClearWhere: vi.fn(async () => {}) })),
 }));
 
 import { samplePlans } from '../../../src/core/heavy/sampler.js';
@@ -79,7 +79,7 @@ function makeCfg(): RunConfig {
     } as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
     safeModifier: {
-      clearAll: vi.fn(),
+      restoreAndClearWhere: vi.fn(async () => {}),
       createCheckpoint: vi.fn(),
       hasCheckpoint: vi.fn(() => false),
       getCheckpoint: vi.fn(),

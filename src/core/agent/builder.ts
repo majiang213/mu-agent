@@ -552,7 +552,7 @@ export function buildStepAgent(
             return { block: true, reason: `Path traversal blocked: ${filePath} is outside project root` };
           }
           try {
-            await cfg.safeModifier.createCheckpoint(resolved);
+            await cfg.safeModifier.createCheckpoint(resolved, cfg.stateMachine);
           } catch (e) {
             console.warn('[SafeModifier] createCheckpoint failed for', filePath, ':', e);
             return { block: true, reason: '[SafeModifier] Cannot create checkpoint: ' + String(e) };

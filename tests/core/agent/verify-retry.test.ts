@@ -30,7 +30,7 @@ vi.mock('../../../src/tool/safety/index.js', () => ({
   SafeModifier: vi.fn(function () {
     return {
       createCheckpoint: vi.fn(),
-      clearAll: vi.fn(),
+      restoreAndClearWhere: vi.fn(async () => {}),
       restore: vi.fn(),
       hasCheckpoint: vi.fn(() => false),
       clearCheckpoint: vi.fn(),
@@ -59,7 +59,7 @@ function makeCfg() {
       })),
     } as never,
     safetyConfig: {},
-    safeModifier: { createCheckpoint: vi.fn(), clearAll: vi.fn(), restore: vi.fn() } as never,
+    safeModifier: { createCheckpoint: vi.fn(), restoreAndClearWhere: vi.fn(async () => {}), restore: vi.fn() } as never,
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
     temperature: 0.7,
     contextRatio: 0.2,

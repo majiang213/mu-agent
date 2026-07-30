@@ -47,7 +47,7 @@ vi.mock('../../../src/core/prompts/agent.js', () => ({
 vi.mock('../../../src/tool/safety/index.js', () => ({
   syntaxCheckHook: vi.fn(),
   damageCheckHook: vi.fn(),
-  SafeModifier: vi.fn(() => ({ clearAll: vi.fn() })),
+  SafeModifier: vi.fn(() => ({ restoreAndClearWhere: vi.fn(async () => {}) })),
 }));
 
 vi.mock('../../../src/core/graph/locator.js', () => ({
@@ -88,7 +88,7 @@ function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {
       getStateConfig: vi.fn(() => ({ allowedTools: [], prompt: '' })),
     } as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
-    safeModifier: { clearAll: vi.fn() } as unknown as RunConfig['safeModifier'],
+    safeModifier: { restoreAndClearWhere: vi.fn(async () => {}) } as unknown as RunConfig['safeModifier'],
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' } as RunConfig['env'],
     temperature: 0.1,
     contextRatio: 0.75,
