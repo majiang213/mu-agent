@@ -39,10 +39,6 @@ describe('StateMachineAgent', () => {
       expect(new StateMachineAgent('model', [], 7e9).getModelParams().strictPlanning).toBe(true);
     });
 
-    it('SMALL tier has maxFilesPerTask=2', () => {
-      expect(new StateMachineAgent('model', [], 7e9).getModelParams().maxFilesPerTask).toBe(2);
-    });
-
     it('LARGE tier has strictPlanning=false', () => {
       expect(new StateMachineAgent('model', [], 70e9).getModelParams().strictPlanning).toBe(false);
     });
@@ -162,45 +158,45 @@ describe('StateMachineAgent', () => {
   });
 
   describe('file modification tracking', () => {
-    it('canModifyMoreFiles is true initially for SMALL model', () => {
+    it('canModifyMoreFiles is true initially', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
-      expect(agent.canModifyMoreFiles()).toBe(true);
+      expect(agent.canModifyMoreFiles(5)).toBe(true);
     });
 
     it('tracks edit tool calls', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
       agent.recordToolCall('edit');
-      expect(agent.canModifyMoreFiles()).toBe(true);
+      expect(agent.canModifyMoreFiles(2)).toBe(true);
     });
 
-    it('blocks after maxFilesPerTask (2 for SMALL) distinct files edited', () => {
+    it('blocks at the caller-supplied limit', () => {
       const agent = new StateMachineAgent('model', [], 7e9);
       agent.recordToolCall('edit');
       agent.recordToolCall('write');
-      expect(agent.canModifyMoreFiles()).toBe(false);
+      expect(agent.canModifyMoreFiles(2)).toBe(false);
     });
 
-    it('blocks after 2 edit calls on any files (SMALL, maxFilesPerTask=2)', () => {
+    it('counts write and edit alike toward the limit', () => {
       const agent = new StateMachineAgent('model', [], 7e9);
       agent.recordToolCall('edit');
       agent.recordToolCall('edit');
-      expect(agent.canModifyMoreFiles()).toBe(false);
+      expect(agent.canModifyMoreFiles(2)).toBe(false);
     });
 
-    it('read calls do not count toward file limit', () => {
+    it('read calls do not count toward the limit', () => {
       const agent = new StateMachineAgent('model', [], 7e9);
       agent.recordToolCall('read');
       agent.recordToolCall('read');
       agent.recordToolCall('read');
-      expect(agent.canModifyMoreFiles()).toBe(true);
+      expect(agent.canModifyMoreFiles(1)).toBe(true);
     });
 
-    it('LARGE model allows more files', () => {
+    it('a higher limit allows more files', () => {
       const agent = new StateMachineAgent('model', [], 70e9);
       for (let i = 0; i < 5; i++) {
         agent.recordToolCall('edit');
       }
-      expect(agent.canModifyMoreFiles()).toBe(true);
+      expect(agent.canModifyMoreFiles(8)).toBe(true);
     });
   });
 });

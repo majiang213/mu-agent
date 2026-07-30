@@ -88,6 +88,11 @@ export async function runStep(
   const { onEvent, memoryIndex, memorySearchTool } = options;
   cfg.stateMachine.resetForNextTask(step.state);
 
+  // Per-step spread: retry-temperature escalation mutates THIS copy via the
+  // streamFn closure, never the shared RunConfig (C14). Services are still
+  // shared by reference — only scalar writes are isolated.
+  const stepCfg = { ...cfg };
+
   let stepEnv = cfg.env;
   if (STATE_REGISTRY[step.state]?.needsCodeContext === true) {
     try {
@@ -133,7 +138,7 @@ export async function runStep(
   const agent = buildStepAgent(
     systemPrompt,
     [],
-    cfg,
+    stepCfg,
     onEvent,
     [...allowedTools, completeTool, ...memoryTools],
     readFiles,
@@ -143,7 +148,7 @@ export async function runStep(
     agent,
     step.state,
     stagnationDetector,
-    cfg,
+    stepCfg,
     (text) => {
       llmText = text;
     },
@@ -162,7 +167,7 @@ export async function runStep(
   const input = buildUserPrompt(step.state, mission.description, step.focus, stepResults);
   cfg.registerAgent?.(agent);
   try {
-    await runStepAgent(agent, input, cfg, stagnationDetector);
+    await runStepAgent(agent, input, stepCfg, stagnationDetector);
 
     if (capturedComplete === null) {
       agent.steer({
@@ -170,7 +175,7 @@ export async function runStep(
         content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${STATE_REGISTRY[step.state]?.reminderFields ?? 'see system prompt'}.`,
         timestamp: Date.now(),
       });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
+      await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
     }
   } finally {
     cfg.unregisterAgent?.(agent);

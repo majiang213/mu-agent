@@ -57,20 +57,39 @@ export interface Mission {
   state: 'pending' | 'running' | 'completed' | 'failed';
 }
 
+/**
+ * Everything a run needs (built once by buildRunSetup). Field roles:
+ *
+ * IMMUTABLE SERVICES — shared by reference across the whole run. The
+ * safeModifier checkpoint store is shared even by parallel branches;
+ * stateMachine is the one service cloned per branch (fork semantics live
+ * in step-context.ts).
+ *
+ * PER-RUN SETTINGS — read-only after setup. Steps NEVER mutate this
+ * object: runStep / runReasonAttempt spread it before building their
+ * agent, so retry-temperature escalation writes to a step-local copy
+ * (see runStepAgent; C14).
+ *
+ * HOOKS — optional lifecycle callbacks.
+ */
 export interface RunConfig {
+  // ── immutable services ──
   model: Model<'openai-completions'>;
   stateMachine: StateMachineAgent;
-  safetyConfig: SafetyConfig;
   safeModifier: SafeModifier;
+  lspClient?: LspClient;
+  /** One locator per run (BM25 cache survives across steps); closed at cleanup. */
+  locator?: CodeGraphLocator;
+  // ── per-run settings ──
+  safetyConfig: SafetyConfig;
   env: EnvContext;
+  /** Base temperature for every step (escalation happens on the per-step spread). */
   temperature: number;
   contextRatio: number;
   apiKey: string;
   projectRoot: string;
+  heavyThinking?: HeavyThinkingConfig;
+  // ── hooks ──
   registerAgent?: (agent: Agent) => void;
   unregisterAgent?: (agent: Agent) => void;
-  lspClient?: LspClient;
-  /** One locator per run (BM25 cache survives across steps); closed at cleanup. */
-  locator?: CodeGraphLocator;
-  heavyThinking?: HeavyThinkingConfig;
 }

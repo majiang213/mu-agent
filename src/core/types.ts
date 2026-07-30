@@ -50,7 +50,6 @@ export type ModelTier = 'SMALL' | 'MEDIUM' | 'LARGE';
 export interface ModelParams {
   tier: ModelTier;
   paramCount: number;
-  maxFilesPerTask: number;
   maxRetries: number;
   strictPlanning: boolean;
 }

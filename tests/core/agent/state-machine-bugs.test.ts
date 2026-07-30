@@ -18,6 +18,6 @@ describe('Bug 19 (agent/state-machine.ts): resetForNextTask resets fileCount', (
     // and stateIteration, but NOT toolCalls or fileCount.
     // After fix, fileCount should be 0 and the agent should be able to modify files again.
     expect(agent.getFileCount()).toBe(0);
-    expect(agent.canModifyMoreFiles()).toBe(true);
+    expect(agent.canModifyMoreFiles(5)).toBe(true);
   });
 });

@@ -5,6 +5,7 @@ import { streamSimple } from '@earendil-works/pi-ai';
 import { runEditPostCheck } from '../../tool/safety/modification.js';
 import { StagnationDetector } from '../cognitive/index.js';
 import { ContextCompactor } from '../compaction/index.js';
+import { DEFAULT_MAX_FILES_PER_TASK } from '../../config/defaults.js';
 import type { ExecutionEvent, RunConfig } from './types.js';
 import { State } from '../types.js';
 
@@ -59,7 +60,7 @@ export function buildStepAgent(
         }
       }
       if (toolName === 'edit' || toolName === 'write') {
-        const maxFiles = cfg.safetyConfig.maxFilesPerTask ?? 5;
+        const maxFiles = cfg.safetyConfig.maxFilesPerTask ?? DEFAULT_MAX_FILES_PER_TASK;
         if (!cfg.stateMachine.canModifyMoreFiles(maxFiles)) {
           return {
             block: true,

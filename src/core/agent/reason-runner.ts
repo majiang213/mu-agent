@@ -41,10 +41,12 @@ export async function runStepAgent(
           return;
         }
         await sleep(retryDelayMs(attempt));
-        // Mutate the cfg we were given: buildStepAgent's streamFn closure
-        // reads cfg.temperature lazily at call time, so this escalation
-        // actually reaches the model. Restored in finally (per-step fork or
-        // parent — either way nothing leaks out of this attempt).
+        // Escalate temperature for the next attempt. This writes to the
+        // PER-STEP spread callers hand in (runStep / runReasonAttempt spread
+        // RunConfig before building the agent — C14), so the shared config
+        // is never mutated; buildStepAgent's streamFn closure reads
+        // temperature lazily at call time, so the escalation reaches the
+        // model without an agent rebuild. Restored in finally as hygiene.
         cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
         stagnationDetector.reset();
         cfg.stateMachine.resetForRetry();
@@ -90,6 +92,10 @@ export async function runReasonAttempt(
 ): Promise<{ steps: StepDirective[] }> {
   const { onEvent, onNeedsClarify, fromState, memoryIndex, memorySearchTool, throwOnFailure } = options;
   cfg.stateMachine.transitionTo(State.REASON);
+
+  // Per-step spread: retry-temperature escalation mutates THIS copy via the
+  // streamFn closure, never the shared RunConfig (C14).
+  const stepCfg = { ...cfg };
   const systemPrompt = buildSystemPrompt({
     state: State.REASON,
     task: mission.description,
@@ -105,15 +111,15 @@ export async function runReasonAttempt(
   });
 
   const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
-  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool, ...extraTools]);
-  subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
+  const agent = buildStepAgent(systemPrompt, conversationHistory, stepCfg, onEvent, [completeTool, ...extraTools]);
+  subscribeStepEvents(agent, State.REASON, stagnationDetector, stepCfg, () => {}, onEvent);
 
   cfg.registerAgent?.(agent);
   try {
     if (fromState !== undefined) {
       onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
     }
-    await runStepAgent(agent, mission.description, cfg, stagnationDetector);
+    await runStepAgent(agent, mission.description, stepCfg, stagnationDetector);
 
     if (capturedComplete === null) {
       agent.steer({
@@ -121,7 +127,7 @@ export async function runReasonAttempt(
         content: '[REMINDER] You must call complete() to submit your execution plan.',
         timestamp: Date.now(),
       });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
+      await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
     }
 
     if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
@@ -133,7 +139,7 @@ export async function runReasonAttempt(
         content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
         timestamp: Date.now(),
       });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
+      await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
     }
   } finally {
     cfg.unregisterAgent?.(agent);
@@ -156,7 +162,7 @@ export async function runReasonAttempt(
       content: `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
       timestamp: Date.now(),
     });
-    await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
+    await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
     if (capturedComplete !== null) {
       const { steps: retrySteps, error: retryError } = parseDirectives(capturedComplete);
       if (!retryError) {
@@ -170,7 +176,7 @@ export async function runReasonAttempt(
       content: '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
       timestamp: Date.now(),
     });
-    await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
+    await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
     if (capturedComplete !== null) {
       const { steps, error } = parseDirectives(capturedComplete);
       if (!error) {

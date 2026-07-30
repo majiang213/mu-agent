@@ -10,6 +10,14 @@ export const RETRY_TEMPERATURE_STEP = 0.2;
 export const DEFAULT_CONTEXT_RATIO = 0.75;
 export const DEFAULT_SAMPLING_TEMPERATURE = 0.7;
 
+/**
+ * Default per-task edit budget — the ONE file-budget default (third-pass
+ * review, candidate 14). The tier table in ModelParams was dead code: it
+ * never fired because this default always won, and no prompt ever showed
+ * it to the model. Safety config is the single source now.
+ */
+export const DEFAULT_MAX_FILES_PER_TASK = 5;
+
 export const DEFAULT_CONFIG: Config = {
   model: {
     provider: 'ollama',
@@ -19,7 +27,7 @@ export const DEFAULT_CONFIG: Config = {
   },
   safety: {
     enableCheckpoint: true,
-    maxFilesPerTask: 5,
+    maxFilesPerTask: DEFAULT_MAX_FILES_PER_TASK,
   },
 };
 

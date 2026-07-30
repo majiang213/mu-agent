@@ -26,10 +26,10 @@ export function applyStateToolPolicy(tools: AgentTool[]): AgentTool[] {
  * FORKED per parallel branch:
  * - stateMachine — cloned, so branch file-count limits are independent.
  *
- * Temperature is per-attempt, not per-fork: runStepAgent escalates
- * cfg.temperature on the object it was given (buildStepAgent's streamFn
- * closure reads it lazily at call time, so the escalation reaches the model
- * without an agent rebuild) and restores it in a finally block.
+ * Temperature is per-step, not per-fork: runStep / runReasonAttempt spread
+ * RunConfig before building their agent, so runStepAgent's retry-time
+ * escalation writes to a step-local copy — the shared RunConfig is never
+ * mutated (third-pass review, candidate 14).
  */
 export function forkParallelBranchConfig(cfg: RunConfig): RunConfig {
   return { ...cfg, stateMachine: cfg.stateMachine.clone() };

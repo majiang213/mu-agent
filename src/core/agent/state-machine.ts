@@ -10,7 +10,6 @@ export function detectModelParams(paramCount: number | null): ModelParams {
     return {
       tier: 'SMALL',
       paramCount: billions,
-      maxFilesPerTask: 2,
       maxRetries: 1,
       strictPlanning: true,
     };
@@ -18,7 +17,6 @@ export function detectModelParams(paramCount: number | null): ModelParams {
     return {
       tier: 'MEDIUM',
       paramCount: billions,
-      maxFilesPerTask: 4,
       maxRetries: 2,
       strictPlanning: true,
     };
@@ -26,7 +24,6 @@ export function detectModelParams(paramCount: number | null): ModelParams {
     return {
       tier: 'LARGE',
       paramCount: billions ?? 0,
-      maxFilesPerTask: 8,
       maxRetries: 3,
       strictPlanning: false,
     };
@@ -96,9 +93,8 @@ export class StateMachineAgent {
     return this.currentState;
   }
 
-  canModifyMoreFiles(maxFiles?: number): boolean {
-    const limit = maxFiles ?? this.modelParams.maxFilesPerTask;
-    return this.fileCount < limit;
+  canModifyMoreFiles(maxFiles: number): boolean {
+    return this.fileCount < maxFiles;
   }
 
   getFileCount(): number {
