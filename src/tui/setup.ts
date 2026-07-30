@@ -6,9 +6,9 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 
-import { saveConfig } from '../config/index.js';
+import { saveConfig } from '../config/loader.js';
 import { getLspStatuses } from '../config/lsp-status.js';
-import { fetchOllamaModels, fetchCustomModels, fetchUnslothModels } from '../provider/model-info.js';
+import { fetchOllamaModels, fetchOpenAICompatModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
 import { C } from './theme.js';
 
@@ -157,12 +157,7 @@ export class SetupWizard {
     loader.start();
     this.tui.requestRender();
 
-    const models =
-      provider === 'ollama'
-        ? await fetchOllamaModels(baseUrl)
-        : provider === 'unsloth'
-          ? await fetchUnslothModels(baseUrl)
-          : await fetchCustomModels(baseUrl);
+    const models = provider === 'ollama' ? await fetchOllamaModels(baseUrl) : await fetchOpenAICompatModels(baseUrl);
 
     loader.stop();
     this.tui.removeChild(loader);
@@ -262,9 +257,9 @@ export class SetupWizard {
 
       let buildError: string | null = null;
       try {
-        const { CodeGraphLocator } = await import('../core/graph/locator.js');
-        const locator = new CodeGraphLocator(process.cwd());
-        locator.buildGraph();
+        const { GraphBuilder } = await import('../core/graph/builder.js');
+        const builder = new GraphBuilder(process.cwd());
+        builder.buildFull();
       } catch (e) {
         buildError = e instanceof Error ? e.message : String(e);
       }

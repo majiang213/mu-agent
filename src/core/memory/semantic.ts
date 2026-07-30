@@ -32,13 +32,6 @@ export function updateSemanticFacts(db: Database.Database, episode: EpisodeRecor
   if (/中文|chinese|用中文/i.test(episode.userInput)) upsertFact('preference', 'language', 'zh', 'explicit');
   if (/英文|english|用英文/i.test(episode.userInput)) upsertFact('preference', 'language', 'en', 'explicit');
 
-  if (episode.verifyCommands?.some((c) => c.includes('vitest')))
-    upsertFact('convention', 'test_command', 'npx vitest run', 'inferred');
-  if (episode.verifyCommands?.some((c) => c.includes('mvn test')))
-    upsertFact('convention', 'test_command', 'mvn test', 'inferred');
-  if (episode.verifyCommands?.some((c) => c.includes('pytest')))
-    upsertFact('convention', 'test_command', 'pytest', 'inferred');
-
   const allFilesChanged = db
     .prepare(
       `

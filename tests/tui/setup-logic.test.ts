@@ -33,7 +33,7 @@ vi.mock('@earendil-works/pi-tui', () => ({
   SelectList: vi.fn(),
 }));
 
-vi.mock('../../src/config/index.js', () => ({
+vi.mock('../../src/config/loader.js', () => ({
   saveConfig: vi.fn(),
 }));
 
@@ -43,7 +43,7 @@ vi.mock('../../src/config/lsp-status.js', () => ({
 
 vi.mock('../../src/provider/model-info.js', () => ({
   fetchOllamaModels: vi.fn(),
-  fetchCustomModels: vi.fn(),
+  fetchOpenAICompatModels: vi.fn(),
 }));
 
 describe('SetupWizard.loadExistingModel', () => {

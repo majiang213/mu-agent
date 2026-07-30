@@ -48,7 +48,7 @@ vi.mock('../../../src/core/graph/locator.js', () => ({
   }),
 }));
 
-vi.mock('../../../src/core/prompts/index.js', () => ({
+vi.mock('../../../src/core/prompts/agent.js', () => ({
   buildSystemPrompt: vi.fn(() => 'system'),
   buildUserPrompt: vi.fn(() => 'user'),
 }));
@@ -81,11 +81,14 @@ vi.mock('../../../src/config/defaults.js', () => ({
   DEFAULT_CONTEXT_RATIO: 0.2,
 }));
 
-vi.mock('../../../src/core/heavy/index.js', () => ({
+vi.mock('../../../src/core/heavy/sampler.js', () => ({
   samplePlans: vi.fn(async () => []),
+  SAMPLING_BATCH_SIZE: 3,
+}));
+
+vi.mock('../../../src/core/heavy/deliberator.js', () => ({
   deliberate: vi.fn(async () => ({ type: 'fallback' })),
   pickShortest: vi.fn(() => ({ steps: [] })),
-  SAMPLING_BATCH_SIZE: 3,
 }));
 
 // ---- dynamic imports after mocks ----

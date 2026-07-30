@@ -136,7 +136,3 @@ export class SafeModifier {
     }
   }
 }
-
-export function createSafeModifier(checkpointDir?: string): SafeModifier {
-  return new SafeModifier(checkpointDir);
-}

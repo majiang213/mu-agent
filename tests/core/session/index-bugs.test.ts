@@ -6,9 +6,9 @@ describe('Bug 18: clone() resets fileCount to 0', () => {
   it('cloned agent does not inherit fileCount from parent', () => {
     // Arrange: parent agent has modified 3 files.
     const parent = new StateMachineAgent('model', [], 70e9);
-    parent.recordToolCall('edit', { path: 'a.ts' }, {});
-    parent.recordToolCall('edit', { path: 'b.ts' }, {});
-    parent.recordToolCall('write', { path: 'c.ts' }, {});
+    parent.recordToolCall('edit');
+    parent.recordToolCall('edit');
+    parent.recordToolCall('write');
     expect(parent.getFileCount()).toBe(3);
 
     // Act: clone the agent (as executeSteps does for parallel branches).
@@ -24,8 +24,8 @@ describe('Bug 18: clone() resets fileCount to 0', () => {
   it('parallel branch with clone can exceed maxFilesPerTask limit', () => {
     // Arrange: parent has used 2/2 file edits (SMALL model limit).
     const parent = new StateMachineAgent('model', [], 7e9); // SMALL: maxFilesPerTask=2
-    parent.recordToolCall('edit', { path: 'a.ts' }, {});
-    parent.recordToolCall('edit', { path: 'b.ts' }, {});
+    parent.recordToolCall('edit');
+    parent.recordToolCall('edit');
     expect(parent.canModifyMoreFiles()).toBe(false); // parent is at limit
 
     // Act: clone for a parallel branch.
@@ -38,12 +38,12 @@ describe('Bug 18: clone() resets fileCount to 0', () => {
 });
 
 describe('Bug 19 (session/index.ts:133): resetForNextTask does not reset toolCalls/fileCount', () => {
-  it('resetForNextTask resets fileCount and toolCalls', () => {
+  it('resetForNextTask resets fileCount', () => {
     // Arrange: agent has accumulated tool calls and file modifications.
     const agent = new StateMachineAgent('model', [], 70e9);
-    agent.recordToolCall('edit', { path: 'a.ts' }, {});
-    agent.recordToolCall('read', { path: 'b.ts' }, {});
-    agent.recordToolCall('write', { path: 'c.ts' }, {});
+    agent.recordToolCall('edit');
+    agent.recordToolCall('read');
+    agent.recordToolCall('write');
     expect(agent.getFileCount()).toBe(2);
 
     // Act: reset for next task.

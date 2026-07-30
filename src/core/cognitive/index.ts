@@ -22,10 +22,8 @@ function deepEqual(a: unknown, b: unknown): boolean {
 export interface StagnationDetectorConfig {
   maxRepeatedToolCalls: number;
   maxRepeatedErrors: number;
-  similarityThreshold: number;
   cycleWindowSize: number;
   checkNoProgress: boolean;
-  onIneffectiveLoop?: (detection: IneffectiveLoopDetection) => void;
 }
 
 /**
@@ -51,7 +49,6 @@ export class StagnationDetector {
     this.config = {
       maxRepeatedToolCalls: 3,
       maxRepeatedErrors: 2,
-      similarityThreshold: 0.8,
       cycleWindowSize: 4,
       checkNoProgress: true,
       ...config,
@@ -212,18 +209,4 @@ export class StagnationDetector {
     this.toolCallHistory = [];
     this.errorHistory = [];
   }
-
-  /**
-   * Get statistics
-   */
-  getStats(): { toolCalls: number; errors: number } {
-    return {
-      toolCalls: this.toolCallHistory.length,
-      errors: this.errorHistory.length,
-    };
-  }
-}
-
-export function createStagnationDetector(config?: Partial<StagnationDetectorConfig>): StagnationDetector {
-  return new StagnationDetector(config);
 }

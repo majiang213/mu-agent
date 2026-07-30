@@ -1,6 +1,6 @@
 import { StagnationDetector } from '../cognitive/index.js';
 import { buildCompleteTool } from '../../tool/complete.js';
-import { buildSystemPrompt } from '../prompts/index.js';
+import { buildSystemPrompt } from '../prompts/agent.js';
 import { buildStepAgent, subscribeStepEvents } from '../agent/builder.js';
 import { runStepAgent, parseReasonSteps } from '../agent/step-runner.js';
 import { State } from '../types.js';
@@ -18,7 +18,6 @@ function getMaxCount(tier: string): number {
 }
 
 export interface SamplerConfig {
-  planCount?: number;
   samplingTemperature?: number;
 }
 
@@ -214,7 +213,7 @@ async function runBareReasonSample(
 
   isolatedCfg.registerAgent?.(agent);
   try {
-    await runStepAgent(agent, mission.description, isolatedCfg, stagnationDetector, () => capturedComplete !== null);
+    await runStepAgent(agent, mission.description, isolatedCfg, stagnationDetector);
   } finally {
     isolatedCfg.unregisterAgent?.(agent);
   }

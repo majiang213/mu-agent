@@ -3,12 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initMemoryDb } from '../../../src/core/memory/db.js';
-import {
-  writeEpisodeSync,
-  formatEpisodeDetail,
-  fmtTime,
-  readRecentEpisodes,
-} from '../../../src/core/memory/episode.js';
+import { writeEpisodeSync, formatEpisodeDetail, fmtTime } from '../../../src/core/memory/episode.js';
+import type { EpisodeRow } from '../../../src/core/memory/types.js';
 import { formatMemoryIndex } from '../../../src/core/memory/index-builder.js';
 import { graphRetrieve } from '../../../src/core/memory/retrieval.js';
 import { updateSemanticFacts, readSemanticFacts } from '../../../src/core/memory/semantic.js';
@@ -37,7 +33,7 @@ function makeMission(desc: string): Mission {
 }
 
 function makeFinalResult(success: boolean, output = ''): StateResult {
-  return { state: State.DONE, success, output, toolCalls: [], nextState: State.DONE };
+  return { state: State.DONE, success, output, nextState: State.DONE };
 }
 
 describe('writeEpisodeSync', () => {
@@ -137,18 +133,10 @@ describe('graphRetrieve', () => {
 describe('updateSemanticFacts', () => {
   it('writes language preference when user input contains 中文', () => {
     const db = makeDb();
-    updateSemanticFacts(db, { userInput: '用中文回答我', verifyCommands: [] }, projectRoot);
+    updateSemanticFacts(db, { userInput: '用中文回答我' }, projectRoot);
     const facts = readSemanticFacts(db, projectRoot);
     const pref = facts.find((f) => f.category === 'preference' && f.key === 'language' && f.value === 'zh');
     expect(pref).toBeDefined();
-  });
-
-  it('writes test_command fact when verifyCommands includes vitest', () => {
-    const db = makeDb();
-    updateSemanticFacts(db, { userInput: 'fix bug', verifyCommands: ['npx vitest run'] }, projectRoot);
-    const facts = readSemanticFacts(db, projectRoot);
-    const convention = facts.find((f) => f.category === 'convention' && f.value === 'npx vitest run');
-    expect(convention).toBeDefined();
   });
 });
 
@@ -157,7 +145,9 @@ describe('formatEpisodeDetail', () => {
     const db = makeDb();
     const mission = makeMission('check authentication flow');
     writeEpisodeSync(db, mission, [], makeFinalResult(true), projectRoot);
-    const rows = readRecentEpisodes(db, projectRoot);
+    const rows = db
+      .prepare('SELECT * FROM episodes WHERE project_root = ? ORDER BY timestamp DESC LIMIT 8')
+      .all(projectRoot) as EpisodeRow[];
     expect(rows).toHaveLength(1);
     const detail = formatEpisodeDetail(rows[0]!);
     expect(detail).toContain('check authentication flow');

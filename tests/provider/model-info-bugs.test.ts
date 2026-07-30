@@ -16,16 +16,16 @@ describe('Bug 16: baseUrl trailing slash causes double /v1 path', () => {
     vi.clearAllMocks();
   });
 
-  it('fetchCustomModels does not produce //v1 when baseUrl ends with /v1/', async () => {
+  it('fetchOpenAICompatModels does not produce //v1 when baseUrl ends with /v1/', async () => {
     // Arrange: baseUrl has trailing slash after /v1
     mockFetch.mockResolvedValue(makeResponse({ data: [] }));
 
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    await fetchCustomModels('http://host:8080/v1/');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    await fetchOpenAICompatModels('http://host:8080/v1/');
 
     // Bug 16: normalizeBase uses /v1/?$/ regex replacement.
     // With baseUrl = 'http://host:8080/v1/', normalizeBase strips the trailing slash
-    // to get 'http://host:8080/v1', then fetchCustomModels appends '/v1/models',
+    // to get 'http://host:8080/v1', then fetchOpenAICompatModels appends '/v1/models',
     // producing 'http://host:8080/v1/v1/models' — a double path.
     // After fix: normalizeBase should strip the /v1 suffix entirely, or the function
     // should handle trailing slashes properly.

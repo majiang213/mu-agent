@@ -8,11 +8,6 @@ describe('StateMachineAgent', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
       expect(agent.getCurrentState()).toBe(State.REASON);
     });
-
-    it('iteration starts at 0', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
-      expect(agent.getIteration()).toBe(0);
-    });
   });
 
   describe('model tier detection', () => {
@@ -58,23 +53,6 @@ describe('StateMachineAgent', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
       agent.transitionTo(State.LOCATE);
       expect(agent.getCurrentState()).toBe(State.LOCATE);
-    });
-
-    it('resets iteration counter on transition', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
-      agent.incrementIteration();
-      agent.incrementIteration();
-      expect(agent.getIteration()).toBe(2);
-      agent.transitionTo(State.LOCATE);
-      expect(agent.getIteration()).toBe(0);
-    });
-
-    it('incrementIteration increments correctly', () => {
-      const agent = new StateMachineAgent('qwen2.5:7b');
-      agent.incrementIteration();
-      agent.incrementIteration();
-      agent.incrementIteration();
-      expect(agent.getIteration()).toBe(3);
     });
   });
 
@@ -191,36 +169,36 @@ describe('StateMachineAgent', () => {
 
     it('tracks edit tool calls', () => {
       const agent = new StateMachineAgent('qwen2.5:7b');
-      agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
+      agent.recordToolCall('edit');
       expect(agent.canModifyMoreFiles()).toBe(true);
     });
 
     it('blocks after maxFilesPerTask (2 for SMALL) distinct files edited', () => {
       const agent = new StateMachineAgent('model', [], 7e9);
-      agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
-      agent.recordToolCall('write', { path: 'src/b.ts' }, {});
+      agent.recordToolCall('edit');
+      agent.recordToolCall('write');
       expect(agent.canModifyMoreFiles()).toBe(false);
     });
 
     it('blocks after 2 edit calls on any files (SMALL, maxFilesPerTask=2)', () => {
       const agent = new StateMachineAgent('model', [], 7e9);
-      agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
-      agent.recordToolCall('edit', { path: 'src/a.ts' }, {});
+      agent.recordToolCall('edit');
+      agent.recordToolCall('edit');
       expect(agent.canModifyMoreFiles()).toBe(false);
     });
 
     it('read calls do not count toward file limit', () => {
       const agent = new StateMachineAgent('model', [], 7e9);
-      agent.recordToolCall('read', { path: 'src/a.ts' }, {});
-      agent.recordToolCall('read', { path: 'src/b.ts' }, {});
-      agent.recordToolCall('read', { path: 'src/c.ts' }, {});
+      agent.recordToolCall('read');
+      agent.recordToolCall('read');
+      agent.recordToolCall('read');
       expect(agent.canModifyMoreFiles()).toBe(true);
     });
 
     it('LARGE model allows more files', () => {
       const agent = new StateMachineAgent('model', [], 70e9);
       for (let i = 0; i < 5; i++) {
-        agent.recordToolCall('edit', { path: `src/file${i}.ts` }, {});
+        agent.recordToolCall('edit');
       }
       expect(agent.canModifyMoreFiles()).toBe(true);
     });

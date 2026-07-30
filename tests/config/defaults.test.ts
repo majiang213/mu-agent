@@ -7,7 +7,6 @@ describe('getDefaultConfig', () => {
     expect(config.model.provider).toBe('ollama');
     expect(config.model.name).toBe('');
     expect(config.model.baseUrl).toBe('http://localhost:11434');
-    expect(config.logLevel).toBe('info');
   });
 
   it('returns independent copies each call', () => {
@@ -32,14 +31,6 @@ describe('mergeWithDefaults', () => {
       model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434' },
     });
     expect(config.model.temperature).toBe(0.1);
-  });
-
-  it('overrides logLevel', () => {
-    const config = mergeWithDefaults({
-      model: { provider: 'ollama', name: 'x', baseUrl: 'http://localhost:11434' },
-      logLevel: 'debug',
-    });
-    expect(config.logLevel).toBe('debug');
   });
 
   it('uses default safety when not specified', () => {

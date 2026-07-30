@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { loadConfig, saveConfig, ConfigNotFoundError } from './config/index.js';
+import { loadConfig, saveConfig, ConfigNotFoundError } from './config/loader.js';
 import { getLspStatuses } from './config/lsp-status.js';
 import type { Config } from './config/types.js';
 import { ReactAgent } from './core/agent/index.js';
@@ -173,17 +173,17 @@ program
       sessionStore = picked;
     }
 
-    const { CodeGraphLocator } = await import('./core/graph/locator.js');
+    const { GraphBuilder } = await import('./core/graph/builder.js');
     try {
-      const locator = new CodeGraphLocator(process.cwd());
-      if (locator.needsRebuild()) {
-        locator.buildGraph();
+      const builder = new GraphBuilder(process.cwd());
+      if (builder.needsRebuild()) {
+        builder.buildFull();
       }
     } catch (e) {
       void e;
     }
 
-    const { createTuiApp } = await import('./tui/index.js');
+    const { createTuiApp } = await import('./tui/app.js');
     const app = createTuiApp({ config, sessionStore });
     app.start();
   });

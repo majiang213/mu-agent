@@ -8,12 +8,10 @@
   },
   "safety": {
     "enableCheckpoint": true,
-    "maxLinesPerEdit": 50,
     "maxFilesPerTask": 5
   },
   "heavyThinking": {
     "enabled": true,
-    "planCount": 4,
     "samplingTemperature": 0.7
   }
 }

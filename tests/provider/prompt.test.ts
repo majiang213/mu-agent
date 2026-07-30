@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSystemPrompt, buildUserPrompt } from '../../src/core/prompts/index.js';
+import { buildSystemPrompt, buildUserPrompt } from '../../src/core/prompts/agent.js';
 import { State } from '../../src/core/types.js';
 import type { ModelParams } from '../../src/core/types.js';
 

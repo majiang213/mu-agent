@@ -3,12 +3,15 @@ import { State } from '../../../src/core/types.js';
 import type { RunConfig, ExecutionEvent } from '../../../src/core/agent/types.js';
 import type { PlanCandidate } from '../../../src/core/heavy/types.js';
 
-vi.mock('../../../src/core/heavy/index.js', () => ({
+vi.mock('../../../src/core/heavy/sampler.js', () => ({
   samplePlans: vi.fn(),
+  SAMPLING_BATCH_SIZE: 2,
+}));
+
+vi.mock('../../../src/core/heavy/deliberator.js', () => ({
   deliberate: vi.fn(),
   pickShortest: (candidates: PlanCandidate[]) =>
     candidates.reduce((a: PlanCandidate, b: PlanCandidate) => (a.steps.length <= b.steps.length ? a : b)),
-  SAMPLING_BATCH_SIZE: 2,
 }));
 
 vi.mock('../../../src/core/agent/builder.js', () => ({
@@ -25,13 +28,6 @@ vi.mock('../../../src/core/cognitive/index.js', () => ({
     check: vi.fn(() => ({ detected: false })),
     reset: vi.fn(),
   })),
-  createStagnationDetector: vi.fn(() => ({
-    recordToolCall: vi.fn(),
-    recordError: vi.fn(),
-    check: vi.fn(() => ({ detected: false })),
-    reset: vi.fn(),
-    getStats: vi.fn(() => ({ toolCalls: 0 })),
-  })),
 }));
 
 vi.mock('../../../src/core/compaction/index.js', () => ({
@@ -43,7 +39,7 @@ vi.mock('../../../src/tool/complete.js', () => ({
   buildCompleteTool: vi.fn(() => ({ name: 'complete', execute: vi.fn() })),
 }));
 
-vi.mock('../../../src/core/prompts/index.js', () => ({
+vi.mock('../../../src/core/prompts/agent.js', () => ({
   buildSystemPrompt: vi.fn(() => 'mocked system prompt'),
   buildUserPrompt: vi.fn(() => 'mocked user prompt'),
 }));
@@ -78,7 +74,8 @@ vi.mock('../../../src/core/agent/step-runner.js', async (importOriginal) => {
   return { ...actual, runStepAgent: vi.fn(async () => {}) };
 });
 
-import { samplePlans, deliberate } from '../../../src/core/heavy/index.js';
+import { samplePlans } from '../../../src/core/heavy/sampler.js';
+import { deliberate } from '../../../src/core/heavy/deliberator.js';
 import { runReasonStep } from '../../../src/core/agent/step-runner.js';
 
 function makePlan(id: string, states: State[]): PlanCandidate {

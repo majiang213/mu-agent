@@ -807,8 +807,6 @@ export class TuiApp {
         this.loaderState = event.to;
         this.header.setState(event.to);
         loader.setMessage(`[${event.to}]`);
-        this.metrics.recordStateExit(taskId, event.from);
-        this.metrics.recordStateEntry(taskId, event.to);
         if (event.to !== 'DONE' && event.to !== 'SAMPLING' && event.to !== prevState) {
           const turn = new AssistantTurn(event.to);
           const idx = this.tui.children.indexOf(loader);
@@ -849,7 +847,6 @@ export class TuiApp {
         const block = turn.addTool(event.toolId, event.tool, event.args);
         this.allToolBlocks.push(block);
         loader.setMessage(`[${event.tool}]`);
-        this.metrics.recordToolCall(taskId, event.tool);
       } else if (event.type === 'tool_execution_end') {
         const turn = this.currentTurn;
         if (turn && pendingTools.has(event.toolId)) {
@@ -974,7 +971,6 @@ export class TuiApp {
     this.tui.requestRender();
 
     this.metrics.startTask(taskId);
-    this.metrics.recordStateEntry(taskId, 'REASON');
 
     const onEvent = this.createEventHandler(taskId, loader, pendingTools);
 
@@ -991,7 +987,6 @@ export class TuiApp {
         this.tui.removeChild(samplingBlock);
         this.currentSamplingBlock = null;
       }
-      this.metrics.recordStateExit(taskId, result.state);
       this.metrics.finishTask(taskId, result.success);
 
       let display = '';

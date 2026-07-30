@@ -139,7 +139,6 @@ export async function runWithVerifyRetry(
           state: State.DONE,
           success: false,
           output: `Task failed after ${MAX_VERIFY_RETRIES} verification retries. Last error: ${verifyResult.summary}`,
-          toolCalls: [],
           nextState: State.DONE,
           messages: [],
         };
@@ -170,7 +169,6 @@ export async function runWithVerifyRetry(
           state: State.DONE,
           success: false,
           output: `Task failed: verification failed and retry produced no steps. Last error: ${verifyResult.summary}`,
-          toolCalls: [],
           nextState: State.DONE,
           messages: [],
         };
@@ -185,7 +183,6 @@ export async function runWithVerifyRetry(
           state: State.DONE,
           success: false,
           output: `Task failed: retry plan identical to previous. Last error: ${verifyResult.summary}`,
-          toolCalls: [],
           nextState: State.DONE,
           messages: [],
         };
@@ -211,7 +208,6 @@ export async function runWithVerifyRetry(
           state: State.DONE,
           success: false,
           output: `Task failed: verification failed and retry plan did not include a VERIFY step.`,
-          toolCalls: [],
           nextState: State.DONE,
           messages: [],
         };
@@ -435,7 +431,6 @@ export class ReactAgent {
         state: State.DONE,
         success: true,
         output: allStepResults[allStepResults.length - 1]?.output ?? 'Task completed',
-        toolCalls: [],
         nextState: State.DONE,
         messages: [],
       };
@@ -449,7 +444,6 @@ export class ReactAgent {
           state: State.DONE,
           success: false,
           output: err instanceof Error ? err.message : String(err),
-          toolCalls: [],
           nextState: State.DONE,
           messages: [],
         };

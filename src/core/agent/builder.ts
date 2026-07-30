@@ -648,7 +648,7 @@ export function subscribeStepEvents(
         toolId: event.toolCallId,
         args: event.args as Record<string, unknown>,
       });
-      cfg.stateMachine.recordToolCall(event.toolName, event.args, null);
+      cfg.stateMachine.recordToolCall(event.toolName);
       stagnationDetector.recordToolCall({
         tool: event.toolName,
         input: event.args,

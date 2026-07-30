@@ -14,10 +14,6 @@ export interface ASTSearchResult {
   kind: 'function' | 'class' | 'method' | 'arrow';
 }
 
-export function createASTLocator(): ASTLocator {
-  return new ASTLocator();
-}
-
 export class ASTLocator {
   async search(params: { query: string; scope?: string; limit?: number }): Promise<ASTSearchResult[]> {
     const { query, scope = '.', limit = 5 } = params;

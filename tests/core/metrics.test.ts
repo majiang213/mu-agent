@@ -1,17 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { MetricsCollector, createMetricsCollector } from '../../src/tui/metrics.js';
+import { MetricsCollector } from '../../src/tui/metrics.js';
 
 describe('MetricsCollector', () => {
   let collector: MetricsCollector;
 
   beforeEach(() => {
     collector = new MetricsCollector();
-  });
-
-  describe('factory', () => {
-    it('createMetricsCollector returns MetricsCollector instance', () => {
-      expect(createMetricsCollector()).toBeInstanceOf(MetricsCollector);
-    });
   });
 
   describe('startTask', () => {
@@ -21,7 +15,6 @@ describe('MetricsCollector', () => {
       expect(m).toBeDefined();
       expect(m!.taskId).toBe('t1');
       expect(m!.llmCalls).toBe(0);
-      expect(m!.toolCallCount).toBe(0);
     });
 
     it('startTime is set to a recent timestamp', () => {
@@ -49,31 +42,6 @@ describe('MetricsCollector', () => {
     });
   });
 
-  describe('recordToolCall', () => {
-    it('increments toolCallCount', () => {
-      collector.startTask('t1');
-      collector.recordToolCall('t1', 'read');
-      collector.recordToolCall('t1', 'edit');
-      expect(collector.getMetrics('t1')!.toolCallCount).toBe(2);
-    });
-  });
-
-  describe('recordStateEntry / recordStateExit', () => {
-    it('records timing for a state', async () => {
-      collector.startTask('t1');
-      collector.recordStateEntry('t1', 'ANALYZE');
-      await new Promise((r) => setTimeout(r, 10));
-      collector.recordStateExit('t1', 'ANALYZE');
-      const timing = collector.getMetrics('t1')!.stateTimings['ANALYZE'];
-      expect(timing).toBeGreaterThanOrEqual(5);
-    });
-
-    it('ignores exit without matching entry', () => {
-      collector.startTask('t1');
-      expect(() => collector.recordStateExit('t1', 'LOCATE')).not.toThrow();
-    });
-  });
-
   describe('finishTask', () => {
     it('sets endTime and success', () => {
       collector.startTask('t1');
@@ -81,40 +49,6 @@ describe('MetricsCollector', () => {
       const m = collector.getMetrics('t1')!;
       expect(m.endTime).toBeDefined();
       expect(m.success).toBe(true);
-    });
-  });
-
-  describe('getSummary', () => {
-    it('returns zeros for empty collector', () => {
-      const s = collector.getSummary();
-      expect(s.totalTasks).toBe(0);
-      expect(s.successRate).toBe(0);
-    });
-
-    it('calculates correct successRate', () => {
-      collector.startTask('t1');
-      collector.finishTask('t1', true);
-      collector.startTask('t2');
-      collector.finishTask('t2', false);
-      expect(collector.getSummary().successRate).toBe(0.5);
-    });
-
-    it('calculates avgTokens across tasks', () => {
-      collector.startTask('t1');
-      collector.recordLLMCall('t1', 400, 0);
-      collector.startTask('t2');
-      collector.recordLLMCall('t2', 800, 0);
-      const s = collector.getSummary();
-      expect(s.avgTokens).toBe(150);
-    });
-  });
-
-  describe('reset', () => {
-    it('clears all metrics', () => {
-      collector.startTask('t1');
-      collector.reset();
-      expect(collector.getMetrics('t1')).toBeUndefined();
-      expect(collector.getSummary().totalTasks).toBe(0);
     });
   });
 });

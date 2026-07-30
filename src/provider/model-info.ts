@@ -84,7 +84,7 @@ export async function fetchOllamaParamCount(baseUrl: string, modelName: string):
   return null;
 }
 
-async function fetchOpenAICompatModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
+export async function fetchOpenAICompatModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
   try {
     const base = `${normalizeBase(baseUrl)}/v1`;
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -126,14 +126,6 @@ async function fetchOpenAICompatContextLength(baseUrl: string, modelName: string
     }
     return FALLBACK_CONTEXT;
   }
-}
-
-export async function fetchUnslothModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
-  return fetchOpenAICompatModels(baseUrl, apiKey);
-}
-
-export async function fetchCustomModels(baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
-  return fetchOpenAICompatModels(baseUrl, apiKey);
 }
 
 export async function fetchContextLength(

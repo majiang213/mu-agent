@@ -1,17 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
-import { ASTLocator, createASTLocator } from '../../../src/tool/locator.js';
+import { ASTLocator } from '../../../src/tool/locator.js';
 
 const FIXTURE_DIR = resolve(import.meta.dirname ?? __dirname, 'fixtures');
 
 describe('ASTLocator', () => {
-  describe('factory', () => {
-    it('createASTLocator returns an ASTLocator instance', () => {
-      const locator = createASTLocator();
-      expect(locator).toBeInstanceOf(ASTLocator);
-    });
-  });
-
   describe('search — basic', () => {
     it('returns an array', async () => {
       const locator = new ASTLocator();

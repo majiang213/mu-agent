@@ -74,7 +74,6 @@ export interface StateResult {
   state: State;
   success: boolean;
   output: string;
-  toolCalls: ToolCall[];
   nextState: State;
   messages?: AgentMessage[];
 }

@@ -2,7 +2,7 @@ import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { StagnationDetector } from '../cognitive/index.js';
 import { SafeModifier } from '../../tool/safety/checkpoint.js';
-import { FailureHandler } from '../failure/handler.js';
+import { retryDelayMs, sleep } from '../failure/index.js';
 import {
   DEFAULT_TEMPERATURE,
   MAX_TEMPERATURE,
@@ -12,11 +12,12 @@ import {
 import { fetchContextLength } from '../../provider/model-info.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
-import { ContextCompactor, compressConversationHistoryWithLLM } from '../compaction/index.js';
-import { buildSystemPrompt, buildUserPrompt } from '../prompts/index.js';
+import { compressConversationHistoryWithLLM } from '../compaction/index.js';
+import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
 import { advanceState } from '../states.js';
 import { buildStepAgent, subscribeStepEvents, wrapWithGitGuard } from './builder.js';
-import { samplePlans, deliberate, pickShortest, SAMPLING_BATCH_SIZE } from '../heavy/index.js';
+import { samplePlans, SAMPLING_BATCH_SIZE } from '../heavy/sampler.js';
+import { deliberate, pickShortest } from '../heavy/deliberator.js';
 import { State, STATES_NEEDING_CODE_CONTEXT } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
@@ -45,16 +46,6 @@ export async function buildModel(
     contextWindow,
     maxTokens: Math.floor(contextWindow * (1 - contextRatio)),
   };
-}
-
-export function compressConversationHistorySync(
-  messages: AgentMessage[],
-  cfg?: { enableCompaction?: boolean; compactionThreshold?: number },
-): AgentMessage[] {
-  if (messages.length === 0) return [];
-  if (cfg?.enableCompaction === false) return messages;
-  const compactor = new ContextCompactor({ maxTokens: cfg?.compactionThreshold ?? 3000 });
-  return compactor.compact(messages).messages;
 }
 
 export async function compressConversationHistory(
@@ -162,15 +153,8 @@ export async function runStepAgent(
   input: string,
   cfg: RunConfig,
   stagnationDetector: StagnationDetector,
-  _isCompleted?: () => boolean,
 ): Promise<void> {
   const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, 3);
-  const failureHandler = new FailureHandler({
-    maxRetries,
-    onHumanIntervention: (fCtx) => {
-      console.error(`[HUMAN INTERVENTION REQUIRED] ${fCtx.error.message}`);
-    },
-  });
   let attempt = 0;
   let lastError: Error | undefined;
   while (attempt < maxRetries) {
@@ -184,15 +168,7 @@ export async function runStepAgent(
       if (isAbort) {
         return;
       }
-      const failureCtx = failureHandler.createContext(
-        'llm_error',
-        error,
-        cfg.stateMachine.getCurrentState(),
-        attempt,
-        {},
-      );
-      const recovery = await failureHandler.handleFailure(failureCtx);
-      if (recovery.action === 'abort') return;
+      await sleep(retryDelayMs(attempt));
       const localTemp = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
       const retryCfg = { ...cfg, temperature: localTemp };
       stagnationDetector.reset();
@@ -370,14 +346,13 @@ async function runSingleReasonAttempt(
   });
 
   const extraTools: AgentTool<any, any>[] = memorySearchTool ? [memorySearchTool] : [];
-  const reasonCfg: typeof cfg = cfg;
-  const agent = buildStepAgent(systemPrompt, conversationHistory, reasonCfg, onEvent, [completeTool, ...extraTools]);
+  const agent = buildStepAgent(systemPrompt, conversationHistory, cfg, onEvent, [completeTool, ...extraTools]);
   subscribeStepEvents(agent, State.REASON, stagnationDetector, cfg, () => {}, onEvent);
 
   cfg.registerAgent?.(agent);
   try {
     onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
-    await runStepAgent(agent, mission.description, cfg, stagnationDetector, () => capturedComplete !== null);
+    await runStepAgent(agent, mission.description, cfg, stagnationDetector);
 
     if (capturedComplete === null) {
       agent.steer({
@@ -385,13 +360,7 @@ async function runSingleReasonAttempt(
         content: '[REMINDER] You must call complete() to submit your execution plan.',
         timestamp: Date.now(),
       });
-      await runStepAgent(
-        agent,
-        '[REMINDER] Call complete() now.',
-        cfg,
-        stagnationDetector,
-        () => capturedComplete !== null,
-      );
+      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     }
 
     if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
@@ -403,13 +372,7 @@ async function runSingleReasonAttempt(
         content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
         timestamp: Date.now(),
       });
-      await runStepAgent(
-        agent,
-        '[REMINDER] Call complete() now.',
-        cfg,
-        stagnationDetector,
-        () => capturedComplete !== null,
-      );
+      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     }
   } finally {
     cfg.unregisterAgent?.(agent);
@@ -430,13 +393,7 @@ async function runSingleReasonAttempt(
       content: `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
       timestamp: Date.now(),
     });
-    await runStepAgent(
-      agent,
-      '[REMINDER] Call complete() now.',
-      cfg,
-      stagnationDetector,
-      () => capturedComplete !== null,
-    );
+    await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     if (capturedComplete !== null) {
       const { steps: retrySteps, error: retryError } = parseReasonSteps(capturedComplete);
       if (!retryError) {
@@ -449,13 +406,7 @@ async function runSingleReasonAttempt(
       content: '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
       timestamp: Date.now(),
     });
-    await runStepAgent(
-      agent,
-      '[REMINDER] Call complete() now.',
-      cfg,
-      stagnationDetector,
-      () => capturedComplete !== null,
-    );
+    await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     if (capturedComplete !== null) {
       const { steps, error } = parseReasonSteps(capturedComplete);
       if (!error) {
@@ -524,11 +475,10 @@ export async function runStep(
   const readFiles = new Set<string>();
   const memoryTools: AgentTool<any, any>[] =
     memorySearchTool && (step.state === State.REASON || step.state === State.ANSWER) ? [memorySearchTool] : [];
-  const stepCfg: typeof cfg = cfg;
   const agent = buildStepAgent(
     systemPrompt,
     [],
-    stepCfg,
+    cfg,
     onEvent,
     [...allowedTools, completeTool, ...memoryTools],
     readFiles,
@@ -560,7 +510,7 @@ export async function runStep(
   const input = buildUserPrompt(step.state, mission.description, step.focus, stepResults);
   cfg.registerAgent?.(agent);
   try {
-    await runStepAgent(agent, input, cfg, stagnationDetector, () => capturedComplete !== null);
+    await runStepAgent(agent, input, cfg, stagnationDetector);
 
     if (capturedComplete === null) {
       agent.steer({
@@ -568,13 +518,7 @@ export async function runStep(
         content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${STATE_REGISTRY[step.state]?.reminderFields ?? 'see system prompt'}.`,
         timestamp: Date.now(),
       });
-      await runStepAgent(
-        agent,
-        '[REMINDER] Call complete() now.',
-        cfg,
-        stagnationDetector,
-        () => capturedComplete !== null,
-      );
+      await runStepAgent(agent, '[REMINDER] Call complete() now.', cfg, stagnationDetector);
     }
   } finally {
     cfg.unregisterAgent?.(agent);

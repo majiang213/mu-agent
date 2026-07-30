@@ -80,7 +80,7 @@ export class ContextCompactor {
     };
   }
 
-  shouldCompact(messages: AgentMessage[]): boolean {
+  private shouldCompact(messages: AgentMessage[]): boolean {
     if (messages.length < this.config.minMessagesToCompact) return false;
     return estimateTokens(messages) > this.config.maxTokens;
   }
@@ -114,14 +114,6 @@ export class ContextCompactor {
       messages: result,
     };
   }
-
-  estimateTokens(messages: AgentMessage[]): number {
-    return estimateTokens(messages);
-  }
-}
-
-export function createContextCompactor(config?: Partial<CompactionConfig>): ContextCompactor {
-  return new ContextCompactor(config);
 }
 
 const SUMMARY_TRIGGER_COUNT = 16;

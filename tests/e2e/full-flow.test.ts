@@ -47,15 +47,11 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
   it('MetricsCollector tracks a complete task lifecycle', () => {
     const metrics = new MetricsCollector();
     metrics.startTask('e2e-1');
-    metrics.recordStateEntry('e2e-1', 'LOCATE');
     metrics.recordLLMCall('e2e-1', 500, 200);
-    metrics.recordToolCall('e2e-1', 'read');
-    metrics.recordStateExit('e2e-1', 'LOCATE');
     metrics.finishTask('e2e-1', true);
 
     const m = metrics.getMetrics('e2e-1')!;
     expect(m.llmCalls).toBe(1);
-    expect(m.toolCallCount).toBe(1);
     expect(m.estimatedTokens).toBeGreaterThan(0);
     expect(m.success).toBe(true);
     expect(m.endTime).toBeDefined();
@@ -125,11 +121,10 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
   it('StateMachineAgent resetForRetry resets to REASON', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
     agent.transitionTo(State.MODIFY);
-    agent.recordToolCall('edit', {}, {});
+    agent.recordToolCall('edit');
     agent.resetForRetry();
 
     expect(agent.getCurrentState()).toBe(State.REASON);
-    expect(agent.getIteration()).toBe(0);
     expect(agent.getFileCount()).toBe(0);
   });
 });

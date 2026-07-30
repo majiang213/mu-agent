@@ -272,8 +272,8 @@ The tier is auto-detected from Ollama's `general.parameter_count` field (custom 
 unsloth providers specify it manually via `modelSize`, default LARGE):
 
 ```
-SMALL  (≤9B)   → maxFilesPerTask=2, maxRetries=1, strictPlanning=true,  Heavy Thinking planCount=3
-MEDIUM (≤30B)  → maxFilesPerTask=4, maxRetries=2, strictPlanning=true,  Heavy Thinking planCount=2
+SMALL  (≤9B)   → maxFilesPerTask=2, maxRetries=1, strictPlanning=true,  Heavy Thinking up to 5 samples
+MEDIUM (≤30B)  → maxFilesPerTask=4, maxRetries=2, strictPlanning=true,  Heavy Thinking up to 3 samples
 LARGE  (>30B)  → maxFilesPerTask=8, maxRetries=3, strictPlanning=false, Heavy Thinking disabled
 ```
 
@@ -346,7 +346,7 @@ src/
 │   ├── memory/               # MemoryStore three-layer memory (episodes + semantic_facts + anchor injection)
 │   ├── cognitive/            # StagnationDetector
 │   ├── compaction/           # ContextCompactor (token-budget compaction)
-│   ├── failure/              # FailureHandler (retry + escalation)
+│   ├── failure/              # Retry backoff helper (collapsed from four-level FailureHandler)
 │   ├── graph/                # BM25 + Call-Graph code locator (SQLite)
 │   ├── prompts/              # Per-state system prompts
 │   ├── states.ts             # State config; tier derived from param count

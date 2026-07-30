@@ -233,8 +233,8 @@ Synthesizer 不是从候选中挑一个，而是主动综合各方案优点，�
 tier 由 Ollama API `general.parameter_count` 字段自动判断（custom / unsloth provider 通过 `modelSize` 配置手动指定，默认 LARGE）：
 
 ```
-SMALL  (≤9B)   → maxFilesPerTask=2, maxRetries=1, strictPlanning=true,  Heavy Thinking planCount=3
-MEDIUM (≤30B)  → maxFilesPerTask=4, maxRetries=2, strictPlanning=true,  Heavy Thinking planCount=2
+SMALL  (≤9B)   → maxFilesPerTask=2, maxRetries=1, strictPlanning=true,  Heavy Thinking 最多 5 个采样
+MEDIUM (≤30B)  → maxFilesPerTask=4, maxRetries=2, strictPlanning=true,  Heavy Thinking 最多 3 个采样
 LARGE  (>30B)  → maxFilesPerTask=8, maxRetries=3, strictPlanning=false, Heavy Thinking 禁用
 ```
 
@@ -294,7 +294,7 @@ src/
 │   ├── memory/               # MemoryStore 三层记忆系统（episodes + semantic_facts + 锚点注入）
 │   ├── cognitive/            # StagnationDetector（停滞检测）
 │   ├── compaction/           # ContextCompactor（Token 预算压缩）
-│   ├── failure/              # FailureHandler（重试 + 升级）
+│   ├── failure/              # 重试退避助手（由四级 FailureHandler 塌缩）
 │   ├── graph/                # BM25 + Call Graph 代码定位（SQLite）
 │   ├── prompts/              # 各状态的 system prompt
 │   ├── states.ts             # 状态配置，tier 由参数量决定

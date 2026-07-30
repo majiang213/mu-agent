@@ -27,7 +27,7 @@ vi.mock('../../../src/tool/complete.js', () => ({
   buildCompleteTool: vi.fn(() => ({ name: 'complete', execute: vi.fn() })),
 }));
 
-vi.mock('../../../src/core/prompts/index.js', () => ({
+vi.mock('../../../src/core/prompts/agent.js', () => ({
   buildSystemPrompt: vi.fn(() => 'mocked system prompt'),
   buildUserPrompt: vi.fn(() => 'mocked user prompt'),
 }));

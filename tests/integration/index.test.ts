@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { StateMachineAgent } from '../../src/core/session/index.js';
 import { ReactAgent } from '../../src/core/agent/index.js';
-import { createFailureHandler } from '../../src/core/failure/index.js';
-import { createStagnationDetector } from '../../src/core/cognitive/index.js';
-import { createASTLocator } from '../../src/tool/locator.js';
-import { createSafeModifier } from '../../src/tool/safety/index.js';
+import { StagnationDetector } from '../../src/core/cognitive/index.js';
+import { ASTLocator } from '../../src/tool/locator.js';
+import { SafeModifier } from '../../src/tool/safety/index.js';
 
 describe('Integration Tests', () => {
   describe('Module Integration', () => {
@@ -12,16 +11,13 @@ describe('Integration Tests', () => {
       const stateMachine = new StateMachineAgent('qwen2.5:7b');
       expect(stateMachine.getCurrentState()).toBe('REASON');
 
-      const failureHandler = createFailureHandler();
-      expect(failureHandler.getCurrentLevel()).toBe(1);
+      const stagnationDetector = new StagnationDetector();
+      expect(stagnationDetector.check().detected).toBe(false);
 
-      const stagnationDetector = createStagnationDetector();
-      expect(stagnationDetector.getStats()).toEqual({ toolCalls: 0, errors: 0 });
-
-      const astLocator = createASTLocator();
+      const astLocator = new ASTLocator();
       expect(astLocator).toBeDefined();
 
-      const safeModifier = createSafeModifier();
+      const safeModifier = new SafeModifier();
       expect(safeModifier).toBeDefined();
     });
 
@@ -52,7 +48,7 @@ describe('Integration Tests', () => {
     });
 
     it('should handle tool calls with stagnation detector', () => {
-      const stagnationDetector = createStagnationDetector();
+      const stagnationDetector = new StagnationDetector();
 
       stagnationDetector.recordToolCall({
         tool: 'read',

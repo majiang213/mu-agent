@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { createStagnationDetector } from '../../../src/core/cognitive/index.js';
+import { StagnationDetector } from '../../../src/core/cognitive/index.js';
 
 describe('StagnationDetector', () => {
-  let gate: ReturnType<typeof createStagnationDetector>;
+  let gate: StagnationDetector;
 
   beforeEach(() => {
-    gate = createStagnationDetector();
+    gate = new StagnationDetector();
   });
 
   describe('repeated tool calls', () => {
@@ -81,16 +81,18 @@ describe('StagnationDetector', () => {
 
   describe('reset', () => {
     it('should clear history', () => {
-      gate.recordToolCall({
-        tool: 'read',
-        input: { path: 'test.ts' },
-        output: {},
-        timestamp: Date.now(),
-      });
+      for (let i = 0; i < 3; i++) {
+        gate.recordToolCall({
+          tool: 'read',
+          input: { path: 'test.ts' },
+          output: {},
+          timestamp: Date.now(),
+        });
+      }
+      expect(gate.check().detected).toBe(true);
 
       gate.reset();
-      const stats = gate.getStats();
-      expect(stats.toolCalls).toBe(0);
+      expect(gate.check().detected).toBe(false);
     });
   });
 });

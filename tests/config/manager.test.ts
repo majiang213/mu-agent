@@ -71,11 +71,9 @@ describe('loadConfig', () => {
       try {
         writeConfig(dir, {
           model: { provider: 'ollama', name: 'llama3:8b', baseUrl: 'http://localhost:11434' },
-          logLevel: 'debug',
         });
         const config = loadConfig(dir);
         expect(config.model.name).toBe('llama3:8b');
-        expect(config.logLevel).toBe('debug');
         expect(config.model.temperature).toBe(0.1);
       } finally {
         rmSync(dir, { recursive: true });
@@ -103,19 +101,6 @@ describe('loadConfig', () => {
       try {
         writeConfig(dir, { model: { provider: 'ollama', name: '', baseUrl: 'http://localhost:11434' } });
         expect(() => loadConfig(dir)).toThrow('model.name');
-      } finally {
-        rmSync(dir, { recursive: true });
-      }
-    });
-
-    it('throws on invalid logLevel', () => {
-      const dir = makeTmpDir();
-      try {
-        writeConfig(dir, {
-          model: { provider: 'ollama', name: 'qwen2.5:7b', baseUrl: 'http://localhost:11434' },
-          logLevel: 'verbose',
-        });
-        expect(() => loadConfig(dir)).toThrow('logLevel');
       } finally {
         rmSync(dir, { recursive: true });
       }

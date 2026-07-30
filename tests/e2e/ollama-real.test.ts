@@ -57,21 +57,17 @@ describe('StateMachine + Metrics (no Ollama required)', () => {
       const step = steps[i]!;
       const taskId = `step-${i}`;
       metrics.startTask(taskId);
-      metrics.recordStateEntry(taskId, step.state);
       metrics.recordLLMCall(taskId, 400, 150);
-      metrics.recordToolCall(taskId, 'read');
-      metrics.recordStateExit(taskId, step.state);
       metrics.finishTask(taskId, true);
     }
 
-    const summary = metrics.getSummary();
-    console.log(
-      `[Metrics] tasks=${summary.totalTasks} successRate=${summary.successRate} avgTokens≈${Math.round(summary.avgTokens)}`,
-    );
+    const m0 = metrics.getMetrics('step-0')!;
+    const m1 = metrics.getMetrics('step-1')!;
+    console.log(`[Metrics] step-0 llmCalls=${m0.llmCalls} step-1 llmCalls=${m1.llmCalls}`);
 
-    expect(summary.totalTasks).toBe(steps.length);
-    expect(summary.successRate).toBe(1.0);
-    expect(summary.avgTokens).toBeGreaterThan(0);
+    expect(m0.success).toBe(true);
+    expect(m1.success).toBe(true);
+    expect(m0.estimatedTokens).toBeGreaterThan(0);
   });
 
   it('完整流程: 动态步骤 → 状态机 → Metrics 汇总', () => {
@@ -92,18 +88,15 @@ describe('StateMachine + Metrics (no Ollama required)', () => {
       const prompt = agent.generatePrompt(step.focus);
 
       metrics.startTask(taskId);
-      metrics.recordStateEntry(taskId, step.state);
       metrics.recordLLMCall(taskId, prompt.length, 200);
-      metrics.recordStateExit(taskId, step.state);
       metrics.finishTask(taskId, true);
 
       console.log(`[E2E] step="${step.focus}" state=${step.state} promptLen=${prompt.length}`);
     }
 
-    const summary = metrics.getSummary();
-    expect(summary.totalTasks).toBe(steps.length);
-    expect(summary.successRate).toBe(1.0);
-    expect(summary.avgTokens).toBeGreaterThan(0);
+    const last = metrics.getMetrics(`e2e-step-${steps.length - 1}`)!;
+    expect(last.success).toBe(true);
+    expect(last.estimatedTokens).toBeGreaterThan(0);
   });
 });
 

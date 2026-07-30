@@ -72,62 +72,62 @@ describe('fetchOllamaModels', () => {
   });
 });
 
-describe('fetchCustomModels', () => {
+describe('fetchOpenAICompatModels', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('returns empty array when fetch fails', async () => {
     mockFetch.mockRejectedValue(new Error('network error'));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    expect(await fetchCustomModels('http://custom:8080')).toEqual([]);
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    expect(await fetchOpenAICompatModels('http://custom:8080')).toEqual([]);
   });
 
   it('returns empty array when response is not ok', async () => {
     mockFetch.mockResolvedValue(makeResponse({}, false));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    expect(await fetchCustomModels('http://custom:8080')).toEqual([]);
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    expect(await fetchOpenAICompatModels('http://custom:8080')).toEqual([]);
   });
 
   it('appends /v1 when not already present', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [] }));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    await fetchCustomModels('http://custom:8080');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    await fetchOpenAICompatModels('http://custom:8080');
     expect(mockFetch).toHaveBeenCalledWith('http://custom:8080/v1/models', expect.any(Object));
   });
 
   it('does not double-append /v1', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [] }));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    await fetchCustomModels('http://custom:8080/v1');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    await fetchOpenAICompatModels('http://custom:8080/v1');
     expect(mockFetch).toHaveBeenCalledWith('http://custom:8080/v1/models', expect.any(Object));
   });
 
   it('returns models with context_window', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [{ id: 'gpt-4o', context_window: 128000 }] }));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    const models = await fetchCustomModels('http://custom:8080');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    const models = await fetchOpenAICompatModels('http://custom:8080');
     expect(models).toEqual([{ name: 'gpt-4o', contextLength: 128000 }]);
   });
 
   it('falls back to max_model_len when context_window missing', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [{ id: 'vllm-model', max_model_len: 4096 }] }));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    const models = await fetchCustomModels('http://custom:8080');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    const models = await fetchOpenAICompatModels('http://custom:8080');
     expect(models[0].contextLength).toBe(4096);
   });
 
   it('uses fallback 131072 when no context field present', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [{ id: 'unknown-model' }] }));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    const models = await fetchCustomModels('http://custom:8080');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    const models = await fetchOpenAICompatModels('http://custom:8080');
     expect(models[0].contextLength).toBe(131072);
   });
 
   it('sends Authorization header when apiKey provided', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [] }));
-    const { fetchCustomModels } = await import('../../src/provider/model-info.js');
-    await fetchCustomModels('http://custom:8080', 'sk-secret');
+    const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
+    await fetchOpenAICompatModels('http://custom:8080', 'sk-secret');
     const callArgs = mockFetch.mock.calls[0][1] as RequestInit;
     expect((callArgs.headers as Record<string, string>)['Authorization']).toBe('Bearer sk-secret');
   });

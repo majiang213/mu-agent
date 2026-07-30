@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createContextCompactor } from '../../../src/core/compaction/index.js';
+import { ContextCompactor } from '../../../src/core/compaction/index.js';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 function userMsg(content: string): AgentMessage {
@@ -35,29 +35,9 @@ function steerMsg(prefix: string): AgentMessage {
 }
 
 describe('ContextCompactor', () => {
-  describe('shouldCompact', () => {
-    it('does not compact small message list', () => {
-      const c = createContextCompactor();
-      const msgs = Array(5).fill(userMsg('test'));
-      expect(c.shouldCompact(msgs)).toBe(false);
-    });
-
-    it('does not compact when under token limit', () => {
-      const c = createContextCompactor({ maxTokens: 10000, minMessagesToCompact: 3 });
-      const msgs = Array(5).fill(userMsg('short'));
-      expect(c.shouldCompact(msgs)).toBe(false);
-    });
-
-    it('compacts when over token limit', () => {
-      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 3 });
-      const msgs = Array(10).fill(userMsg('a'.repeat(100)));
-      expect(c.shouldCompact(msgs)).toBe(true);
-    });
-  });
-
   describe('compact', () => {
     it('returns original messages when no compaction needed', () => {
-      const c = createContextCompactor();
+      const c = new ContextCompactor();
       const msgs = Array(5).fill(userMsg('test'));
       const result = c.compact(msgs);
       expect(result.compacted).toBe(false);
@@ -65,7 +45,7 @@ describe('ContextCompactor', () => {
     });
 
     it('preserves head and tail, compresses middle steer messages', () => {
-      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 2, preserveLastN: 2 });
+      const c = new ContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 2, preserveLastN: 2 });
       const msgs: AgentMessage[] = [
         userMsg('first'),
         userMsg('second'),
@@ -85,7 +65,7 @@ describe('ContextCompactor', () => {
     });
 
     it('removes steer messages from middle', () => {
-      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
+      const c = new ContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
       const msgs: AgentMessage[] = [
         userMsg('first'),
         steerMsg('[STAGNATION'),
@@ -105,7 +85,7 @@ describe('ContextCompactor', () => {
     });
 
     it('compresses toolResult to name+status', () => {
-      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
+      const c = new ContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
       const msgs: AgentMessage[] = [
         userMsg('first'),
         toolResultMsg('read', false),
@@ -124,7 +104,7 @@ describe('ContextCompactor', () => {
     });
 
     it('truncates long user messages in middle', () => {
-      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
+      const c = new ContextCompactor({ maxTokens: 50, minMessagesToCompact: 5, preserveFirstN: 1, preserveLastN: 1 });
       const longContent = 'x'.repeat(1000);
       const msgs: AgentMessage[] = [
         userMsg('first'),
@@ -143,7 +123,7 @@ describe('ContextCompactor', () => {
     });
 
     it('compresses assistant tool calls in middle', () => {
-      const c = createContextCompactor({ maxTokens: 50, minMessagesToCompact: 3, preserveFirstN: 1, preserveLastN: 1 });
+      const c = new ContextCompactor({ maxTokens: 50, minMessagesToCompact: 3, preserveFirstN: 1, preserveLastN: 1 });
       const assistantWithTool: AgentMessage = {
         role: 'assistant',
         content: [
@@ -168,20 +148,10 @@ describe('ContextCompactor', () => {
     });
   });
 
-  describe('estimateTokens', () => {
-    it('estimates tokens using gpt-tokenizer (accurate count)', () => {
-      const c = createContextCompactor();
-      const msgs = [userMsg('a'.repeat(400))];
-      const tokens = c.estimateTokens(msgs);
-      expect(tokens).toBeGreaterThan(0);
-      expect(tokens).toBeLessThan(400);
-    });
-  });
-
   describe('in-loop compaction (transformContext pattern)', () => {
     it('does not compact when messages are within budget', () => {
       const budget = 24000;
-      const c = createContextCompactor({ maxTokens: budget });
+      const c = new ContextCompactor({ maxTokens: budget });
       const msgs = Array(8).fill(userMsg('short message'));
       const result = c.compact(msgs);
       expect(result.compacted).toBe(false);
@@ -190,7 +160,7 @@ describe('ContextCompactor', () => {
 
     it('compacts middle when messages exceed in-loop budget', () => {
       const budget = 200;
-      const c = createContextCompactor({
+      const c = new ContextCompactor({
         maxTokens: budget,
         minMessagesToCompact: 5,
         preserveFirstN: 2,
@@ -216,7 +186,7 @@ describe('ContextCompactor', () => {
 
     it('steer messages are removed during in-loop compaction', () => {
       const budget = 100;
-      const c = createContextCompactor({
+      const c = new ContextCompactor({
         maxTokens: budget,
         minMessagesToCompact: 5,
         preserveFirstN: 1,

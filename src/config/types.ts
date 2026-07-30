@@ -24,8 +24,6 @@ export interface ModelConfig {
 export interface SafetyConfig {
   /** Enable file checkpointing before modification, default true */
   enableCheckpoint?: boolean;
-  /** Max lines per edit operation, default 50 */
-  maxLinesPerEdit?: number;
   /** Max files modified per task, default 5 */
   maxFilesPerTask?: number;
 }
@@ -33,19 +31,13 @@ export interface SafetyConfig {
 export interface HeavyThinkingConfig {
   /** Set to false to disable Heavy Thinking regardless of model tier. Default: true. */
   enabled?: boolean;
-  planCount?: number;
   samplingTemperature?: number;
   deliberationModel?: string;
 }
-
-/** Valid logging verbosity levels for the agent runtime. */
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 
 export interface Config {
   $schema?: string;
   model: ModelConfig;
   safety?: SafetyConfig;
   heavyThinking?: HeavyThinkingConfig;
-  /** Logging verbosity, default 'info'. */
-  logLevel?: LogLevel;
 }

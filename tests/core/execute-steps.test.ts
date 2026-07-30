@@ -42,7 +42,7 @@ vi.mock('../../src/core/failure/handler.js', () => ({
   }),
 }));
 
-vi.mock('../../src/core/prompts/index.js', () => ({
+vi.mock('../../src/core/prompts/agent.js', () => ({
   buildSystemPrompt: vi.fn(() => 'system'),
   buildUserPrompt: vi.fn(() => 'user'),
 }));

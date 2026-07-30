@@ -1,20 +1,16 @@
 import { createCodingTools, createGrepTool, createLsTool, createFindTool } from '@earendil-works/pi-coding-agent';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import { State, type ToolCall, type ModelParams, type StateConfig } from '../types.js';
+import { State, type ModelParams, type StateConfig } from '../types.js';
 import { detectModelParams, getBaseStateConfigs, getNextState } from '../states.js';
 
 interface StateMachineConfig {
   modelParams: ModelParams;
   states: Record<State, StateConfig>;
-  onStateChange?: (from: State, to: State) => void;
-  onToolCall?: (call: ToolCall) => void;
 }
 
 export class StateMachineAgent {
   private config: StateMachineConfig;
   private currentState: State;
-  private stateIteration: number;
-  private toolCalls: ToolCall[];
   private allTools: AgentTool[];
   private fileCount: number;
   private readonly modelName: string;
@@ -41,8 +37,6 @@ export class StateMachineAgent {
     };
 
     this.currentState = State.REASON;
-    this.stateIteration = 0;
-    this.toolCalls = [];
     this.fileCount = 0;
     this.allTools = [
       ...createCodingTools(projectRoot),
@@ -73,41 +67,17 @@ export class StateMachineAgent {
     const expected = getNextState(this.currentState, true);
     if (expected !== nextState && !(this.currentState === State.REASON && nextState === State.REASON))
       console.warn('[session] Unexpected transition:', this.currentState, '->', nextState, '(expected', expected + ')');
-    if (this.config.onStateChange) {
-      this.config.onStateChange(this.currentState, nextState);
-    }
     this.currentState = nextState;
-    this.stateIteration = 0;
   }
 
-  recordToolCall(tool: string, input: unknown, output: unknown): void {
-    const call: ToolCall = {
-      tool,
-      input,
-      output,
-      timestamp: Date.now(),
-    };
-    this.toolCalls.push(call);
-
-    if (this.config.onToolCall) {
-      this.config.onToolCall(call);
-    }
-
+  recordToolCall(tool: string): void {
     if (tool === 'edit' || tool === 'write') {
       this.fileCount++;
     }
   }
 
-  incrementIteration(): void {
-    this.stateIteration++;
-  }
-
   getCurrentState(): State {
     return this.currentState;
-  }
-
-  getIteration(): number {
-    return this.stateIteration;
   }
 
   canModifyMoreFiles(maxFiles?: number): boolean {
@@ -121,16 +91,12 @@ export class StateMachineAgent {
 
   resetForRetry(): void {
     this.currentState = State.REASON;
-    this.stateIteration = 0;
     this.fileCount = 0;
-    this.toolCalls = [];
   }
 
   resetForNextTask(nextState: State): void {
     this.currentState = nextState;
-    this.stateIteration = 0;
     this.fileCount = 0;
-    this.toolCalls = [];
   }
 
   getModelParams(): ModelParams {

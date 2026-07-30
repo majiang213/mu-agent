@@ -29,7 +29,6 @@ export function writeEpisodeSync(
 
   const episodeRecord: EpisodeRecord = {
     userInput: mission.description,
-    verifyCommands: [],
   };
 
   db.transaction(() => {
@@ -86,31 +85,6 @@ export function writeEpisodeSync(
   return episodeId;
 }
 
-export function formatEpisodeForInjection(ep: EpisodeRow): string {
-  let s: StructuredSummary;
-  try {
-    const parsed = JSON.parse(ep.result_summary) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || !('action' in parsed)) {
-      return `[旧格式] ${ep.user_input.slice(0, 60)} → ${ep.result_summary.slice(0, 100)}`;
-    }
-    s = parsed as StructuredSummary;
-  } catch {
-    return `[旧格式] ${ep.user_input.slice(0, 60)} → ${ep.result_summary.slice(0, 100)}`;
-  }
-  const parts: string[] = [];
-  if (s.files && s.files.length > 0) {
-    const fileStr = s.files.slice(0, 3).join(', ') + (s.files.length > 3 ? `等${s.files.length}个文件` : '');
-    parts.push(`修改了 ${fileStr}`);
-  }
-  if (s.verify_passed === true) parts.push('测试通过');
-  else if (s.verify_passed === false) parts.push('测试失败');
-  if (s.key_finding) parts.push(s.key_finding);
-  if (s.error_summary) parts.push(`失败：${s.error_summary}`);
-  const outcome = ep.success ? 'success' : 'failed';
-  parts.push(`结果：${outcome}`);
-  return parts.join('，');
-}
-
 export function toShortId(id: string): string {
   return id.replace(/-/g, '').slice(0, 4);
 }
@@ -144,19 +118,4 @@ export function formatEpisodeDetail(ep: EpisodeRow): string {
   const outcome = ep.success ? 'success' : 'failed';
   lines.push(`结果：${outcome}`);
   return lines.join('\n');
-}
-
-export function readRecentEpisodes(db: Database.Database, projectRoot: string, limit = 8): EpisodeRow[] {
-  return db
-    .prepare(
-      `
-    SELECT rowid, id, user_input, result_summary, action_type, files_changed, success, timestamp,
-      is_summarized, step_outputs, description, keywords, tokens_used, project_root
-    FROM episodes
-    WHERE project_root = ?
-    ORDER BY timestamp DESC
-    LIMIT ?
-  `,
-    )
-    .all(projectRoot, limit) as EpisodeRow[];
 }

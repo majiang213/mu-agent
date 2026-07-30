@@ -49,14 +49,6 @@ export class CodeGraphLocator {
     return { files: candidates, snippets: {}, tree, suggestedFiles, method: 'keyword' };
   }
 
-  buildGraph(): void {
-    this.builder.buildFull();
-  }
-
-  needsRebuild(): boolean {
-    return this.builder.needsRebuild();
-  }
-
   updateFiles(filePaths: string[]): void {
     this.builder.updateFiles(filePaths);
     this.retriever = new GraphRetriever(this.projectRoot);

@@ -48,7 +48,7 @@ vi.mock('../../../src/core/graph/locator.js', () => ({
   }),
 }));
 
-vi.mock('../../../src/core/prompts/index.js', () => ({
+vi.mock('../../../src/core/prompts/agent.js', () => ({
   buildSystemPrompt: vi.fn(() => 'system'),
   buildUserPrompt: vi.fn(() => 'user'),
 }));
