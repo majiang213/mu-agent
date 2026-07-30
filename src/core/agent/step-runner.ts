@@ -15,12 +15,8 @@ import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 import { parseDirectives, flattenDirectives } from './directives.js';
-import {
-  forkParallelBranchConfig,
-  findOverlappingEdits,
-  parseEditedFiles,
-  applyStateToolPolicy,
-} from './step-context.js';
+import { forkParallelBranchConfig, findOverlappingEdits, applyStateToolPolicy } from './step-context.js';
+import { parseEditedFiles } from '../step-outputs.js';
 
 export async function buildModel(
   modelName: string,

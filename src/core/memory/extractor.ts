@@ -2,6 +2,13 @@ import { basename } from 'node:path';
 import type { ExecutedStep } from '../types.js';
 import type { StructuredSummary, EntityNode } from './types.js';
 import { State } from '../types.js';
+import {
+  parseEditedFiles,
+  parseJsonObject,
+  parseKeyFinding,
+  parseLocateFiles,
+  parseVerifyOutput,
+} from '../step-outputs.js';
 
 export interface ActionWords {
   type: string | null;
@@ -89,39 +96,26 @@ export function buildStructuredSummary(
 
   let files: string[] = [];
   if (modifyStep) {
-    try {
-      files = (JSON.parse(modifyStep.output) as { edited?: string[] }).edited ?? [];
-    } catch {
-      /* skip */
-    }
+    files = parseEditedFiles(modifyStep.output);
   }
 
   let locateFiles: string[] = [];
   if (locateStep) {
-    try {
-      const parsed = JSON.parse(locateStep.output) as { locations?: Array<{ file: string }> };
-      locateFiles = (parsed.locations ?? []).map((l) => l.file).filter(Boolean);
-    } catch {
-      /* skip */
-    }
+    locateFiles = parseLocateFiles(locateStep.output);
   }
 
   let verifyPassed: boolean | null = null;
   if (verifyStep) {
-    try {
-      verifyPassed = (JSON.parse(verifyStep.output) as { passed?: boolean }).passed ?? null;
-    } catch {
-      /* skip */
-    }
+    verifyPassed = parseVerifyOutput(verifyStep.output)?.passed ?? null;
   }
 
   let keyFinding: string | null = null;
   if (researchStep) {
-    try {
-      const parsed = JSON.parse(researchStep.output) as Record<string, unknown>;
-      const raw = (parsed['summary'] ?? parsed['findings'] ?? parsed['rootCause'] ?? '') as string;
-      keyFinding = raw.slice(0, 120) || null;
-    } catch {
+    const finding = parseKeyFinding(researchStep.output);
+    if (finding !== null) {
+      keyFinding = finding.slice(0, 120) || null;
+    } else if (parseJsonObject(researchStep.output) === null) {
+      // Not even a JSON object — strip JSON-ish punctuation as a last resort.
       keyFinding =
         researchStep.output
           .replace(/[{}[\]"]/g, ' ')

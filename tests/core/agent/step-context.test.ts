@@ -1,9 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  forkParallelBranchConfig,
-  parseEditedFiles,
-  findOverlappingEdits,
-} from '../../../src/core/agent/step-context.js';
+import { forkParallelBranchConfig, findOverlappingEdits } from '../../../src/core/agent/step-context.js';
+import { parseEditedFiles } from '../../../src/core/step-outputs.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
 
 function makeCfg(): RunConfig {

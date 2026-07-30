@@ -6,7 +6,7 @@ import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import { runReasonStep, executeSteps } from './step-runner.js';
 import type { ReasonStepOptions } from './step-runner.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
-import { parseEditedFiles } from './step-context.js';
+import { editedFilesOf, parseVerifyOutput } from '../step-outputs.js';
 import { MemoryStore } from '../memory/index.js';
 
 const MAX_VERIFY_RETRIES = 2;
@@ -31,7 +31,7 @@ async function rollbackEditedFiles(
   safeModifier: SafeModifier,
   onEvent?: (e: ExecutionEvent) => void,
 ): Promise<void> {
-  const editedFiles = allStepResults.filter((r) => r.state === State.MODIFY).flatMap((r) => parseEditedFiles(r.output));
+  const editedFiles = editedFilesOf(allStepResults);
   const uniqueEdited = [...new Set(editedFiles)];
   for (const filePath of uniqueEdited) {
     await safeModifier.restore(filePath);
@@ -115,10 +115,8 @@ export async function runWithVerifyRetry(
 
     if (lastVerify) {
       verifySeen = true;
-      let verifyResult: { passed: boolean; issues: string[]; summary: string };
-      try {
-        verifyResult = JSON.parse(lastVerify.output) as typeof verifyResult;
-      } catch {
+      const verifyResult = parseVerifyOutput(lastVerify.output);
+      if (verifyResult === null) {
         break;
       }
       if (verifyResult.passed === true) {

@@ -2,6 +2,7 @@ import { State, type ModelParams } from '../types.js';
 import type { AgentContext } from '../agent/context.js';
 import type { ExecutedStep } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
+import { parseEditedFiles } from '../step-outputs.js';
 
 export interface EnvContext {
   cwd: string;
@@ -136,16 +137,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     for (const r of previousResults) {
       if (r.state === State.MODIFY) {
         lastModify = r;
-        try {
-          const parsed = JSON.parse(r.output) as { edited?: unknown };
-          if (Array.isArray(parsed.edited)) {
-            for (const f of parsed.edited) {
-              if (typeof f === 'string') allEdited.push(f);
-            }
-          }
-        } catch {
-          // non-JSON output: skip
-        }
+        allEdited.push(...parseEditedFiles(r.output));
       }
     }
     const locateDiag = previousResults.filter((r) => r.state === State.LOCATE || r.state === State.DIAGNOSE);

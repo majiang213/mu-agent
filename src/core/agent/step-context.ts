@@ -35,16 +35,6 @@ export function forkParallelBranchConfig(cfg: RunConfig): RunConfig {
   return { ...cfg, stateMachine: cfg.stateMachine.clone() };
 }
 
-/** Parse the edited-file list out of a MODIFY step's complete() output. */
-export function parseEditedFiles(output: string): string[] {
-  try {
-    const parsed = JSON.parse(output) as { edited?: unknown };
-    return Array.isArray(parsed.edited) ? parsed.edited.filter((f): f is string => typeof f === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * Files edited by more than one parallel branch. Checkpoint ordering across
  * branches is undefined for these, so rollback may not restore the original
