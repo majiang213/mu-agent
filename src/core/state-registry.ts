@@ -43,7 +43,7 @@ export const STATE_REGISTRY: Record<State, StateDefinition> = {
     allowedTools: ['complete'],
     memoryIndex: true,
     memorySearchTool: true,
-    instruction: `You have ONE tool: complete(). Do NOT call any other tool. Do NOT read files. Do NOT run commands.
+    instruction: `You have TWO tools: complete() (to submit your plan) and memory_search (to search past task history when the task relates to earlier work). Do NOT call any other tool. Do NOT read files. Do NOT run commands.
 Your ONLY job is to analyze the task description and call complete() with a plan.
 
 Choose the MINIMUM steps needed based on the task description alone:
@@ -174,7 +174,6 @@ When done, call complete(questions=["<q1>", "<q2>"]).`,
     verbPrefix: 'Locate the code positions for',
     instruction: `Locate the exact code positions that need to change.
 
-Available tools: read, ast_code_locator, complete.
 The project structure and candidate files have already been identified for you (see <suggested_files> and <code_snippets> above).
 Read the suggested files to confirm the exact lines and understand the current code.
 
@@ -305,7 +304,7 @@ When done, call complete(passed=true|false, issues=[...], summary="<test output>
     memorySearchTool: true,
     instruction: `Present the result to the user.
 
-You have ONE tool: complete(). Call it directly as a tool. Do NOT call any other tools.
+You have TWO tools: complete() (your output) and memory_search (to recall earlier work when the user's question depends on it). Call complete() directly as a tool. Do NOT call any other tools.
 
 If there are <previous_step_results>:
 - Steps found and fixed bugs → summarize what was wrong and what was fixed.
@@ -345,7 +344,6 @@ IMPORTANT: Your ONLY job is to investigate and report findings.
 - As soon as you identify the root cause, call complete(rootCause=..., location=..., fix=...) IMMEDIATELY.
   The system will automatically plan a MODIFY step. Fixing is the job of MODIFY, not DIAGNOSE.
 
-Available tools: read, grep, bash, complete.
 You may call multiple tools in parallel when they are independent.
 Do NOT modify any files.
 
@@ -376,7 +374,6 @@ When done, call complete(rootCause="<explanation>", location="<file:line>", fix=
     needsCodeContext: true,
     instruction: `Review the code for quality, correctness, and issues.
 
-Available tools: read, grep, complete. You do NOT have bash.
 To read a file use the read tool, NOT cat or shell commands.
 You may read multiple files in parallel.
 Do NOT modify anything.
@@ -402,7 +399,6 @@ When done, call complete(issues=[...], suggestions=[...], verdict="pass"|"fail")
     allowedTools: ['read', 'write', 'edit', 'complete'],
     instruction: `Write tests for the specified code.
 
-Available tools: read, write, edit, complete.
 Do NOT modify business logic files — only create or edit test files.
 
 Steps:
@@ -432,7 +428,6 @@ When done, call complete(testFile="<path>", cases=<number>).`,
     needsCodeContext: true,
     instruction: `Plan the refactoring without making any changes.
 
-Available tools: read, complete. You do NOT have bash.
 To read a file use the read tool, NOT cat or shell commands.
 You may read multiple files in parallel.
 
@@ -457,8 +452,6 @@ When done, call complete(refactorSteps=["<step1>", ...], estimatedFiles=<n>).`,
     instruction: `The system has already automatically restored the modified files to their original state.
 
 Your job is to confirm which files were restored and call complete().
-
-Available tools: read, write, complete.
 
 Steps:
 1. Read each file that was mentioned in the MODIFY step to confirm it has been restored
@@ -486,7 +479,6 @@ When done, call complete(restored=["<file1>", ...]).`,
     memoryIndex: true,
     instruction: `Research and investigate the topic.
 
-Available tools: read, ls, grep, find, webfetch, websearch, complete.
 You do NOT have bash. To read a file use the read tool, NOT cat or shell commands.
 To list a directory use ls with path parameter: ls(path="src") NOT ls("src") or ls src.
 You may call multiple read/grep/find tools in parallel when they are independent.
@@ -524,13 +516,12 @@ Do NOT output a summary to the user before calling complete(). The complete() ca
     allowedTools: ['read', 'bash', 'write', 'complete'],
     instruction: `Analyze this project and generate AGENTS.md.
 
-Available tools: read, ls, grep, find, write, complete.
 You may read multiple config files in parallel.
 
 Steps:
 1. Read package.json (or equivalent) for tech stack and scripts
 2. Read config files in parallel: tsconfig.json, .eslintrc, .prettierrc, vitest.config.*
-3. List src/ directory: ls(path="src")
+3. List the src/ directory via bash: \`ls src\`
 4. Check for existing AGENTS.md, CLAUDE.md, README.md
 5. Write AGENTS.md covering: tech stack, build/test/lint commands, conventions, key files
 
@@ -558,7 +549,6 @@ When done, call complete(created="AGENTS.md", summary="<what was captured>").`,
     verbPrefix: 'Create new files for',
     instruction: `Create a new file. Use read to understand context, then write to create the file.
 
-Available tools: read, write, complete.
 You do NOT have edit, bash, or any other tools.
 
 Rules:
@@ -589,7 +579,6 @@ When done, call complete(createdFiles=["<path>", ...], linesWritten=<n>).`,
     verbPrefix: 'Analyze and plan execution steps for',
     instruction: `Analyze the current situation and produce a detailed execution plan.
 
-Available tools: bash, read, complete.
 Use bash and read to inspect the codebase or run commands BEFORE planning.
 Do NOT modify any files. Your ONLY output is complete(steps=[...]).
 
@@ -611,7 +600,7 @@ assistant: [bash("git status")] → 6 files changed in src/core/, 2 docs files
 complete(steps=[
   {state:"GIT", focus:"stage src/core/types.ts src/core/state-registry.ts, commit: 'feat(state): add State.GIT core'"},
   {state:"GIT", focus:"stage src/core/agent/builder.ts, commit: 'feat(state): add harness git guard'"},
-  {state:"GIT", focus:"stage src/core/states.ts src/tool/complete.ts src/core/prompts/agent.ts, commit: 'feat(state): wire GIT state'"},
+  {state:"GIT", focus:"stage src/core/session/index.ts src/tool/complete.ts src/core/prompts/agent.ts, commit: 'feat(state): wire GIT state'"},
   {state:"GIT", focus:"stage src/tui/theme.ts, commit: 'feat(state): add GIT TUI theme'"},
   {state:"GIT", focus:"stage AGENTS.md .claude/PRPs/GAPS.md, commit: 'docs: sync Gap 79 GIT state'"},
 ], rationale="types+registry inseparable; builder guard independent safety layer; wiring trio depends on types; theme UI-only; docs separate")
@@ -660,21 +649,20 @@ When done, call complete(steps=[...], rationale="<why this grouping>").`,
     allowedTools: ['bash', 'read', 'complete'],
     verbPrefix: 'Execute the git operation',
     instruction: `Execute git operations. ONLY run git commands via bash. No other shell commands.
+One git command per bash call — never chain with &&, ;, or | (chaining is blocked).
 
-ALLOWED operations:
-  Read: status, log, diff, diff --staged, show, blame, branch -a, stash list, remote -v
-  Write: add, commit, branch, checkout, switch, stash push/pop/apply, tag, fetch,
-         cherry-pick, revert, merge, push (to non-default branches ONLY)
+The harness enforces a default-deny ALLOWLIST; anything not on it is BLOCKED and ABORTS the step.
+Safe operations: status, log, diff, show, blame, add, commit, branch, checkout, switch,
+stash push/pop/apply/list/save, tag, fetch, cherry-pick, revert, merge,
+push (to NON-DEFAULT branches only), remote -v / remote show / remote get-url.
 
-FORBIDDEN (system will block these before execution):
-  push --force / -f / --force-with-lease
-  push to main / master / HEAD
-  reset --hard
-  rebase
-  clean -f / -fd
+Blocked (do NOT try variations — a block aborts the step):
+  force-push / push to main / master / HEAD
+  reset, rebase, clean
   stash drop / stash clear
   branch -D
-  commit --no-verify
+  commit --amend / --no-verify
+  config alias.* writes
 
 RULES:
 1. Run git status first.

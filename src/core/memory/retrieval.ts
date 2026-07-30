@@ -155,7 +155,9 @@ export function formatMemoryIndex(db: Database.Database, projectRoot: string): s
     lines.push(`偏好：${prefFacts.map((f) => f.value).join(' | ')}`);
   }
 
-  lines.push('使用 memory_search 工具可查看任意条目的详情。');
+  // NOTE: the memory_search hint line is NOT emitted here — it is spliced in
+  // per-state by buildSystemPrompt only for states whose registry entry has
+  // memorySearchTool: true (otherwise it advertises a tool the state lacks).
   lines.push('</memory>');
   return lines.join('\n') + '\n';
 }

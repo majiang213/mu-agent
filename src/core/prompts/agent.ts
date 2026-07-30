@@ -97,12 +97,25 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   }
 
   const base = buildBasePrompt(env, state);
-  const memoryBlock = memoryIndex ?? '';
+  // The anchor's memory_search hint is only truthful for states that actually
+  // get the tool (registry memorySearchTool flag) — splice it in per state.
+  const memoryBlock = memoryIndex
+    ? STATE_REGISTRY[state]?.memorySearchTool === true
+      ? memoryIndex.replace('</memory>', '使用 memory_search 工具可查看任意条目的详情。\n</memory>')
+      : memoryIndex
+    : '';
 
-  const stateInstruction = STATE_REGISTRY[state]?.instruction ?? '';
+  const stateDef = STATE_REGISTRY[state];
+  const stateInstruction = stateDef?.instruction ?? '';
+  // Tool list is generated from the registry — prose can never drift from
+  // allowedTools again (second-pass review, candidate 2).
+  const toolNames = stateDef
+    ? [...stateDef.allowedTools, ...(stateDef.memorySearchTool === true ? ['memory_search'] : [])]
+    : [];
+  const toolsLine = toolNames.length > 0 ? `Available tools: ${toolNames.join(', ')}.` : '';
   const focusLine = focus ? `Current focus: ${focus}` : '';
 
-  const lines = [base, memoryBlock, stateInstruction, `Current task: ${task}`, focusLine];
+  const lines = [base, memoryBlock, toolsLine, stateInstruction, `Current task: ${task}`, focusLine];
 
   if (modelParams.tier === 'SMALL') {
     const constraints = state === State.REASON ? SMALL_MODEL_CONSTRAINTS : SMALL_MODEL_CONSTRAINTS_WITH_TOOLS;

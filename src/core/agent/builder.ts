@@ -232,6 +232,15 @@ function inspectGitInvocation(tokens: string[]): string | null {
       return null;
     }
 
+    case 'remote': {
+      // Read-only forms only: bare `remote`, `remote -v/--verbose`,
+      // `remote show`, `remote get-url`. Mutations (add/set-url/remove/
+      // rename/prune/update) are rejected.
+      const sub = args.find((a) => !a.startsWith('-'));
+      if (sub === undefined || sub === 'show' || sub === 'get-url') return null;
+      return `remote ${sub} (mutating)`;
+    }
+
     case 'branch': {
       // Allow -a, -r, -v, -d (safe delete), --delete, -m (rename), --list,
       // branch names. REJECT -D (force) incl. in a short bundle.

@@ -206,12 +206,33 @@ describe('Gap 83/84: git guard — allows safe operations (no false positives)',
     { cmd: 'git tag v1.0', note: 'tag' },
     { cmd: 'git config user.email', note: 'config non-alias write (threat model is alias.*)' },
     { cmd: 'git config alias.fp', note: 'config alias READ (no value)' },
+    { cmd: 'git remote -v', note: 'remote read-only verbose' },
+    { cmd: 'git remote', note: 'bare remote lists names' },
+    { cmd: 'git remote show origin', note: 'remote show' },
+    { cmd: 'git remote get-url origin', note: 'remote get-url' },
   ];
 
   it.each(ALLOWED)('allows: $cmd ($note)', async ({ cmd }) => {
     const r = await runGuard(cmd);
     expect(r.blocked).toBe(false);
     expect(r.executed).toBe(true);
+  });
+});
+
+describe('Gap: remote mutations are blocked (read-only remote only)', () => {
+  const MUTATING: Array<{ cmd: string }> = [
+    { cmd: 'git remote add origin https://x' },
+    { cmd: 'git remote set-url origin https://x' },
+    { cmd: 'git remote remove upstream' },
+    { cmd: 'git remote rename a b' },
+    { cmd: 'git remote prune origin' },
+    { cmd: 'git remote update' },
+  ];
+
+  it.each(MUTATING)('blocks: $cmd', async ({ cmd }) => {
+    const r = await runGuard(cmd);
+    expect(r.blocked).toBe(true);
+    expect(r.executed).toBe(false);
   });
 });
 

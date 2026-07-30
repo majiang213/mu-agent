@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { buildSystemPrompt, buildUserPrompt } from '../../src/core/prompts/agent.js';
 import { State } from '../../src/core/types.js';
 import type { ModelParams } from '../../src/core/types.js';
+import { STATE_REGISTRY } from '../../src/core/state-registry.js';
 
 const SMALL: ModelParams = { tier: 'SMALL', paramCount: 7, maxFilesPerTask: 2, maxRetries: 1, strictPlanning: true };
 const LARGE: ModelParams = { tier: 'LARGE', paramCount: 70, maxFilesPerTask: 8, maxRetries: 3, strictPlanning: false };
@@ -9,6 +10,17 @@ const LARGE: ModelParams = { tier: 'LARGE', paramCount: 70, maxFilesPerTask: 8, 
 function prompt(state: State, params: ModelParams = SMALL, extra: Parameters<typeof buildSystemPrompt>[0] = {} as any) {
   return buildSystemPrompt({ state, task: 'test task', modelParams: params, ...extra });
 }
+
+describe('generated Available tools line — cannot drift from allowedTools', () => {
+  it('every state lists exactly its registry tools (+ memory_search when flagged)', () => {
+    for (const state of Object.values(State)) {
+      const def = STATE_REGISTRY[state];
+      if (!def || def.allowedTools.length === 0) continue;
+      const expected = [...def.allowedTools, ...(def.memorySearchTool === true ? ['memory_search'] : [])];
+      expect(prompt(state)).toContain(`Available tools: ${expected.join(', ')}.`);
+    }
+  });
+});
 
 describe('buildSystemPrompt', () => {
   describe('base prompt — always present', () => {
@@ -563,10 +575,11 @@ describe('base prompt — new rules from opencode+pi comparison (round 2)', () =
   });
 });
 
-describe('ANSWER state — no tools', () => {
-  it('says only complete() tool is available', () => {
+describe('ANSWER state — complete + memory_search', () => {
+  it('says complete() and memory_search are available', () => {
     const p = prompt(State.ANSWER);
-    expect(p).toContain('You have ONE tool: complete()');
+    expect(p).toContain('You have TWO tools: complete()');
+    expect(p).toContain('memory_search');
   });
 
   it('contains example with complete(answer=...)', () => {
