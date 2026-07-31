@@ -10,18 +10,6 @@ vi.mock('../../../src/core/agent/builder.js', () => ({
 }));
 
 vi.mock('../../../src/core/agent/step-runner.js', () => ({
-  buildModel: vi.fn(async () => ({
-    id: 'test-model',
-    name: 'test-model',
-    api: 'openai-completions',
-    provider: 'ollama',
-    baseUrl: 'http://localhost:11434/v1',
-    reasoning: false,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 100000,
-  })),
   runReasonStep: vi.fn(),
   executeSteps: vi.fn(async () => []),
   runStep: vi.fn(),
@@ -65,6 +53,19 @@ vi.mock('../../../src/tool/webfetch.js', () => ({ webfetchTool: {} }));
 vi.mock('../../../src/tool/websearch.js', () => ({ websearchTool: {} }));
 
 vi.mock('../../../src/provider/model-info.js', () => ({
+  // buildModel lives here since round-4 hygiene (moved from step-runner.js).
+  buildModel: vi.fn(async () => ({
+    id: 'test-model',
+    name: 'test-model',
+    api: 'openai-completions',
+    provider: 'ollama',
+    baseUrl: 'http://localhost:11434/v1',
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 100000,
+  })),
   fetchOllamaParamCount: vi.fn(async () => null),
   fetchContextLength: vi.fn(async () => 128000),
   resolveApiKey: vi.fn(() => 'ollama'),
@@ -150,6 +151,7 @@ function makeCfg() {
     model: {} as never,
     stateMachine: stateMachine as never,
     safetyConfig: {},
+    locator: null,
     safeModifier: {
       createCheckpoint: vi.fn(),
       restoreAndClearWhere: vi.fn(async () => {}),

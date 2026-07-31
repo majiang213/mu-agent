@@ -1,48 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { State } from '../../src/core/types.js';
-import type { StepDirective, ExecutedStep } from '../../src/core/types.js';
-import type { RunConfig, ExecutionEvent } from '../../src/core/agent/types.js';
+import type { StepDirective } from '../../src/core/types.js';
+import type { RunConfig, ExecutionEvent, StepAgentBuildInput } from '../../src/core/agent/types.js';
 
-vi.mock('../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(() => ({
-    prompt: vi.fn(async () => {}),
-    steer: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-  })),
-  subscribeStepEvents: vi.fn(),
-}));
-
-vi.mock('../../src/tool/safety/git-guard.js', () => ({
-  wrapWithGitGuard: vi.fn((t) => t),
-  gitAllowlistGuidance: vi.fn(() => 'status, log, diff'),
-}));
-
-vi.mock('../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(function () {
-    return {
-      recordToolCall: vi.fn(),
-      recordError: vi.fn(),
-      check: vi.fn(() => ({ detected: false })),
-      reset: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../src/core/graph/locator.js', () => ({
-  CodeGraphLocator: vi.fn(function () {
-    return {
-      locate: vi.fn(() => ({ tree: '', suggestedFiles: [], snippets: {} })),
-      updateFiles: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../src/core/prompts/agent.js', () => ({
-  buildSystemPrompt: vi.fn(() => 'system'),
-  buildUserPrompt: vi.fn(() => 'user'),
-}));
-
+// ONE leaf mock: control what the model "submits" via complete(). Everything
+// else is real — runStep is driven through the StepAgentDriver seam instead
+// of module-graph mocks (builder / prompts / cognitive / locator / git-guard
+// all dropped, round-4 candidate 5).
 vi.mock('../../src/tool/complete.js', () => ({
   buildCompleteTool: vi.fn((state: State, onComplete: (args: Record<string, unknown>) => void) => ({
     name: 'complete',
@@ -56,7 +20,7 @@ vi.mock('../../src/tool/complete.js', () => ({
   })),
 }));
 
-const { buildStepAgent, subscribeStepEvents } = await import('../../src/core/agent/builder.js');
+const { buildCompleteTool } = await import('../../src/tool/complete.js');
 
 function captureComplete(onComplete: (args: Record<string, unknown>) => void, state: State): void {
   const schemas: Record<string, Record<string, unknown>> = {
@@ -69,7 +33,6 @@ function captureComplete(onComplete: (args: Record<string, unknown>) => void, st
   onComplete(result);
 }
 
-const { buildCompleteTool } = await import('../../src/tool/complete.js');
 vi.mocked(buildCompleteTool).mockImplementation((state, onComplete) => ({
   name: 'complete',
   label: 'Complete',
@@ -81,23 +44,36 @@ vi.mocked(buildCompleteTool).mockImplementation((state, onComplete) => ({
   },
 }));
 
-vi.mocked(buildStepAgent).mockImplementation((_sysprompt, _msgs, _cfg, _onEvent, tools) => {
-  const agent = {
-    prompt: vi.fn(async () => {
-      const completeTool = tools?.find((t) => t.name === 'complete');
+/**
+ * The StepAgentDriver fake: buildAgent records each build input keyed by the
+ * agent it returns; driveUntilComplete "plays the model" by executing the
+ * state's complete() tool once (the mocked buildCompleteTool turns that into
+ * a captured complete() call). Parallel branches each get their own agent,
+ * so the map keeps their build inputs unmixed.
+ */
+function makeFakeDriver(): NonNullable<RunConfig['stepDriver']> {
+  const byAgent = new Map<object, StepAgentBuildInput>();
+  return {
+    buildAgent: vi.fn((input: StepAgentBuildInput) => {
+      const agent = {
+        prompt: vi.fn(async () => {}),
+        steer: vi.fn(),
+        on: vi.fn(),
+        off: vi.fn(),
+        abort: vi.fn(),
+      };
+      byAgent.set(agent, input);
+      return agent as never;
+    }),
+    driveUntilComplete: vi.fn(async (agent) => {
+      const input = byAgent.get(agent);
+      const completeTool = input?.tools.find((t) => t.name === 'complete');
       if (completeTool) {
         await completeTool.execute('id', {}, {} as never);
       }
     }),
-    steer: vi.fn(),
-    on: vi.fn(),
-    off: vi.fn(),
-    abort: vi.fn(),
   };
-  return agent as never;
-});
-
-vi.mocked(subscribeStepEvents).mockImplementation(() => {});
+}
 
 import { executeSteps } from '../../src/core/agent/step-runner.js';
 
@@ -121,6 +97,7 @@ function makeCfg(overrides?: Partial<RunConfig>): RunConfig {
     model: {} as RunConfig['model'],
     stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
+    locator: null,
     safeModifier: {
       createCheckpoint: vi.fn(),
       restoreAndClearWhere: vi.fn(async () => {}),
@@ -132,11 +109,31 @@ function makeCfg(overrides?: Partial<RunConfig>): RunConfig {
     projectRoot: '/tmp',
     registerAgent: vi.fn(),
     unregisterAgent: vi.fn(),
+    stepDriver: makeFakeDriver(),
     ...overrides,
   };
 }
 
 describe('executeSteps', () => {
+  describe('the StepAgentDriver seam (round-4, candidate 5)', () => {
+    it('runStep builds and drives through cfg.stepDriver', async () => {
+      const cfg = makeCfg();
+      await executeSteps(
+        [{ state: State.ANSWER, focus: 'respond' }],
+        { id: 't1', description: 'task', state: 'running' },
+        [],
+        cfg,
+      );
+      const driver = cfg.stepDriver!;
+      expect(driver.buildAgent).toHaveBeenCalledTimes(1);
+      expect(driver.driveUntilComplete).toHaveBeenCalledTimes(1);
+      // The build input carries the state's tools (complete tool included).
+      const buildInput = vi.mocked(driver.buildAgent).mock.calls[0]![0];
+      expect(buildInput.state).toBe(State.ANSWER);
+      expect(buildInput.tools.some((t) => t.name === 'complete')).toBe(true);
+    });
+  });
+
   describe('sequential directives', () => {
     it('returns one result per sequential step', async () => {
       const directives: StepDirective[] = [

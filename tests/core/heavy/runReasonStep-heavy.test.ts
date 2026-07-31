@@ -37,7 +37,7 @@ vi.mock('../../../src/core/cognitive/index.js', () => ({
 
 vi.mock('../../../src/core/compaction/index.js', () => ({
   compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
-  ContextCompactor: vi.fn(),
+  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
 }));
 
 vi.mock('../../../src/tool/complete.js', () => ({
@@ -93,6 +93,7 @@ function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {
       getStateConfig: vi.fn(() => ({ allowedTools: [], prompt: '' })),
     } as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
+    locator: null,
     safeModifier: { restoreAndClearWhere: vi.fn(async () => {}) } as unknown as RunConfig['safeModifier'],
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' } as RunConfig['env'],
     temperature: 0.1,

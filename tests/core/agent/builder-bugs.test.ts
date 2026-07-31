@@ -32,9 +32,7 @@ vi.mock('../../../src/core/cognitive/index.js', () => ({
   }),
 }));
 vi.mock('../../../src/core/compaction/index.js', () => ({
-  ContextCompactor: vi.fn(function () {
-    return { compact: vi.fn((msgs: unknown) => ({ messages: msgs })) };
-  }),
+  compactLoopMessages: vi.fn((msgs: unknown) => msgs),
 }));
 
 const { buildStepAgent } = await import('../../../src/core/agent/builder.js');
@@ -61,6 +59,7 @@ function makeMinimalCfg(projectRoot: string) {
       canModifyMoreFiles: vi.fn(() => true),
     },
     safetyConfig: { enableCheckpoint: true },
+    locator: null,
     safeModifier: {
       createCheckpoint: vi.fn(async () => {}),
       hasCheckpoint: vi.fn(() => false),
@@ -138,7 +137,7 @@ describe('Gap 84 F1: [GIT GUARD] bash result aborts the step', () => {
   type AfterToolCallFn = (ctx: {
     toolCall: { name: string };
     isError: boolean;
-    result?: { content: Array<{ type: string; text?: string }> };
+    result?: { content: Array<{ type: string; text?: string }>; details?: unknown };
     args: unknown;
   }) => Promise<unknown>;
 
@@ -150,7 +149,7 @@ describe('Gap 84 F1: [GIT GUARD] bash result aborts the step', () => {
     return { afterToolCall: opts.afterToolCall!, agent };
   }
 
-  it('aborts when a bash result starts with [GIT GUARD]', async () => {
+  it('aborts when a bash result carries the gitGuardBlocked details', async () => {
     const cfg = makeMinimalCfg('/tmp/test-project');
     buildStepAgent('system prompt', [], cfg, undefined, []);
     const { afterToolCall, agent } = captureAfterToolCall();
@@ -158,11 +157,30 @@ describe('Gap 84 F1: [GIT GUARD] bash result aborts the step', () => {
     await afterToolCall({
       toolCall: { name: 'bash' },
       isError: false,
-      result: { content: [{ type: 'text', text: '[GIT GUARD] Blocked: subcommand not allowlisted: rebase' }] },
+      result: {
+        content: [{ type: 'text', text: '[GIT GUARD] Blocked: subcommand not allowlisted: rebase' }],
+        details: { gitGuardBlocked: true, reason: 'subcommand not allowlisted: rebase' },
+      },
       args: { command: 'git rebase' },
     });
 
     expect(agent.abort).toHaveBeenCalled();
+  });
+
+  it('does NOT abort for [GIT GUARD] text alone (the signal is structured)', async () => {
+    // Text without details did not come from the guard — no abort.
+    const cfg = makeMinimalCfg('/tmp/test-project');
+    buildStepAgent('system prompt', [], cfg, undefined, []);
+    const { afterToolCall, agent } = captureAfterToolCall();
+
+    await afterToolCall({
+      toolCall: { name: 'bash' },
+      isError: false,
+      result: { content: [{ type: 'text', text: '[GIT GUARD] mentioned in ordinary output' }] },
+      args: { command: 'git log' },
+    });
+
+    expect(agent.abort).not.toHaveBeenCalled();
   });
 
   it('does NOT abort for ordinary bash output', async () => {

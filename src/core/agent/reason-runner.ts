@@ -4,12 +4,19 @@ import { retryDelayMs, sleep } from '../failure/index.js';
 import { DEFAULT_TEMPERATURE, MAX_TEMPERATURE, RETRY_TEMPERATURE_STEP } from '../../config/defaults.js';
 import { buildCompleteTool } from '../../tool/complete.js';
 import { buildSystemPrompt } from '../prompts/agent.js';
-import { buildStepAgent, subscribeStepEvents } from './builder.js';
+import { buildStepAgent, steer, subscribeStepEvents } from './builder.js';
 import { parseDirectives } from './directives.js';
 import { isAbortError } from './abort.js';
 import { State } from '../types.js';
 import type { StepDirective } from '../types.js';
-import type { ExecutionEvent, Mission, RunConfig, RunPhase } from './types.js';
+import type {
+  DriveUntilCompleteOptions,
+  ExecutionEvent,
+  Mission,
+  RunConfig,
+  RunPhase,
+  StepAgentDriver,
+} from './types.js';
 
 /**
  * Reason runner — the LLM-call engine of the agent loop: runStepAgent
@@ -63,6 +70,69 @@ export async function runStepAgent(
   }
 }
 
+/** The one reminder prompt used when re-driving after a nudge. */
+const REMINDER_PROMPT = '[REMINDER] Call complete() now.';
+
+/**
+ * Nudge the agent with per-site guidance, then drive it again with the one
+ * REMINDER prompt. The public re-drive for custom branches (clarification
+ * answers, invalid-plan errors) that driveUntilComplete does not own.
+ */
+export async function redrive(
+  agent: Agent,
+  steerContent: string,
+  cfg: RunConfig,
+  stagnationDetector: StagnationDetector,
+): Promise<void> {
+  steer(agent, steerContent);
+  await runStepAgent(agent, REMINDER_PROMPT, cfg, stagnationDetector);
+}
+
+/**
+ * The complete() exit protocol: prompt, then one reminder round if the model
+ * ended its turn without calling complete(). Callers supply the capture
+ * predicate and the per-state reminder text; the choreography (prompt →
+ * check → steer → re-drive) lives here and nowhere else.
+ */
+export async function driveUntilComplete(
+  agent: Agent,
+  input: string,
+  cfg: RunConfig,
+  stagnationDetector: StagnationDetector,
+  options: DriveUntilCompleteOptions,
+): Promise<void> {
+  await runStepAgent(agent, input, cfg, stagnationDetector);
+  if (!options.hasCaptured()) {
+    await redrive(agent, options.reminderSteer, cfg, stagnationDetector);
+  }
+}
+
+/**
+ * The production StepAgentDriver: buildStepAgent + subscribeStepEvents
+ * (builder.ts) for construction and wiring, driveUntilComplete for the exit
+ * protocol. runStep consumes cfg.stepDriver ?? defaultStepDriver — tests
+ * replace the whole collaborator through that seam (round-4, candidate 5).
+ */
+export const defaultStepDriver: StepAgentDriver = {
+  buildAgent(input) {
+    const agent = buildStepAgent(
+      input.systemPrompt,
+      input.initialMessages,
+      input.cfg,
+      input.onEvent,
+      input.tools,
+      input.readFiles,
+    );
+    subscribeStepEvents(agent, input.state, input.stagnationDetector, input.cfg, {
+      onLlmText: input.onLlmText,
+      onEvent: input.onEvent,
+      onTurnEndComplete: input.onTurnEndComplete,
+    });
+    return agent;
+  },
+  driveUntilComplete,
+};
+
 export interface ReasonAttemptOptions {
   onEvent?: (event: ExecutionEvent) => void;
   onNeedsClarify?: (questions: string[]) => Promise<string>;
@@ -112,82 +182,79 @@ export async function runReasonAttempt(
 
   const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
   const agent = buildStepAgent(systemPrompt, conversationHistory, stepCfg, onEvent, [completeTool, ...extraTools]);
-  subscribeStepEvents(agent, State.REASON, stagnationDetector, stepCfg, () => {}, onEvent);
+  subscribeStepEvents(agent, State.REASON, stagnationDetector, stepCfg, { onEvent });
 
   cfg.registerAgent?.(agent);
   try {
     if (fromState !== undefined) {
       onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
     }
-    await runStepAgent(agent, mission.description, stepCfg, stagnationDetector);
-
-    if (capturedComplete === null) {
-      agent.steer({
-        role: 'steer',
-        content: '[REMINDER] You must call complete() to submit your execution plan.',
-        timestamp: Date.now(),
-      });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
-    }
+    await driveUntilComplete(agent, mission.description, stepCfg, stagnationDetector, {
+      hasCaptured: () => capturedComplete !== null,
+      reminderSteer: '[REMINDER] You must call complete() to submit your execution plan.',
+    });
 
     if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
       const questions = Array.isArray(capturedComplete['questions']) ? (capturedComplete['questions'] as string[]) : [];
       const answer = await onNeedsClarify(questions);
       capturedComplete = null;
-      agent.steer({
-        role: 'steer',
-        content: `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
-        timestamp: Date.now(),
-      });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
+      await redrive(
+        agent,
+        `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
+        stepCfg,
+        stagnationDetector,
+      );
     }
-  } finally {
-    cfg.unregisterAgent?.(agent);
-  }
 
-  let lastParseError: string | null = null;
-  if (capturedComplete !== null) {
-    const c = capturedComplete;
-    if (c['needsClarify'] === true) {
-      return { steps: [] };
-    }
-    const { steps, error } = parseDirectives(c);
-    if (!error) {
-      return { steps };
-    }
-    lastParseError = error;
-    capturedComplete = null;
-    agent.steer({
-      role: 'steer',
-      content: `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
-      timestamp: Date.now(),
-    });
-    await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
+    // Parse + failure re-drives stay INSIDE the registered window: abort (ESC)
+    // must reach the agent during these runs too (previously they ran after
+    // unregisterAgent and could not be aborted — round-4 ESC-blind fix).
+    let lastParseError: string | null = null;
     if (capturedComplete !== null) {
-      const { steps: retrySteps, error: retryError } = parseDirectives(capturedComplete);
-      if (!retryError) {
-        return { steps: retrySteps };
+      const c = capturedComplete;
+      if (c['needsClarify'] === true) {
+        return { steps: [] };
       }
-      lastParseError = retryError;
-    }
-  } else {
-    agent.steer({
-      role: 'steer',
-      content: '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
-      timestamp: Date.now(),
-    });
-    await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
-    if (capturedComplete !== null) {
-      const { steps, error } = parseDirectives(capturedComplete);
+      const { steps, error } = parseDirectives(c);
       if (!error) {
         return { steps };
       }
       lastParseError = error;
+      capturedComplete = null;
+      await redrive(
+        agent,
+        `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
+        stepCfg,
+        stagnationDetector,
+      );
+      if (capturedComplete !== null) {
+        const { steps: retrySteps, error: retryError } = parseDirectives(capturedComplete);
+        if (!retryError) {
+          return { steps: retrySteps };
+        }
+        lastParseError = retryError;
+      }
+    } else {
+      await redrive(
+        agent,
+        '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
+        stepCfg,
+        stagnationDetector,
+      );
+      if (capturedComplete !== null) {
+        const { steps, error } = parseDirectives(capturedComplete);
+        if (!error) {
+          return { steps };
+        }
+        lastParseError = error;
+      }
     }
-  }
 
-  if (throwOnFailure) {
-    throw new Error(`bare sample: ${lastParseError ?? 'complete() not called'}`);
+    if (throwOnFailure) {
+      throw new Error(`bare sample: ${lastParseError ?? 'complete() not called'}`);
+    }
+    return { steps: [] };
+  } finally {
+    cfg.unregisterAgent?.(agent);
   }
-  return { steps: [] };
 }

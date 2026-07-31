@@ -16,10 +16,15 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **complete()** — the tool every state must call to exit; its TypeBox schema is
   declared per-state in STATE_REGISTRY.
 - **STATE_REGISTRY** — the single source for per-state facts: allowedTools,
-  instruction, reminderFields, completeSchema, contextNeeds, and (since
+  instruction, reminderFields, completeSchema, contextNeeds (VERIFY's too —
+  its Gap 41/43 special case reads the registry list), and (since
   2026-07-30) readOnly / needsCodeContext / memoryIndex / memorySearchTool /
   verbPrefix. complete() args are validated against the same completeSchema
-  the model sees (TypeBox Value.Check + reminderFields message).
+  the model sees (TypeBox Value.Check + reminderFields message). The REASON /
+  PLAN `steps` unions come from one file-local `stepsArraySchema({
+  allowSubplan, minItems })` factory — the model-facing schema of the
+  StepDirective shape has one home beside its type (types.ts) and parser
+  (directives.ts) homes.
 - **step-outputs** (`src/core/step-outputs.ts`) — the read side of those
   shapes: parseEditedFiles / parseLocateFiles / parseVerifyOutput /
   parseKeyFinding / parseJsonObject / editedFilesOf. Total functions —
@@ -50,8 +55,10 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
   and throwOnFailure, so samples plan with the same memory injection and
   REMINDER retries as the real REASON step.
 - **step-context** (`src/core/agent/step-context.ts`) — fork semantics for
-  parallel branches (cloned state machine, SHARED checkpoint store) +
-  parseEditedFiles + findOverlappingEdits (parallel_overlap event).
+  every isolated execution: `forkRunConfig(cfg)` (cloned state machine,
+  SHARED checkpoint store) is called by parallel branches AND the Heavy
+  Thinking sampler — one fork home. Plus findOverlappingEdits
+  (parallel_overlap event).
 - **SafeModification** (`src/tool/safety/modification.ts`) — the post-edit
   protocol: syntax + damage check → restore-or-clear → steer message.
 - **MemoryStore** — three-layer memory (episodes + entities + semantic facts)
@@ -65,6 +72,14 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **reason-runner** (`src/core/agent/reason-runner.ts`) — the LLM-call engine:
   runStepAgent (prompt+retry) + runReasonAttempt. step-runner and the HT
   sampler both depend on it (no import cycle).
+- **step-driver** (`steer` in builder.ts; `redrive` + `driveUntilComplete` in
+  reason-runner.ts) — the complete() exit protocol has one home: prompt →
+  check capture → steer (per-state reminder text) → re-drive. All re-drives
+  run inside the agent's registered window so ESC abort always reaches them.
+- **StepAgentDriver** (`src/core/agent/types.ts`) — runStep's single
+  collaborator: `{ buildAgent, driveUntilComplete }`. Production uses
+  `defaultStepDriver` (reason-runner.ts, composing builder.ts); tests inject
+  `cfg.stepDriver` and fake the seam instead of mocking the module graph.
 - **RunSetup** (`src/core/agent/setup.ts`) — builds everything a run needs
   (model probe, tool stack, env, LSP, memory, RunConfig) and disposes it
   (close()). run() is a pipeline over it.
@@ -78,16 +93,37 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **git guard** (`src/tool/safety/git-guard.ts`) — the default-deny git
   allowlist (GIT_HARD_DENY + wrapWithGitGuard), wired onto every state's bash
   tool by applyStateToolPolicy. Lives in tool/safety/ beside SafeModifier (C8).
+  `GIT_ALLOWLIST_ENTRIES` is the one enumeration of allowed subcommands: the
+  block-time summary and the GIT instruction in STATE_REGISTRY both derive
+  from it via `gitAllowlistGuidance()`, and a parity test keeps the entries
+  in lockstep with the enforcement case list. A block is signaled to the
+  harness through structured result `details.gitGuardBlocked` (the
+  `[GIT GUARD]` text prefix is model-facing only).
 - **isAbortError** (`src/core/agent/abort.ts`) — the one "user pressed Esc"
   predicate (name primary, 'aborted' fallback).
 - **Two locators, disambiguated** — `CodeGraphLocator` (`core/graph/locator.ts`)
-  is the harness's SQLite BM25+call-graph locator (one per run, in RunConfig);
-  `astLocatorTool` (`tool/locator.ts`) is the model-facing AST search tool.
+  is the harness's SQLite BM25+call-graph locator (one per run, built by
+  RunSetup; RunConfig.locator is explicitly nullable — tests pass `null` for
+  "no graph" and steps never lazily memoize one); `astLocatorTool`
+  (`tool/locator.ts`) is the model-facing AST search tool.
   IGNORE_DIRS (`core/graph/constants.ts`) is the one ignore list for both,
   the tree walker, and the graph builder. Both extract symbols through ONE
   walker: `extractSymbols` (`core/graph/symbols.ts`) — union visiting,
   per-consumer filtering (qualified vs bare names, constructors) (C15).
 - **MU_AGENT_DIR** (`config/defaults.ts`) — the one '.mu-agent' literal.
+- **resolveProjectPath** (`tool/safety/paths.ts`) — THE one path-containment
+  check: normalize a model-given path against projectRoot → `{ ok, abs }`.
+  Used by checkpoint creation (builder.ts) and the post-MODIFY locator update
+  (step-runner.ts); checkpoint keys are canonical, so post-check lookups
+  match regardless of the model's path style.
+- **tierForParams** (`core/agent/state-machine.ts`) — the one home of the
+  ≤9B / ≤30B model-tier thresholds; detectModelParams and the TUI header
+  both consume it. **graphExists** (`core/graph/constants.ts`) — the
+  graph.db existence check beside getDbPath (kept better-sqlite3-free so the
+  setup wizard can call it without loading the native module).
+- **compactLoopMessages** (`core/compaction/index.ts`) — in-loop context
+  compaction as one function (fixed head/tail policy, maxTokens the only
+  knob); the old ContextCompactor class collapsed onto it.
 - **TUI modules** — `blocks.ts` (11 exported view classes, I/O-free
   constructors), `run-view.ts` (RunView: per-run view-model behind the
   RunViewHost seam — insertBeforeLoader/insertBeforeEditor/removeComponent/

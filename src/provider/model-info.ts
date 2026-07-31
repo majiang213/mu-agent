@@ -1,3 +1,5 @@
+import type { Model } from '@earendil-works/pi-ai';
+
 const FALLBACK_CONTEXT = 131072;
 
 /**
@@ -159,4 +161,33 @@ export async function fetchContextLength(
     return fetchOpenAICompatContextLength(baseUrl, modelName, apiKey);
   }
   return fetchOpenAICompatContextLength(baseUrl, modelName, apiKey);
+}
+
+/**
+ * Assemble the pi-ai Model for a run: context length probed dynamically,
+ * maxTokens derived from contextRatio. Provider facts live in this module —
+ * buildModel moved here from step-runner.ts, where it was a stowaway whose
+ * only caller is RunSetup (round-4 hygiene).
+ */
+export async function buildModel(
+  modelName: string,
+  provider: string,
+  baseUrl: string,
+  contextRatio: number,
+  apiKey?: string,
+): Promise<Model<'openai-completions'>> {
+  const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+  const contextWindow = await fetchContextLength(provider, baseUrl, modelName, apiKey);
+  return {
+    id: modelName,
+    name: modelName,
+    api: 'openai-completions',
+    provider,
+    baseUrl: apiBase,
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow,
+    maxTokens: Math.floor(contextWindow * (1 - contextRatio)),
+  };
 }

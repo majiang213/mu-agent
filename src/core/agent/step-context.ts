@@ -13,8 +13,11 @@ export function applyStateToolPolicy(tools: AgentTool[]): AgentTool[] {
 }
 
 /**
- * Per-step / per-branch RunConfig fork semantics — one place that knows
- * what is shared across the whole run versus isolated per step.
+ * RunConfig fork semantics — the one place that knows what is shared across
+ * the whole run versus isolated per fork. Every isolated execution forks
+ * through here: parallel branches (step-runner) AND Heavy Thinking samples
+ * (sampler) — the sampler used to hand-roll this same spread, so a new
+ * per-fork field would have had to be applied twice (round-4, candidate 2).
  *
  * SHARED (forks carry the parent's reference):
  * - safeModifier — the checkpoint store. Parallel branches must NOT fork it:
@@ -23,15 +26,16 @@ export function applyStateToolPolicy(tools: AgentTool[]): AgentTool[] {
  *   silently restored nothing. (Architecture review 2026-07-30, candidate 3.)
  * - env / model / projectRoot / safetyConfig / apiKey
  *
- * FORKED per parallel branch:
- * - stateMachine — cloned, so branch file-count limits are independent.
+ * FORKED per isolated execution:
+ * - stateMachine — cloned, so file-count limits are independent per branch
+ *   and per sample.
  *
  * Temperature is per-step, not per-fork: runStep / runReasonAttempt spread
  * RunConfig before building their agent, so runStepAgent's retry-time
  * escalation writes to a step-local copy — the shared RunConfig is never
  * mutated (third-pass review, candidate 14).
  */
-export function forkParallelBranchConfig(cfg: RunConfig): RunConfig {
+export function forkRunConfig(cfg: RunConfig): RunConfig {
   return { ...cfg, stateMachine: cfg.stateMachine.clone() };
 }
 

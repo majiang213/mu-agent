@@ -1,6 +1,7 @@
-import type { Agent } from '@earendil-works/pi-agent-core';
+import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import type { StateMachineAgent } from './state-machine.js';
+import type { StagnationDetector } from '../cognitive/index.js';
 import type { EnvContext } from '../prompts/agent.js';
 import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';
 import type { SafeModifier } from '../../tool/safety/index.js';
@@ -57,6 +58,45 @@ export interface Mission {
   state: 'pending' | 'running' | 'completed' | 'failed';
 }
 
+/** Everything needed to build and wire one step's Agent (StepAgentDriver). */
+export interface StepAgentBuildInput {
+  systemPrompt: string;
+  initialMessages: AgentMessage[];
+  state: State;
+  cfg: RunConfig;
+  tools: AgentTool[];
+  readFiles?: Set<string>;
+  stagnationDetector: StagnationDetector;
+  onLlmText: (text: string) => void;
+  onEvent?: (event: ExecutionEvent) => void;
+  onTurnEndComplete?: () => void;
+}
+
+export interface DriveUntilCompleteOptions {
+  /** True once the state's complete() tool call has been captured. */
+  hasCaptured: () => boolean;
+  /** Per-state steer guidance for the one reminder round. */
+  reminderSteer: string;
+}
+
+/**
+ * The one collaborator runStep orchestrates (round-4, candidate 5): build a
+ * wired step agent, then drive it until complete() is captured. Tests fake
+ * this seam instead of mocking the module graph (builder / prompts /
+ * cognitive / locator …). The default implementation composes builder.ts +
+ * the driver functions in reason-runner.ts (see defaultStepDriver).
+ */
+export interface StepAgentDriver {
+  buildAgent(input: StepAgentBuildInput): Agent;
+  driveUntilComplete(
+    agent: Agent,
+    input: string,
+    cfg: RunConfig,
+    stagnationDetector: StagnationDetector,
+    options: DriveUntilCompleteOptions,
+  ): Promise<void>;
+}
+
 /**
  * Everything a run needs (built once by buildRunSetup). Field roles:
  *
@@ -78,8 +118,13 @@ export interface RunConfig {
   stateMachine: StateMachineAgent;
   safeModifier: SafeModifier;
   lspClient?: LspClient;
-  /** One locator per run (BM25 cache survives across steps); closed at cleanup. */
-  locator?: CodeGraphLocator;
+  /**
+   * One locator per run (BM25 cache survives across steps); built by
+   * buildRunSetup and closed at cleanup. Explicitly nullable — tests pass
+   * null for "no graph". Never lazily memoized by steps (the old ??=
+   * fallback mutated this read-only object; round-4, candidate 6).
+   */
+  locator: CodeGraphLocator | null;
   // ── per-run settings ──
   safetyConfig: SafetyConfig;
   env: EnvContext;
@@ -89,6 +134,8 @@ export interface RunConfig {
   apiKey: string;
   projectRoot: string;
   heavyThinking?: HeavyThinkingConfig;
+  /** Test seam: replace runStep's build+drive collaborator (default: defaultStepDriver). */
+  stepDriver?: StepAgentDriver;
   // ── hooks ──
   registerAgent?: (agent: Agent) => void;
   unregisterAgent?: (agent: Agent) => void;

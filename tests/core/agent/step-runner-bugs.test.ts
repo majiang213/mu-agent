@@ -72,9 +72,7 @@ vi.mock('../../../src/tool/complete.js', () => ({
 }));
 
 vi.mock('../../../src/core/compaction/index.js', () => ({
-  ContextCompactor: vi.fn(function () {
-    return { compact: vi.fn((msgs: unknown[]) => ({ messages: msgs })) };
-  }),
+  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
   compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
 }));
 
@@ -132,6 +130,7 @@ function makeCfg(maxRetries = 3): RunConfig {
     model: {} as RunConfig['model'],
     stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
+    locator: null,
     safeModifier: {
       createCheckpoint: vi.fn(),
       restoreAndClearWhere: vi.fn(async () => {}),

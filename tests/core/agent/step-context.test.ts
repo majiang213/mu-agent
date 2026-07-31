@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { forkParallelBranchConfig, findOverlappingEdits } from '../../../src/core/agent/step-context.js';
+import { forkRunConfig, findOverlappingEdits } from '../../../src/core/agent/step-context.js';
 import { parseEditedFiles } from '../../../src/core/step-outputs.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
 
@@ -17,23 +17,23 @@ function makeCfg(): RunConfig {
   } as unknown as RunConfig;
 }
 
-describe('forkParallelBranchConfig', () => {
+describe('forkRunConfig', () => {
   it('shares the safeModifier checkpoint store with the parent (rollback sees branch edits)', () => {
     const cfg = makeCfg();
-    const branch = forkParallelBranchConfig(cfg);
+    const branch = forkRunConfig(cfg);
     expect(branch.safeModifier).toBe(cfg.safeModifier);
   });
 
   it('clones the state machine (branch file-count limits are independent)', () => {
     const cfg = makeCfg();
-    const branch = forkParallelBranchConfig(cfg);
+    const branch = forkRunConfig(cfg);
     expect(branch.stateMachine).not.toBe(cfg.stateMachine);
     expect((branch.stateMachine as unknown as { marker: string }).marker).toBe('cloned-state-machine');
   });
 
   it('is a new object (per-branch temperature mutations stay local)', () => {
     const cfg = makeCfg();
-    const branch = forkParallelBranchConfig(cfg);
+    const branch = forkRunConfig(cfg);
     expect(branch).not.toBe(cfg);
     branch.temperature = 0.5;
     expect(cfg.temperature).toBe(0.1);

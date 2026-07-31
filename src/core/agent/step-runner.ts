@@ -1,44 +1,17 @@
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
-import type { Model } from '@earendil-works/pi-ai';
-import { resolve as pathResolve, relative } from 'node:path';
 import { StagnationDetector } from '../cognitive/index.js';
-import { fetchContextLength } from '../../provider/model-info.js';
-import { CodeGraphLocator } from '../graph/locator.js';
 import { buildCompleteTool } from '../../tool/complete.js';
+import { resolveProjectPath } from '../../tool/safety/paths.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
-import { buildStepAgent, subscribeStepEvents } from './builder.js';
-import { runReasonAttempt, runStepAgent } from './reason-runner.js';
+import { defaultStepDriver, runReasonAttempt } from './reason-runner.js';
 import { planWithHeavyThinking } from '../heavy/planner.js';
 import { State } from '../types.js';
 import type { ExecutionEvent, Mission, RunConfig } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 import { parseDirectives } from './directives.js';
-import { forkParallelBranchConfig, findOverlappingEdits, applyStateToolPolicy } from './step-context.js';
-import { parseEditedFiles } from '../step-outputs.js';
-
-export async function buildModel(
-  modelName: string,
-  provider: string,
-  baseUrl: string,
-  contextRatio: number,
-  apiKey?: string,
-): Promise<Model<'openai-completions'>> {
-  const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
-  const contextWindow = await fetchContextLength(provider, baseUrl, modelName, apiKey);
-  return {
-    id: modelName,
-    name: modelName,
-    api: 'openai-completions',
-    provider,
-    baseUrl: apiBase,
-    reasoning: false,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow,
-    maxTokens: Math.floor(contextWindow * (1 - contextRatio)),
-  };
-}
+import { forkRunConfig, findOverlappingEdits, applyStateToolPolicy } from './step-context.js';
+import { editedFilesFromArgs, parseEditedFiles } from '../step-outputs.js';
 
 /** Options threaded through step execution (4c — replaces 7-9 positional params). */
 export interface StepRunOptions {
@@ -94,13 +67,11 @@ export async function runStep(
   const stepCfg = { ...cfg };
 
   let stepEnv = cfg.env;
-  if (STATE_REGISTRY[step.state]?.needsCodeContext === true) {
+  if (STATE_REGISTRY[step.state]?.needsCodeContext === true && cfg.locator !== null) {
     try {
-      // One locator per run (cfg.locator) — its BM25 cache survives across steps.
-      // The ??= fallback only fires in tests; memoizing keeps the instance
-      // owned (and closable) instead of leaking one per call.
-      const locator = (cfg.locator ??= new CodeGraphLocator(cfg.projectRoot));
-      const result = locator.locate(step.focus);
+      // One locator per run, built by RunSetup — its BM25 cache survives
+      // across steps. null means "no graph" (tests), so skip enrichment.
+      const result = cfg.locator.locate(step.focus);
       stepEnv = {
         ...cfg.env,
         projectTree: result.tree,
@@ -135,31 +106,28 @@ export async function runStep(
   const readFiles = new Set<string>();
   const memoryTools: AgentTool[] =
     memorySearchTool && STATE_REGISTRY[step.state]?.memorySearchTool === true ? [memorySearchTool] : [];
-  const agent = buildStepAgent(
+  // One injected collaborator (round-4, candidate 5): tests fake the driver
+  // through this seam instead of mocking the module graph.
+  const driver = cfg.stepDriver ?? defaultStepDriver;
+  const agent = driver.buildAgent({
     systemPrompt,
-    [],
-    stepCfg,
-    onEvent,
-    [...allowedTools, completeTool, ...memoryTools],
+    initialMessages: [],
+    state: step.state,
+    cfg: stepCfg,
+    tools: [...allowedTools, completeTool, ...memoryTools],
     readFiles,
-  );
-
-  subscribeStepEvents(
-    agent,
-    step.state,
     stagnationDetector,
-    stepCfg,
-    (text) => {
+    onLlmText: (text) => {
       llmText = text;
     },
     onEvent,
-    () => {
+    onTurnEndComplete: () => {
       if (capturedComplete !== null) {
         cfg.stateMachine.transitionTo(State.DONE);
         onEvent?.({ type: 'state_change', from: step.state, to: State.DONE });
       }
     },
-  );
+  });
 
   onEvent?.({ type: 'task_start', taskIndex: stepIndex, taskTotal: stepTotal, description: step.focus });
   onEvent?.({ type: 'state_change', from: cfg.stateMachine.getCurrentState(), to: step.state });
@@ -167,16 +135,10 @@ export async function runStep(
   const input = buildUserPrompt(step.state, mission.description, step.focus, stepResults);
   cfg.registerAgent?.(agent);
   try {
-    await runStepAgent(agent, input, stepCfg, stagnationDetector);
-
-    if (capturedComplete === null) {
-      agent.steer({
-        role: 'steer',
-        content: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${STATE_REGISTRY[step.state]?.reminderFields ?? 'see system prompt'}.`,
-        timestamp: Date.now(),
-      });
-      await runStepAgent(agent, '[REMINDER] Call complete() now.', stepCfg, stagnationDetector);
-    }
+    await driver.driveUntilComplete(agent, input, stepCfg, stagnationDetector, {
+      hasCaptured: () => capturedComplete !== null,
+      reminderSteer: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${STATE_REGISTRY[step.state]?.reminderFields ?? 'see system prompt'}.`,
+    });
   } finally {
     cfg.unregisterAgent?.(agent);
   }
@@ -185,18 +147,16 @@ export async function runStep(
 
   if (step.state === State.MODIFY && capturedComplete !== null) {
     try {
-      const edited = Array.isArray(capturedComplete['edited']) ? (capturedComplete['edited'] as string[]) : [];
+      const edited = editedFilesFromArgs(capturedComplete);
       if (edited.length > 0) {
-        const absPaths = edited
-          .map((f) => (f.startsWith('/') ? f : `${cfg.projectRoot}/${f}`))
-          .map((f) => pathResolve(f));
-        const safePaths = absPaths.filter((f) => {
-          const rel = relative(cfg.projectRoot, f);
-          return rel && !rel.startsWith('..') && !rel.startsWith('/');
-        });
-        if (safePaths.length > 0) {
-          const locator = (cfg.locator ??= new CodeGraphLocator(cfg.projectRoot));
-          locator.updateFiles(safePaths);
+        // THE containment check (tool/safety/paths.ts) — same normalized
+        // resolution the checkpoint path uses.
+        const safePaths = edited
+          .map((f) => resolveProjectPath(cfg.projectRoot, f))
+          .filter((r): r is { ok: true; abs: string } => r.ok)
+          .map((r) => r.abs);
+        if (safePaths.length > 0 && cfg.locator !== null) {
+          cfg.locator.updateFiles(safePaths);
         }
       }
     } catch (e) {
@@ -293,9 +253,9 @@ export async function executeSteps(
 
       const settled = await Promise.allSettled(
         parallelSteps.map((step) => {
-          // forkParallelBranchConfig: cloned state machine per branch, but a
+          // forkRunConfig: cloned state machine per branch, but a
           // SHARED safeModifier — rollback must see every branch's checkpoints.
-          const branchCfg = forkParallelBranchConfig(cfg);
+          const branchCfg = forkRunConfig(cfg);
           const snapshot = [...allStepResults, ...thisRoundResults];
           return runStep(step, i, total, mission, snapshot, branchCfg, {
             onEvent: branchOnEvent,

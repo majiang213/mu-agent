@@ -34,6 +34,7 @@ function makeCfg(): RunConfig {
     model: makeModel(),
     stateMachine: {} as RunConfig['stateMachine'],
     safetyConfig: {},
+    locator: null,
     safeModifier: {} as RunConfig['safeModifier'],
     env: {} as RunConfig['env'],
     temperature: 0.1,

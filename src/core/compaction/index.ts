@@ -4,18 +4,13 @@ import { completeSimple } from '@earendil-works/pi-ai';
 import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
 
-export interface CompactionConfig {
-  maxTokens: number;
-  preserveFirstN: number;
-  preserveLastN: number;
-  minMessagesToCompact: number;
-}
-
-export interface CompactionResult {
-  compacted: boolean;
-  originalCount: number;
-  messages: AgentMessage[];
-}
+// In-loop compaction policy — fixed constants, not config: the only consumer
+// (builder.ts transformContext) ever tuned maxTokens; the class wrapper and
+// its remaining knobs had no production reader and were collapsed into the
+// one function below (round-4 hygiene).
+const PRESERVE_FIRST_N = 2;
+const PRESERVE_LAST_N = 6;
+const MIN_MESSAGES_TO_COMPACT = 10;
 
 function isSteerMessage(msg: AgentMessage): boolean {
   return msg.role === 'steer';
@@ -66,49 +61,20 @@ function compressMessage(msg: AgentMessage): AgentMessage {
   return msg;
 }
 
-export class ContextCompactor {
-  private config: CompactionConfig;
-
-  constructor(config: Partial<CompactionConfig> = {}) {
-    this.config = {
-      maxTokens: 4000,
-      preserveFirstN: 2,
-      preserveLastN: 6,
-      minMessagesToCompact: 10,
-      ...config,
-    };
+/**
+ * Compact an in-loop message list when its estimated size exceeds maxTokens:
+ * preserve head + tail, drop middle steer messages, compress the rest.
+ * Returns the input unchanged when under budget.
+ */
+export function compactLoopMessages(messages: AgentMessage[], maxTokens: number): AgentMessage[] {
+  if (messages.length < MIN_MESSAGES_TO_COMPACT || estimateTokens(messages) <= maxTokens) {
+    return messages;
   }
-
-  private shouldCompact(messages: AgentMessage[]): boolean {
-    if (messages.length < this.config.minMessagesToCompact) return false;
-    return estimateTokens(messages) > this.config.maxTokens;
-  }
-
-  compact(messages: AgentMessage[]): CompactionResult {
-    if (!this.shouldCompact(messages)) {
-      return {
-        compacted: false,
-        originalCount: messages.length,
-        messages,
-      };
-    }
-
-    const { preserveFirstN, preserveLastN } = this.config;
-    const total = messages.length;
-    const head = messages.slice(0, preserveFirstN);
-    const tail = messages.slice(-preserveLastN);
-    const middle = messages.slice(preserveFirstN, total - preserveLastN);
-
-    const compressed = middle.filter((m) => !isSteerMessage(m)).map((m) => compressMessage(m));
-
-    const result: AgentMessage[] = [...head, ...compressed, ...tail];
-
-    return {
-      compacted: true,
-      originalCount: total,
-      messages: result,
-    };
-  }
+  const head = messages.slice(0, PRESERVE_FIRST_N);
+  const tail = messages.slice(-PRESERVE_LAST_N);
+  const middle = messages.slice(PRESERVE_FIRST_N, messages.length - PRESERVE_LAST_N);
+  const compressed = middle.filter((m) => !isSteerMessage(m)).map((m) => compressMessage(m));
+  return [...head, ...compressed, ...tail];
 }
 
 const SUMMARY_TRIGGER_COUNT = 16;

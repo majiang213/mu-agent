@@ -9,8 +9,6 @@ import { episodeColumns, type EpisodeRow } from './types.js';
 import type { ExecutedStep, StateResult } from '../types.js';
 import type { Mission } from '../agent/types.js';
 
-export { findGitRoot, initMemoryDb } from './db.js';
-
 /**
  * MemoryStore — the real interface of the three-layer memory system
  * (episodes + entities + semantic facts over SQLite).

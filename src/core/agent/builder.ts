@@ -3,11 +3,23 @@ import type { AgentEvent, AgentMessage, AgentTool } from '@earendil-works/pi-age
 import { streamSimple } from '@earendil-works/pi-ai';
 
 import { runEditPostCheck } from '../../tool/safety/modification.js';
+import { resolveProjectPath } from '../../tool/safety/paths.js';
 import { StagnationDetector } from '../cognitive/index.js';
-import { ContextCompactor } from '../compaction/index.js';
+import { compactLoopMessages } from '../compaction/index.js';
 import { DEFAULT_MAX_FILES_PER_TASK } from '../../config/defaults.js';
 import type { ExecutionEvent, RunConfig } from './types.js';
 import { State } from '../types.js';
+
+/**
+ * The one SteerMessage shape. Every nudge to a running agent — complete()
+ * reminders, post-check guidance, stagnation warnings — goes through here so
+ * the message construction has a single home (round-4 driver consolidation).
+ * Lives beside buildStepAgent/subscribeStepEvents: Agent-primitive shaping is
+ * this module's vocabulary, and reason-runner.ts already depends on it.
+ */
+export function steer(agent: Agent, content: string): void {
+  agent.steer({ role: 'steer', content, timestamp: Date.now() });
+}
 
 export function buildStepAgent(
   systemPrompt: string,
@@ -72,12 +84,14 @@ export function buildStepAgent(
         const args = toolCtx.args as Record<string, unknown>;
         const filePath = typeof args['path'] === 'string' ? args['path'] : null;
         if (filePath) {
-          const resolved = filePath.startsWith('/') ? filePath : `${cfg.projectRoot}/${filePath}`;
-          if (!resolved.startsWith(cfg.projectRoot)) {
+          // THE containment check (tool/safety/paths.ts) — normalized, so the
+          // checkpoint key is canonical and post-check lookups match.
+          const resolved = resolveProjectPath(cfg.projectRoot, filePath);
+          if (!resolved.ok) {
             return { block: true, reason: `Path traversal blocked: ${filePath} is outside project root` };
           }
           try {
-            await cfg.safeModifier.createCheckpoint(resolved, cfg.stateMachine);
+            await cfg.safeModifier.createCheckpoint(resolved.abs, cfg.stateMachine);
           } catch (e) {
             console.warn('[SafeModifier] createCheckpoint failed for', filePath, ':', e);
             return { block: true, reason: '[SafeModifier] Cannot create checkpoint: ' + String(e) };
@@ -90,19 +104,21 @@ export function buildStepAgent(
       if (toolCtx.toolCall.name === 'complete' && !toolCtx.isError) {
         agentRef?.abort();
       }
-      // Gap 84 F1: a `[GIT GUARD]` block from wrapWithGitGuard (tool/safety/
-      // git-guard.ts) signals a disallowed git command. The guard returns a
-      // text result (no throw, no terminate), so the agent loop would
-      // otherwise let the model iterate obfuscated variants within the same
-      // step. Since the guard has no agent ref, detect the block marker here
-      // (where agentRef IS available) and hard-abort the turn. This defeats
-      // the iteration attack regardless of parallel batching.
+      // Gap 84 F1: a block from wrapWithGitGuard (tool/safety/git-guard.ts)
+      // signals a disallowed git command. The guard returns a non-throwing
+      // result whose STRUCTURED details carry `{ gitGuardBlocked: true }` —
+      // the model-facing text keeps the `[GIT GUARD]` guidance, the harness
+      // signal rides the structured channel (no text grepping). Since the
+      // guard has no agent ref, detect the block here (where agentRef IS
+      // available) and hard-abort the turn, defeating the iteration attack
+      // regardless of parallel batching.
       if (toolCtx.toolCall.name === 'bash' && !toolCtx.isError) {
-        const bashContent = toolCtx.result?.content;
-        const bashText = Array.isArray(bashContent)
-          ? bashContent.flatMap((c) => (c && c.type === 'text' && c.text ? [c.text as string] : [])).join('\n')
-          : '';
-        if (bashText.startsWith('[GIT GUARD]')) {
+        const details = (toolCtx.result as { details?: unknown } | undefined)?.details;
+        const blocked =
+          details !== null &&
+          typeof details === 'object' &&
+          (details as { gitGuardBlocked?: unknown }).gitGuardBlocked === true;
+        if (blocked) {
           agentRef?.abort();
           return toolCtx.result;
         }
@@ -135,8 +151,7 @@ export function buildStepAgent(
       const result =
         latestSteerIdx < 0 ? messages : messages.filter((m, i) => m.role !== 'steer' || i === latestSteerIdx);
       const inLoopBudget = Math.floor(cfg.model.contextWindow * cfg.contextRatio);
-      const compactor = new ContextCompactor({ maxTokens: inLoopBudget });
-      return compactor.compact(result).messages;
+      return compactLoopMessages(result, inLoopBudget);
     },
     convertToLlm: (messages) => {
       return messages.flatMap((m) => {
@@ -153,15 +168,21 @@ export function buildStepAgent(
   return agent;
 }
 
+/** Step-event subscriptions, options-object style: absent means "not interested". */
+export interface StepEventCallbacks {
+  onLlmText?: (text: string) => void;
+  onEvent?: (event: ExecutionEvent) => void;
+  onTurnEndComplete?: () => void;
+}
+
 export function subscribeStepEvents(
   agent: Agent,
   state: State,
   stagnationDetector: StagnationDetector,
   cfg: RunConfig,
-  onLlmText: (text: string) => void,
-  onEvent?: (event: ExecutionEvent) => void,
-  onTurnEndComplete?: () => void,
+  callbacks: StepEventCallbacks = {},
 ): void {
+  const { onLlmText, onEvent, onTurnEndComplete } = callbacks;
   const pendingModifyPaths = new Map<string, string>();
   let stagnationWarnings = 0;
 
@@ -183,7 +204,14 @@ export function subscribeStepEvents(
       if (event.toolName === 'edit' || event.toolName === 'write') {
         const args = event.args as Record<string, unknown>;
         const fp = typeof args['path'] === 'string' ? args['path'] : null;
-        if (fp) pendingModifyPaths.set(event.toolCallId, fp);
+        if (fp) {
+          // Store the RESOLVED path so the post-check's hasCheckpoint lookup
+          // hits the checkpoint key created in beforeToolCall — raw relative
+          // args never matched the resolved key, silently skipping the
+          // post-edit damage check for relative-path edits.
+          const resolved = resolveProjectPath(cfg.projectRoot, fp);
+          if (resolved.ok) pendingModifyPaths.set(event.toolCallId, resolved.abs);
+        }
       }
     }
 
@@ -218,11 +246,7 @@ export function subscribeStepEvents(
             if (!ok) {
               stagnationDetector.recordError(`post_check_failed:${filePath}`);
               if (steerMessage) {
-                agent.steer({
-                  role: 'steer',
-                  content: steerMessage,
-                  timestamp: Date.now(),
-                });
+                steer(agent, steerMessage);
               }
             }
           })
@@ -272,7 +296,7 @@ export function subscribeStepEvents(
             .trim();
           if (joined) {
             onEvent?.({ type: 'message_end', content: joined });
-            onLlmText(joined);
+            onLlmText?.(joined);
           }
         }
       }
@@ -293,11 +317,7 @@ export function subscribeStepEvents(
           } else {
             stagnationWarnings++;
             stagnationDetector.reset();
-            agent.steer({
-              role: 'steer',
-              content: `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion ?? ''}`,
-              timestamp: Date.now(),
-            });
+            steer(agent, `[STAGNATION DETECTED] ${stagnationResult.message}. ${stagnationResult.suggestion ?? ''}`);
           }
         }
         // Reset warning count when agent makes progress (no stagnation this turn)

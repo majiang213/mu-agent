@@ -32,6 +32,16 @@ export function parseEditedFiles(output: string): string[] {
   return stringArray(parseJsonObject(output)?.['edited']);
 }
 
+/**
+ * MODIFY complete() ARGS (pre-serialization, as captured from the tool call)
+ * → edited file list. Same shape knowledge as parseEditedFiles — step-runner
+ * reads the captured args object directly instead of re-rolling the access
+ * inline (round-4, candidate 6).
+ */
+export function editedFilesFromArgs(args: Record<string, unknown>): string[] {
+  return stringArray(args['edited']);
+}
+
 /** LOCATE complete() output → located file paths. */
 export function parseLocateFiles(output: string): string[] {
   const locations = parseJsonObject(output)?.['locations'];

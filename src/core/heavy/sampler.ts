@@ -1,4 +1,5 @@
 import { runReasonAttempt } from '../agent/reason-runner.js';
+import { forkRunConfig } from '../agent/step-context.js';
 import type { StepDirective } from '../types.js';
 import type { RunConfig, Mission, ExecutionEvent } from '../agent/types.js';
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
@@ -155,7 +156,10 @@ async function runOneSample(
   samplerCfg: SamplerConfig,
   onEvent?: (event: ExecutionEvent) => void,
 ): Promise<{ steps: StepDirective[] }> {
-  const isolatedCfg = { ...cfg, stateMachine: cfg.stateMachine.clone() };
+  // One fork home (step-context.ts): shared safeModifier, cloned stateMachine
+  // — same semantics as parallel branches. Temperature was already applied
+  // by the caller's spread above; the fork carries it through.
+  const isolatedCfg = forkRunConfig(cfg);
 
   const sampleOnEvent = (event: ExecutionEvent): void => {
     if (event.type === 'message_thinking_update' || event.type === 'message_thinking_end') {

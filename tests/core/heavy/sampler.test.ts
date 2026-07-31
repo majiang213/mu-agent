@@ -20,7 +20,7 @@ vi.mock('../../../src/core/cognitive/index.js', () => ({
 
 vi.mock('../../../src/core/compaction/index.js', () => ({
   compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
-  ContextCompactor: vi.fn(),
+  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
 }));
 
 vi.mock('../../../src/tool/complete.js', () => ({
@@ -78,6 +78,7 @@ function makeCfg(): RunConfig {
       canModifyMoreFiles: vi.fn(() => true),
     } as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
+    locator: null,
     safeModifier: {
       restoreAndClearWhere: vi.fn(async () => {}),
       createCheckpoint: vi.fn(),

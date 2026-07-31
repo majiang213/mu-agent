@@ -3,6 +3,13 @@ import { State } from '../../../src/core/types.js';
 import type { ExecutedStep, StepDirective } from '../../../src/core/types.js';
 
 vi.mock('../../../src/core/agent/step-runner.js', () => ({
+  runReasonStep: vi.fn(),
+  executeSteps: vi.fn(async () => []),
+  runStep: vi.fn(),
+}));
+
+// buildModel lives in provider/model-info.ts now (round-4 hygiene).
+vi.mock('../../../src/provider/model-info.js', () => ({
   buildModel: vi.fn(async () => ({
     id: 'test-model',
     name: 'test-model',
@@ -15,9 +22,10 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
     contextWindow: 128000,
     maxTokens: 100000,
   })),
-  runReasonStep: vi.fn(),
-  executeSteps: vi.fn(async () => []),
-  runStep: vi.fn(),
+  fetchOllamaParamCount: vi.fn(async () => null),
+  fetchContextLength: vi.fn(async () => 128000),
+  resolveApiKey: vi.fn(() => 'ollama'),
+  OLLAMA_DUMMY_API_KEY: 'ollama',
 }));
 
 vi.mock('../../../src/core/agent/builder.js', () => ({
@@ -58,6 +66,7 @@ function makeCfg() {
       })),
     } as never,
     safetyConfig: {},
+    locator: null,
     safeModifier: { createCheckpoint: vi.fn(), restoreAndClearWhere: vi.fn(async () => {}), restore: vi.fn() } as never,
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
     temperature: 0.7,
