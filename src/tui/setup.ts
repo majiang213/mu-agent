@@ -2,11 +2,10 @@ import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@earendil
 import type { SelectItem } from '@earendil-works/pi-tui';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 
 import { saveConfig, configPaths } from '../config/loader.js';
-import { MU_AGENT_DIR } from '../config/defaults.js';
+import { graphExists } from '../core/graph/constants.js';
 import { getLspStatuses } from '../tool/lsp-status.js';
 import { fetchOllamaModels, fetchOpenAICompatModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
@@ -218,8 +217,7 @@ export class SetupWizard {
 
     this.addStepText('\n  ' + C.ok('Code graph'));
 
-    const dbPath = join(process.cwd(), MU_AGENT_DIR, 'graph.db');
-    const dbExists = existsSync(dbPath);
+    const dbExists = graphExists(process.cwd());
     const statusMsg = dbExists
       ? `\n  ${C.ok('✓')} Code graph exists (graph.db)`
       : `\n  ${C.dim('Code graph not built yet')}`;
@@ -272,7 +270,6 @@ export class SetupWizard {
     this.renderHeader();
 
     const statuses = getLspStatuses(process.cwd());
-    const dbPath = join(process.cwd(), MU_AGENT_DIR, 'graph.db');
 
     const notInstalled = statuses.filter((s) => s.lspStatus === 'not_installed');
     const lspLine =
@@ -282,7 +279,7 @@ export class SetupWizard {
           ? `\n  ${C.ok('✓')} LSP ready`
           : notInstalled.map((s) => `\n  ${C.err('✗')} LSP: ${s.lspServer} not installed`).join('');
 
-    const graphOk = this.graphBuilt ?? existsSync(dbPath);
+    const graphOk = this.graphBuilt ?? graphExists(process.cwd());
     const graphLine = graphOk ? `\n  ${C.ok('✓')} Code graph built` : `\n  ${C.err('✗')} Code graph not built`;
 
     const done = new Text(

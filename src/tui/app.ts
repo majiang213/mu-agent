@@ -3,6 +3,7 @@ import type { Component } from '@earendil-works/pi-tui';
 import { homedir } from 'node:os';
 
 import { ReactAgent } from '../core/agent/index.js';
+import { tierForParams } from '../core/agent/state-machine.js';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { MetricsCollector } from './metrics.js';
 import { C, stateColor, editorTheme } from './theme.js';
@@ -60,7 +61,9 @@ export class TuiApp {
     {
       const provider = options.config.model.provider;
       const modelSize = options.config.model.modelSize;
-      const tier = modelSize != null ? (modelSize <= 9 ? 'small' : modelSize <= 30 ? 'medium' : 'large') : '';
+      // Tier thresholds have one home (state-machine.ts); lowercase only at
+      // this presentation edge.
+      const tier = modelSize != null ? tierForParams(modelSize).toLowerCase() : '';
       this.header.setProviderInfo(provider, tier, 0);
     }
 

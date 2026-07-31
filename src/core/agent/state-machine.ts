@@ -3,31 +3,31 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State, type ModelParams } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 
+/**
+ * The one home of the model-tier thresholds (≤9B SMALL, ≤30B MEDIUM, else
+ * LARGE). The TUI's pre-run header consumes this too — it used to re-derive
+ * the thresholds inline and its copy had already drifted in casing
+ * ('small' vs 'SMALL') (round-4, candidate 4).
+ */
+export function tierForParams(billions: number): ModelParams['tier'] {
+  if (billions <= 9) return 'SMALL';
+  if (billions <= 30) return 'MEDIUM';
+  return 'LARGE';
+}
+
 export function detectModelParams(paramCount: number | null): ModelParams {
   const billions = paramCount !== null ? paramCount / 1e9 : null;
-
-  if (billions !== null && billions <= 9) {
-    return {
-      tier: 'SMALL',
-      paramCount: billions,
-      maxRetries: 1,
-      strictPlanning: true,
-    };
-  } else if (billions !== null && billions <= 30) {
-    return {
-      tier: 'MEDIUM',
-      paramCount: billions,
-      maxRetries: 2,
-      strictPlanning: true,
-    };
-  } else {
-    return {
-      tier: 'LARGE',
-      paramCount: billions ?? 0,
-      maxRetries: 3,
-      strictPlanning: false,
-    };
+  if (billions === null) {
+    return { tier: 'LARGE', paramCount: 0, maxRetries: 3, strictPlanning: false };
   }
+  const tier = tierForParams(billions);
+  if (tier === 'SMALL') {
+    return { tier, paramCount: billions, maxRetries: 1, strictPlanning: true };
+  }
+  if (tier === 'MEDIUM') {
+    return { tier, paramCount: billions, maxRetries: 2, strictPlanning: true };
+  }
+  return { tier, paramCount: billions, maxRetries: 3, strictPlanning: false };
 }
 
 /**

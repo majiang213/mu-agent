@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { MU_AGENT_DIR } from '../../config/defaults.js';
 
@@ -7,6 +8,15 @@ export const GRAPH_DB_FILENAME = 'graph.db';
 /** The one graph.db path — shared by the graph builder and retriever. */
 export function getDbPath(projectRoot: string): string {
   return join(projectRoot, GRAPH_DB_DIRNAME, GRAPH_DB_FILENAME);
+}
+
+/**
+ * Whether the code graph has been built for this root. Lives here (not in
+ * builder.ts) so callers — e.g. the setup wizard — can ask without loading
+ * better-sqlite3, which builder.ts imports eagerly (round-4, candidate 4).
+ */
+export function graphExists(projectRoot: string): boolean {
+  return existsSync(getDbPath(projectRoot));
 }
 
 /**
