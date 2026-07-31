@@ -130,8 +130,11 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
   const trunc = (s: string) => (s.length > 600 ? s.slice(0, 600) + '…' : s);
 
-  // VERIFY: special handling for Gap 41 (path audit) + Gap 43 (multi-MODIFY merge)
+  // VERIFY: special handling for Gap 41 (path audit) + Gap 43 (multi-MODIFY
+  // merge). The state list is the registry's contextNeeds fact; only the
+  // merge/dedup logic lives here.
   if (state === State.VERIFY) {
+    const verifyNeeds = STATE_REGISTRY[State.VERIFY].contextNeeds ?? [];
     const allEdited: string[] = [];
     let lastModify: ExecutedStep | undefined;
     for (const r of previousResults) {
@@ -140,7 +143,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
         allEdited.push(...parseEditedFiles(r.output));
       }
     }
-    const locateDiag = previousResults.filter((r) => r.state === State.LOCATE || r.state === State.DIAGNOSE);
+    const locateDiag = previousResults.filter((r) => r.state !== State.MODIFY && verifyNeeds.includes(r.state));
     const lines: string[] = [];
     if (lastModify) {
       lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(lastModify.output)}`);

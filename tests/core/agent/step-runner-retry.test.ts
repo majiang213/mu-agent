@@ -11,6 +11,7 @@ vi.mock('../../../src/core/agent/builder.js', () => ({
 
 vi.mock('../../../src/tool/safety/git-guard.js', () => ({
   wrapWithGitGuard: vi.fn((t) => t),
+  gitAllowlistGuidance: vi.fn(() => 'status, log, diff'),
 }));
 
 // Keep the retry loop fast: real retryDelayMs logic, no-op sleep.

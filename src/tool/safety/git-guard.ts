@@ -45,10 +45,56 @@ export interface GitGuardSpec {
   isForbidden: (command: string) => string | null;
 }
 
+/**
+ * THE allowlist enumeration — one home (round-4, candidate 7). Enforcement
+ * (inspectGitInvocation's case list), the block-time summary below, and the
+ * model-facing GIT instruction in state-registry.ts all derive their "safe
+ * operations" list from these entries. Previously the three were hand-kept
+ * and had already drifted (the instruction omitted `stash show`, shortlog,
+ * describe, reflog). The per-subcommand flag policy stays in the case list —
+ * a parity test (tests/core/git-state.test.ts) asserts every entry here is
+ * enforced as allowed.
+ */
+export interface GitAllowlistEntry {
+  /** The allowlisted subcommand, exactly as matched by inspectGitInvocation. */
+  subcommand: string;
+  /** Model-facing guidance phrase for the prose enumeration. */
+  guidance: string;
+}
+
+export const GIT_ALLOWLIST_ENTRIES: readonly GitAllowlistEntry[] = [
+  { subcommand: 'status', guidance: 'status' },
+  { subcommand: 'log', guidance: 'log' },
+  { subcommand: 'diff', guidance: 'diff' },
+  { subcommand: 'show', guidance: 'show' },
+  { subcommand: 'blame', guidance: 'blame' },
+  { subcommand: 'shortlog', guidance: 'shortlog' },
+  { subcommand: 'describe', guidance: 'describe' },
+  { subcommand: 'reflog', guidance: 'reflog (show only)' },
+  { subcommand: 'remote', guidance: 'remote -v / remote show / remote get-url' },
+  { subcommand: 'branch', guidance: 'branch (no -D)' },
+  { subcommand: 'add', guidance: 'add' },
+  { subcommand: 'commit', guidance: 'commit (no --amend / --no-verify / -n)' },
+  { subcommand: 'checkout', guidance: 'checkout' },
+  { subcommand: 'switch', guidance: 'switch' },
+  { subcommand: 'stash', guidance: 'stash push/pop/apply/list/show/save (no drop/clear)' },
+  { subcommand: 'tag', guidance: 'tag' },
+  { subcommand: 'fetch', guidance: 'fetch' },
+  { subcommand: 'cherry-pick', guidance: 'cherry-pick' },
+  { subcommand: 'revert', guidance: 'revert' },
+  { subcommand: 'merge', guidance: 'merge' },
+  { subcommand: 'push', guidance: 'push (safe refspec to NON-DEFAULT branches only)' },
+  { subcommand: 'config', guidance: 'config reads (no alias.* writes)' },
+];
+
+/** The "safe operations" enumeration, derived from GIT_ALLOWLIST_ENTRIES. */
+export function gitAllowlistGuidance(): string {
+  return GIT_ALLOWLIST_ENTRIES.map((e) => e.guidance).join(', ');
+}
+
 const GIT_GUARD_SUMMARY =
-  'Allowlist: git read-ops, add, safe commit, branch -d/--delete, checkout/switch, ' +
-  'stash push/pop/apply/list/show/save, tag, fetch, cherry-pick, revert, merge, and ' +
-  'push with safe refspec to non-default branch. REJECT: shell metacharacters, non-`git` ' +
+  `Allowlist: ${gitAllowlistGuidance()}. ` +
+  'REJECT: shell metacharacters, non-`git` ' +
   'first token, force push, push to main/master/HEAD, --mirror/--all/--delete refspec, ' +
   'reset, rebase, clean, filter-branch, replace, fast-import, update-ref, symbolic-ref, ' +
   'reflog expire, stash drop/clear, branch -D, commit --no-verify/-n/--amend, config alias.* writes.';
@@ -471,7 +517,9 @@ export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
               text: `[GIT GUARD] Blocked: command not on git allowlist (${reason}).\n${GIT_HARD_DENY.summary}`,
             },
           ],
-          details: undefined,
+          // Structured abort signal for the harness (afterToolCall in
+          // builder.ts reads this instead of grepping the model-facing text).
+          details: { gitGuardBlocked: true, reason },
         };
       }
       return originalExecute(toolCallId, params, signal, onUpdate);

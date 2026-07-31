@@ -3,7 +3,12 @@ import { Type } from '@sinclair/typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../../src/core/types.js';
 import { STATE_REGISTRY, GIT_OPERATIONS } from '../../src/core/state-registry.js';
-import { GIT_HARD_DENY, wrapWithGitGuard } from '../../src/tool/safety/git-guard.js';
+import {
+  GIT_HARD_DENY,
+  GIT_ALLOWLIST_ENTRIES,
+  gitAllowlistGuidance,
+  wrapWithGitGuard,
+} from '../../src/tool/safety/git-guard.js';
 import type { GitGuardSpec } from '../../src/tool/safety/git-guard.js';
 import { buildCompleteTool } from '../../src/tool/complete.js';
 
@@ -408,5 +413,79 @@ describe('Gap 79: State.GIT — state machine integration', () => {
     // so assert the instruction mentions conflicts re-plan behavior.
     expect(def.instruction).toContain('conflicts');
     expect(def.reminderFields).toBe('operation (string), result (string)');
+  });
+});
+
+describe('round-4 candidate 7: allowlist entries parity (enumeration has one home)', () => {
+  /** Benign invocations — one per entry — that enforcement MUST allow. */
+  const benignBySubcommand: Record<string, string> = {
+    status: 'git status',
+    log: 'git log --oneline',
+    diff: 'git diff',
+    show: 'git show',
+    blame: 'git blame file.ts',
+    shortlog: 'git shortlog',
+    describe: 'git describe',
+    reflog: 'git reflog',
+    remote: 'git remote -v',
+    branch: 'git branch -a',
+    add: 'git add .',
+    commit: 'git commit -m msg',
+    checkout: 'git checkout -b feat',
+    switch: 'git switch feat',
+    stash: 'git stash list',
+    tag: 'git tag v1',
+    fetch: 'git fetch origin',
+    'cherry-pick': 'git cherry-pick abc123',
+    revert: 'git revert abc123',
+    merge: 'git merge feat',
+    push: 'git push origin feat',
+    config: 'git config user.name',
+  };
+
+  it('every entry in GIT_ALLOWLIST_ENTRIES is enforced as allowed', () => {
+    for (const entry of GIT_ALLOWLIST_ENTRIES) {
+      const cmd = benignBySubcommand[entry.subcommand];
+      expect(cmd, `no benign case for ${entry.subcommand}`).toBeDefined();
+      expect(GIT_HARD_DENY.isForbidden(cmd!), `entry not enforced as allowed: ${entry.subcommand}`).toBeNull();
+    }
+  });
+
+  it('every entry appears in the derived guidance (summary + instruction derive from it)', () => {
+    const guidance = gitAllowlistGuidance();
+    for (const entry of GIT_ALLOWLIST_ENTRIES) {
+      expect(guidance).toContain(entry.guidance);
+    }
+    // The model-facing GIT instruction consumes the same derivation.
+    expect(STATE_REGISTRY[State.GIT].instruction).toContain(gitAllowlistGuidance());
+    // And the block-time summary too.
+    expect((GIT_HARD_DENY as GitGuardSpec).summary).toContain(gitAllowlistGuidance());
+  });
+
+  it('the parity table covers exactly the enforced allowlist (no stale entries)', () => {
+    // Each benign case maps 1:1 to an entry — a case added to the switch
+    // without a table entry would leave the table incomplete; this count
+    // check forces the two to grow together.
+    expect(Object.keys(benignBySubcommand).sort()).toEqual(GIT_ALLOWLIST_ENTRIES.map((e) => e.subcommand).sort());
+  });
+
+  it('known-dangerous subcommands stay default-denied', () => {
+    const denied = [
+      'reset',
+      'rebase',
+      'clean',
+      'gc',
+      'filter-branch',
+      'replace',
+      'fast-import',
+      'update-ref',
+      'symbolic-ref',
+      'worktree',
+      'bisect',
+      'submodule',
+    ];
+    for (const bad of denied) {
+      expect(GIT_HARD_DENY.isForbidden(`git ${bad}`), `${bad} must stay denied`).not.toBeNull();
+    }
   });
 });

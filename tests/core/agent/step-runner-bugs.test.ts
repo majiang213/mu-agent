@@ -7,10 +7,17 @@ import type { RunConfig } from '../../../src/core/agent/types.js';
 vi.mock('../../../src/core/agent/builder.js', () => ({
   buildStepAgent: vi.fn(),
   subscribeStepEvents: vi.fn(),
+  // Mirror the real steer(): delegate to the agent so fake-agent steer
+  // assertions keep observing the same calls.
+  steer: vi.fn(
+    (agent: { steer: (msg: { role: string; content: string; timestamp: number }) => void }, content: string) =>
+      agent.steer({ role: 'steer', content, timestamp: Date.now() }),
+  ),
 }));
 
 vi.mock('../../../src/tool/safety/git-guard.js', () => ({
   wrapWithGitGuard: vi.fn((t) => t),
+  gitAllowlistGuidance: vi.fn(() => 'status, log, diff'),
 }));
 
 // Keep the retry loop fast: real retryDelayMs logic, no-op sleep.

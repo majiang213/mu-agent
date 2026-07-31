@@ -1,5 +1,6 @@
 import { Type } from '@sinclair/typebox';
 import { State } from './types.js';
+import { gitAllowlistGuidance } from '../tool/safety/git-guard.js';
 
 /**
  * The single source of truth for valid GIT complete() `operation` values.
@@ -36,6 +37,45 @@ export interface StateDefinition {
   memorySearchTool?: boolean;
   /** Verb prefix for the per-state user prompt, e.g. "Apply the changes for: <focus>". */
   verbPrefix?: string;
+}
+
+/**
+ * The model-facing schema of a planned steps[] array — ONE HOME for the
+ * shape whose type lives in types.ts (Step / StepDirective) and whose parser
+ * lives in agent/directives.ts. REASON (subplan allowed) and PLAN (non-empty,
+ * no subplan) parameterize their differences instead of hand-copying the
+ * union — the two copies had already drifted (PLAN's `why` was a bare
+ * Type.String()). Descriptions below are the canonical rich versions
+ * (round-4, candidate 3).
+ */
+function stepsArraySchema(options: { allowSubplan: boolean; minItems?: number }) {
+  const step = Type.Object({
+    state: Type.String({ description: 'State name, e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH' }),
+    focus: Type.String({ description: 'What to do in this step' }),
+    why: Type.Optional(
+      Type.String({
+        description: 'In max 15 words: why this step and why this approach. Skip for obvious steps.',
+      }),
+    ),
+  });
+  const parallel = Type.Object({
+    parallel: Type.Array(
+      Type.Object({
+        state: Type.String({ description: 'State name for this parallel step' }),
+        focus: Type.String({ description: 'What to do in this parallel step' }),
+        why: Type.Optional(Type.String({ description: 'In max 15 words: why this step.' })),
+      }),
+      { description: 'Array of independent steps to execute concurrently', minItems: 2 },
+    ),
+  });
+  const subplan = Type.Object({
+    subplan: Type.Object({
+      analyzerState: Type.String({ description: 'State to use as sub-planner, use "PLAN"' }),
+      focus: Type.String({ description: 'What to inspect and what kind of plan to produce' }),
+    }),
+  });
+  const union = options.allowSubplan ? Type.Union([step, parallel, subplan]) : Type.Union([step, parallel]);
+  return Type.Array(union, options.minItems !== undefined ? { minItems: options.minItems } : {});
 }
 
 export const STATE_REGISTRY: Record<State, StateDefinition> = {
@@ -116,35 +156,7 @@ Examples:
 - Fix all failing tests: complete(steps=[{subplan:{analyzerState:"PLAN",focus:"run all tests, identify failures, plan a MODIFY step per failure"}}], needsClarify=false)
 - Fix code then commit: complete(steps=[{state:"LOCATE",focus:"find the bug"},{state:"MODIFY",focus:"fix it"},{state:"VERIFY",focus:"run tests"},{subplan:{analyzerState:"PLAN",focus:"analyze changed files, plan atomic commits"}}], needsClarify=false)`,
     completeSchema: Type.Object({
-      steps: Type.Array(
-        Type.Union([
-          Type.Object({
-            state: Type.String({ description: 'State name, e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH' }),
-            focus: Type.String({ description: 'What to do in this step' }),
-            why: Type.Optional(
-              Type.String({
-                description: 'In max 15 words: why this step and why this approach. Skip for obvious steps.',
-              }),
-            ),
-          }),
-          Type.Object({
-            parallel: Type.Array(
-              Type.Object({
-                state: Type.String({ description: 'State name for this parallel step' }),
-                focus: Type.String({ description: 'What to do in this parallel step' }),
-                why: Type.Optional(Type.String({ description: 'In max 15 words: why this step.' })),
-              }),
-              { description: 'Array of independent steps to execute concurrently', minItems: 2 },
-            ),
-          }),
-          Type.Object({
-            subplan: Type.Object({
-              analyzerState: Type.String({ description: 'State to use as sub-planner, use "PLAN"' }),
-              focus: Type.String({ description: 'What to inspect and what kind of plan to produce' }),
-            }),
-          }),
-        ]),
-      ),
+      steps: stepsArraySchema({ allowSubplan: true }),
       needsClarify: Type.Boolean(),
       questions: Type.Optional(Type.Array(Type.String())),
     }),
@@ -287,9 +299,11 @@ When done, call complete(passed=true|false, issues=[...], summary="<test output>
       issues: Type.Array(Type.String()),
       summary: Type.String(),
     }),
-    // NOTE: no contextNeeds here — VERIFY's prior-step context is owned by the
-    // Gap 41/43 special case in fmtPreStepCtx (path audit + multi-MODIFY merge),
-    // which runs before the generic contextNeeds lookup.
+    // The state list VERIFY consumes is a registry fact like every other
+    // state; the Gap 41/43 merge/dedup logic (path audit + multi-MODIFY
+    // merge) stays in fmtPreStepCtx's special case, which reads THIS list
+    // instead of hardcoding state names (round-4 hygiene).
+    contextNeeds: [State.MODIFY, State.LOCATE, State.DIAGNOSE],
   },
 
   [State.DONE]: {
@@ -620,26 +634,7 @@ complete(steps=[
 When done, call complete(steps=[...], rationale="<why this grouping>").`,
     reminderFields: 'steps (non-empty array of step objects), rationale (string)',
     completeSchema: Type.Object({
-      steps: Type.Array(
-        Type.Union([
-          Type.Object({
-            state: Type.String({ description: 'State name, e.g. GIT, MODIFY, VERIFY' }),
-            focus: Type.String({ description: 'Specific action including filenames/messages' }),
-            why: Type.Optional(Type.String()),
-          }),
-          Type.Object({
-            parallel: Type.Array(
-              Type.Object({
-                state: Type.String(),
-                focus: Type.String(),
-                why: Type.Optional(Type.String()),
-              }),
-              { minItems: 2 },
-            ),
-          }),
-        ]),
-        { minItems: 1 },
-      ),
+      steps: stepsArraySchema({ allowSubplan: false, minItems: 1 }),
       rationale: Type.String({ description: 'Why this grouping and ordering' }),
     }),
     contextNeeds: [State.RESEARCH, State.MODIFY, State.DIAGNOSE, State.WRITE, State.VERIFY],
@@ -652,9 +647,8 @@ When done, call complete(steps=[...], rationale="<why this grouping>").`,
 One git command per bash call — never chain with &&, ;, or | (chaining is blocked).
 
 The harness enforces a default-deny ALLOWLIST; anything not on it is BLOCKED and ABORTS the step.
-Safe operations: status, log, diff, show, blame, add, commit, branch, checkout, switch,
-stash push/pop/apply/list/save, tag, fetch, cherry-pick, revert, merge,
-push (to NON-DEFAULT branches only), remote -v / remote show / remote get-url.
+Safe operations: ${gitAllowlistGuidance()}.
+(The enumeration above is derived from the guard's allowlist entries — it cannot drift from enforcement.)
 
 Blocked (do NOT try variations — a block aborts the step):
   force-push / push to main / master / HEAD
