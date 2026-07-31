@@ -66,6 +66,9 @@ export class ASTLocator {
     // everywhere, and constructors surface as kind 'method' named
     // 'constructor' (the graph builder's index drops them instead).
     for (const sym of extractSymbols(sourceFile)) {
+      // Call sightings (round-5 union extension) are the graph builder's
+      // concern, not search results.
+      if (sym.kind === 'call') continue;
       if (!this.matches(sym.name, lowerQuery)) continue;
       const kind: ASTSearchResult['kind'] = sym.kind === 'constructor' ? 'method' : sym.kind;
       results.push(this.makeResult(sym.name, relativePath, source, sym.startLine, sym.endLine, kind, query));

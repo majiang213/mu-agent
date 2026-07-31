@@ -27,10 +27,17 @@ export class MemoryStore {
     decaySemanticFacts(db, projectRoot);
   }
 
-  /** Open (or create) the memory db for a workspace and return the store. */
+  /**
+   * Open (or create) the memory db for a workspace and return the store.
+   * ONE project identity (round-5 hygiene): the git root governs both the
+   * db file location and the project_root partition — previously the file
+   * sat at the git root while episodes partitioned by the raw cwd, so runs
+   * from a subdirectory were invisible to runs from the root.
+   */
   static open(cwd: string, model?: Model<'openai-completions'>): MemoryStore {
-    const db = initMemoryDb(findGitRoot(cwd));
-    return new MemoryStore(db, cwd, model);
+    const root = findGitRoot(cwd);
+    const db = initMemoryDb(root);
+    return new MemoryStore(db, root, model);
   }
 
   writeEpisodeSync(mission: Mission, allStepResults: ExecutedStep[], finalResult: StateResult): string {

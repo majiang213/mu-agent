@@ -64,7 +64,14 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **MemoryStore** — three-layer memory (episodes + entities + semantic facts)
   over SQLite. The deepened interface: open / writeEpisodeSync / index /
   search / searchById / processPendingSummaries / close. Episode queries
-  project through the single episodeColumns() list.
+  project through the single episodeColumns() list. `open()` has ONE project
+  identity: the git root governs both the db file and the partition key.
+  `buildSearchableContent` (episode.ts) is THE FTS recipe — written
+  explicitly at insert time (no trigger) and re-written by
+  `applyEpisodeSummary` (summarizer's pure-SQL, model-free half).
+  `ACTION_TYPES`/`ActionType` (types.ts) is the one action_type vocabulary
+  for both write and read producers. Schema is v2 (dead write-only columns
+  dropped via migrateV2).
 - **RunPresenter** (`src/tui/presenter.ts`) — pure, terminal-free presentation:
   formatRunResult (run output → display), session message shaping without
   presentation prefixes, legacy prefix stripping at load, plus the shared
@@ -72,14 +79,22 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **reason-runner** (`src/core/agent/reason-runner.ts`) — the LLM-call engine:
   runStepAgent (prompt+retry) + runReasonAttempt. step-runner and the HT
   sampler both depend on it (no import cycle).
-- **step-driver** (`steer` in builder.ts; `redrive` + `driveUntilComplete` in
-  reason-runner.ts) — the complete() exit protocol has one home: prompt →
-  check capture → steer (per-state reminder text) → re-drive. All re-drives
-  run inside the agent's registered window so ESC abort always reaches them.
-- **StepAgentDriver** (`src/core/agent/types.ts`) — runStep's single
-  collaborator: `{ buildAgent, driveUntilComplete }`. Production uses
-  `defaultStepDriver` (reason-runner.ts, composing builder.ts); tests inject
-  `cfg.stepDriver` and fake the seam instead of mocking the module graph.
+- **step-driver** (`steer` in builder.ts; `redrive` + `captureRounds` +
+  `driveUntilComplete` in reason-runner.ts) — the complete() exit protocol
+  has one home: prompt → nudge rounds until captured (reminder per round)
+  AND valid (optional `validate` returning a repair steer; one repair per
+  call). All re-drives run inside the agent's registered window so ESC
+  abort always reaches them. Clarification stays with the caller — it is
+  conversation, not capture protocol.
+- **StepAgentDriver** (`src/core/agent/types.ts`) — the single collaborator
+  behind EVERY step agent, REASON included: `{ buildAgent,
+  driveUntilComplete }`. Production uses `defaultStepDriver`
+  (reason-runner.ts, composing builder.ts); tests inject `cfg.stepDriver`
+  and fake the seam instead of mocking the module graph.
+- **RunSetupFactory** (`src/core/agent/setup.ts`) — the assembly seam one
+  level up: `new ReactAgent(setupFactory = buildRunSetup)`. Facade tests
+  inject a fake RunSetup (one behavioral mock of the step pipeline) instead
+  of neutering buildRunSetup's import fan-out with ~14 module mocks.
 - **RunSetup** (`src/core/agent/setup.ts`) — builds everything a run needs
   (model probe, tool stack, env, LSP, memory, RunConfig) and disposes it
   (close()). run() is a pipeline over it.
@@ -110,6 +125,9 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
   the tree walker, and the graph builder. Both extract symbols through ONE
   walker: `extractSymbols` (`core/graph/symbols.ts`) — union visiting,
   per-consumer filtering (qualified vs bare names, constructors) (C15).
+  The union also carries 'call' sightings with bare caller/callee
+  identities, so the builder's call edges come from the same single walk
+  (round-5); the locator skips them.
 - **MU_AGENT_DIR** (`config/defaults.ts`) — the one '.mu-agent' literal.
 - **resolveProjectPath** (`tool/safety/paths.ts`) — THE one path-containment
   check: normalize a model-given path against projectRoot → `{ ok, abs }`.
@@ -127,9 +145,15 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **TUI modules** — `blocks.ts` (11 exported view classes, I/O-free
   constructors), `run-view.ts` (RunView: per-run view-model behind the
   RunViewHost seam — insertBeforeLoader/insertBeforeEditor/removeComponent/
-  requestRender; headless-testable), `app.ts` (terminal orchestration shell,
-  ~300 lines), `console-presenter.ts` (stdout adapter over ExecutionEvent for
-  `mu-agent run` — the second adapter at the event seam) (C9, C13).
+  requestRender; headless-testable; also owns the ctrl+t/o/d toggle policy
+  — toggleThinking/toggleTools/setDebugVisible, round-5), `app.ts`
+  (terminal orchestration shell, ~300 lines), `console-presenter.ts`
+  (stdout adapter over ExecutionEvent for `mu-agent run` — the second
+  adapter at the event seam) (C9, C13).
+- **Sample display protocol** — the sampler owns every sample_start /
+  sample_complete event, including seed candidates (the planner's phase-0);
+  sample_start carries no `total` — the ├/└ tree glyph is SamplingBlock's
+  render-time knowledge from its own child count (round-5).
 - **Entry-point assembly** — `ensureGraphBuilt(cwd, {force})`
   (`core/graph/builder.ts`) is the one graph-build call (tui / run / setup);
   `configPaths()` (`config/loader.ts`) is the one config-path knowledge;

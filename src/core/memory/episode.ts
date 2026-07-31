@@ -6,6 +6,33 @@ import type { Mission } from '../agent/types.js';
 import { buildStructuredSummary, extractEntitiesForWrite } from './extractor.js';
 import { updateSemanticFacts } from './semantic.js';
 
+/**
+ * THE searchable-content recipe (round-5, candidate 2) — ONE HOME for what
+ * text makes an episode findable. Used by both write paths:
+ * - writeEpisodeSync: structured fields available at insert time
+ *   (key_finding + files — no LLM fields yet);
+ * - applyEpisodeSummary (summarizer.ts): re-indexes with the LLM's
+ *   description + keywords added, via the SAME function.
+ * Previously the insert trigger indexed raw result_summary JSON while the
+ * summarizer rebuilt a different recipe — search results drifted depending
+ * on whether the debounced summarizer had run.
+ */
+export function buildSearchableContent(
+  userInput: string,
+  structured?: { key_finding?: string | null; files?: string[] } | null,
+  llm?: { description?: string; keywords?: string[] } | null,
+): string {
+  return [
+    userInput,
+    llm?.description ?? '',
+    ...(llm?.keywords ?? []),
+    structured?.key_finding ?? '',
+    ...(structured?.files ?? []),
+  ]
+    .filter((s) => s.length > 0)
+    .join(' ');
+}
+
 export function writeEpisodeSync(
   db: Database.Database,
   mission: Mission,
@@ -28,23 +55,34 @@ export function writeEpisodeSync(
   const entities = extractEntitiesForWrite(mission.description, structuredSummary);
 
   db.transaction(() => {
-    db.prepare(
-      `
+    const { lastInsertRowid } = db
+      .prepare(
+        `
       INSERT INTO episodes (id, timestamp, project_root, user_input, action_type,
-        files_changed, success, result_summary, is_summarized, step_outputs, tokens_used)
-      VALUES (?,?,?,?,?,?,?,?,0,?,?)
+        files_changed, success, result_summary, step_outputs)
+      VALUES (?,?,?,?,?,?,?,?,?)
     `,
-    ).run(
-      episodeId,
-      Math.floor(Date.now() / 1000),
-      projectRoot,
+      )
+      .run(
+        episodeId,
+        Math.floor(Date.now() / 1000),
+        projectRoot,
+        mission.description,
+        actionType,
+        JSON.stringify(filesChanged),
+        finalResult.success ? 1 : 0,
+        resultSummary,
+        JSON.stringify(stepOutputs),
+      );
+
+    // FTS row written explicitly with THE recipe (buildSearchableContent) —
+    // the old insert trigger indexed raw result_summary JSON instead
+    // (round-5, candidate 2). Summarization later rewrites this row with the
+    // same recipe plus LLM fields.
+    db.prepare(`INSERT INTO episodes_fts(rowid, user_input, searchable_content) VALUES(?,?,?)`).run(
+      lastInsertRowid,
       mission.description,
-      actionType,
-      JSON.stringify(filesChanged),
-      finalResult.success ? 1 : 0,
-      resultSummary,
-      JSON.stringify(stepOutputs),
-      0,
+      buildSearchableContent(mission.description, structuredSummary),
     );
 
     db.prepare(

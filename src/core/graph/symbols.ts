@@ -23,33 +23,58 @@ export type RawSymbol = {
 } & ({ kind: 'function' | 'class' | 'arrow'; className: null } | { kind: 'method' | 'constructor'; className: string });
 
 /**
- * THE symbol-extraction walker — one AST visit shared by GraphBuilder
- * (SQLite index) and ASTLocator (model-facing search tool), which previously
- * each kept a private, subtly divergent visitor (C15).
+ * One call sighting: a CallExpression inside a function-like scope, with the
+ * caller's identity the walker tracked on the way down (round-5, candidate
+ * 7 — previously a second private walker in builder.ts re-derived this).
+ * Names are BARE; qualifying `Class.method` for the caller is the consumer's
+ * concern, exactly like symbol records.
+ */
+export type RawCall = {
+  kind: 'call';
+  /** Bare callee name (identifier, or property-access member name). */
+  callee: string;
+  /** Bare name of the enclosing function / method / arrow. */
+  callerName: string;
+  /** Class name when the caller is a class method, else null. */
+  callerClassName: string | null;
+};
+
+export type SymbolRecord = RawSymbol | RawCall;
+
+/**
+ * THE source-file walker — one AST visit shared by GraphBuilder (SQLite
+ * nodes AND call edges) and ASTLocator (model-facing search tool) (C15,
+ * extended in round-5 candidate 7 to also emit call sightings; the builder's
+ * private second walker is gone).
  *
  * VISITING is union semantics: everything either old visitor looked at is
  * visited here — named function declarations, named class declarations,
  * identifier-named methods and constructors that are direct class members,
- * and identifier-named variables initialized with an arrow/function
- * expression. FILTERING is per-consumer: the graph builder drops
- * 'constructor' records and qualifies method names; the locator keeps
- * constructors (as methods) and bare names.
+ * identifier-named variables initialized with an arrow/function expression,
+ * AND call expressions inside those scopes (never at top level, matching the
+ * old call walker). FILTERING is per-consumer: the graph builder drops
+ * 'constructor' records, qualifies method names, and turns 'call' records
+ * into edges; the locator keeps constructors (as methods) and skips 'call'.
  *
- * Records come out in the same pre-order both old visitors used: the node
- * itself, then a class's direct members, then deep recursion — so consumers
- * that care about first-sighting-wins (INSERT OR IGNORE) or stable ordering
- * see no change.
+ * Symbol records come out in the same pre-order both old visitors used: the
+ * node itself, then a class's direct members, then deep recursion — so
+ * consumers that care about first-sighting-wins (INSERT OR IGNORE) or stable
+ * ordering see no change.
  */
-export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
-  const symbols: RawSymbol[] = [];
+export function extractSymbols(sourceFile: ts.SourceFile): SymbolRecord[] {
+  const records: SymbolRecord[] = [];
 
   const startLine = (node: ts.Node): number =>
     sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
   const endLine = (node: ts.Node): number => sourceFile.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
 
-  const visit = (node: ts.Node): void => {
+  type Enclosing = { name: string; className: string | null };
+
+  const visit = (node: ts.Node, enclosing: Enclosing | null): void => {
+    let current = enclosing;
     if (ts.isFunctionDeclaration(node) && node.name) {
-      symbols.push({
+      current = { name: node.name.text, className: null };
+      records.push({
         kind: 'function',
         name: node.name.text,
         className: null,
@@ -58,7 +83,7 @@ export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
       });
     } else if (ts.isClassDeclaration(node) && node.name) {
       const className = node.name.text;
-      symbols.push({
+      records.push({
         kind: 'class',
         name: className,
         className: null,
@@ -67,7 +92,7 @@ export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
       });
       ts.forEachChild(node, (child) => {
         if (ts.isMethodDeclaration(child) && ts.isIdentifier(child.name)) {
-          symbols.push({
+          records.push({
             kind: 'method',
             name: child.name.text,
             className,
@@ -75,7 +100,7 @@ export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
             endLine: endLine(child),
           });
         } else if (ts.isConstructorDeclaration(child)) {
-          symbols.push({
+          records.push({
             kind: 'constructor',
             name: 'constructor',
             className,
@@ -84,6 +109,12 @@ export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
           });
         }
       });
+    } else if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name)) {
+      // Enclosing identity for calls in the method body (the record itself
+      // was emitted by the class branch's direct-member pass).
+      const parent = node.parent;
+      const className = ts.isClassDeclaration(parent) && parent.name ? parent.name.text : null;
+      current = { name: node.name.text, className };
     } else if (ts.isVariableStatement(node)) {
       for (const decl of node.declarationList.declarations) {
         if (
@@ -93,7 +124,7 @@ export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
         ) {
           // Line range is the whole statement's — both historical consumers
           // measured the VariableStatement node, not the declaration.
-          symbols.push({
+          records.push({
             kind: 'arrow',
             name: decl.name.text,
             className: null,
@@ -102,10 +133,31 @@ export function extractSymbols(sourceFile: ts.SourceFile): RawSymbol[] {
           });
         }
       }
+    } else if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
+    ) {
+      // Enclosing identity for calls inside the arrow/function body.
+      current = { name: node.name.text, className: null };
     }
-    ts.forEachChild(node, visit);
+
+    if (ts.isCallExpression(node) && current) {
+      let callee: string | null = null;
+      if (ts.isIdentifier(node.expression)) {
+        callee = node.expression.text;
+      } else if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.name)) {
+        callee = node.expression.name.text;
+      }
+      if (callee) {
+        records.push({ kind: 'call', callee, callerName: current.name, callerClassName: current.className });
+      }
+    }
+
+    ts.forEachChild(node, (child) => visit(child, current));
   };
 
-  ts.forEachChild(sourceFile, visit);
-  return symbols;
+  ts.forEachChild(sourceFile, (child) => visit(child, null));
+  return records;
 }

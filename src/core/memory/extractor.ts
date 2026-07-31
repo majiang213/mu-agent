@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { ExecutedStep } from '../types.js';
-import type { StructuredSummary, EntityNode } from './types.js';
+import type { ActionType, StructuredSummary, EntityNode } from './types.js';
 import { State } from '../types.js';
 import {
   parseEditedFiles,
@@ -10,14 +10,17 @@ import {
   parseVerifyOutput,
 } from '../step-outputs.js';
 
+/** File-mention regex — one module-level copy (was written twice, round-5). */
+const FILE_MENTION_RE = /[\w\-.]+\.(ts|js|tsx|jsx|py|java|go|rs|cpp|cs)\b/g;
+
 export interface ActionWords {
-  type: string | null;
+  type: ActionType | null;
   keywords: string[];
 }
 
 export function detectActionWords(userInput: string): ActionWords {
   const lower = userInput.toLowerCase();
-  let type: string | null = null;
+  let type: ActionType | null = null;
   if (/fix.*failed|修复失败/.test(lower)) type = 'fix_failed';
   else if (/修改|改|edit|fix|修复|bug/.test(lower)) type = 'edit';
   else if (/新建|创建|create|add.*file/.test(lower)) type = 'create';
@@ -26,8 +29,7 @@ export function detectActionWords(userInput: string): ActionWords {
   else if (/回答|answer/.test(lower)) type = 'answer';
 
   const keywords: string[] = [];
-  const fileRegex = /[\w\-.]+\.(ts|js|tsx|jsx|py|java|go|rs|cpp|cs)\b/g;
-  for (const m of userInput.matchAll(fileRegex)) keywords.push(m[0]);
+  for (const m of userInput.matchAll(FILE_MENTION_RE)) keywords.push(m[0]);
   const words = lower.split(/\s+/).filter((w) => w.length > 2);
   keywords.push(...words.slice(0, 5));
 
@@ -35,8 +37,7 @@ export function detectActionWords(userInput: string): ActionWords {
 }
 
 export function extractEntitiesForQuery(userInput: string): string[] {
-  const fileRegex = /[\w\-.]+\.(ts|js|tsx|jsx|py|java|go|rs|cpp|cs)\b/g;
-  return [...userInput.matchAll(fileRegex)].map((m) => m[0]);
+  return [...userInput.matchAll(FILE_MENTION_RE)].map((m) => m[0]);
 }
 
 export function extractEntitiesForWrite(description: string, summary: StructuredSummary): EntityNode[] {
@@ -61,7 +62,7 @@ export function extractEntitiesForWrite(description: string, summary: Structured
   return results;
 }
 
-export function inferRunActionType(steps: ExecutedStep[], description: string): string {
+export function inferRunActionType(steps: ExecutedStep[], description: string): ActionType {
   const states = steps.map((s) => s.state as string);
   const hasMODIFY = states.includes(State.MODIFY);
   const hasROLLBACK = states.includes(State.ROLLBACK);

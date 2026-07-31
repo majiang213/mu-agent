@@ -162,7 +162,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   const needs = STATE_REGISTRY[state]?.contextNeeds;
   if (!needs || needs.length === 0) return '';
 
-  const relevant = previousResults.filter((r) => needs.includes(r.state as State));
+  const relevant = previousResults.filter((r) => needs.includes(r.state));
   if (relevant.length === 0) return '';
 
   const allLines = relevant.map((r) => {

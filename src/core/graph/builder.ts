@@ -129,15 +129,14 @@ export class GraphBuilder {
   }
 
   updateFiles(filePaths: string[]): void {
-    const resolvedRoot = this.projectRoot;
-    const validatedPaths = filePaths.filter((fp) => {
-      const resolved = resolve(fp);
-      return resolved.startsWith(resolvedRoot + '/') || resolved === resolvedRoot;
-    });
+    // Paths arrive already normalized and containment-checked via
+    // resolveProjectPath (step-runner's post-MODIFY update) — the inline
+    // re-filter that used to live here resolved against process.cwd() (a
+    // weaker duplicate of the check the glossary names as the one home).
     const db = getDb(this.projectRoot);
     try {
       const doUpdate = db.transaction(() => {
-        for (const filePath of validatedPaths) {
+        for (const filePath of filePaths) {
           const relPath = relative(this.projectRoot, filePath).replace(/\\/g, '/');
           const oldIds = (
             db.prepare('SELECT id FROM nodes WHERE file_path=? AND project_root=?').all(relPath, this.projectRoot) as {
@@ -200,55 +199,34 @@ export class GraphBuilder {
     let nodeCount = 0;
     let edgeCount = 0;
 
-    // Symbols come from the one shared walker (./symbols.ts). The graph keeps
-    // its own vocabulary on top of the raw records: qualified Class.method
-    // names with '<class> <method>' search text, and no constructors (the
-    // model-facing locator's concern, not the index's).
-    for (const sym of extractSymbols(sourceFile)) {
-      if (sym.kind === 'constructor') continue;
+    // Symbols AND call sightings come from the one shared walker
+    // (./symbols.ts — extended in round-5 candidate 7; the private second
+    // walker that lived here is gone). The graph keeps its own vocabulary on
+    // top of the raw records: qualified Class.method names with
+    // '<class> <method>' search text, no constructors, and call edges with
+    // qualified callers.
+    const records = extractSymbols(sourceFile);
+
+    // Phase 1: nodes (all symbol records first — edges may point forward).
+    for (const sym of records) {
+      if (sym.kind === 'call' || sym.kind === 'constructor') continue;
       const name = sym.kind === 'method' ? `${sym.className}.${sym.name}` : sym.name;
       const searchText = sym.kind === 'method' ? `${sym.className} ${sym.name}` : sym.name;
       insertNode.run(name, relPath, sym.startLine, sym.endLine, sym.kind, searchText, this.projectRoot);
       nodeCount++;
     }
 
-    const extractCalls = (node: ts.Node, enclosingFn: string | null): void => {
-      let currentFn = enclosingFn;
-      if (ts.isFunctionDeclaration(node) && node.name) currentFn = node.name.text;
-      else if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name)) {
-        const parent = node.parent;
-        const className = ts.isClassDeclaration(parent) && parent.name ? parent.name.text : '';
-        currentFn = className ? `${className}.${node.name.text}` : node.name.text;
-      } else if (
-        ts.isVariableDeclaration(node) &&
-        ts.isIdentifier(node.name) &&
-        node.initializer &&
-        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
-      ) {
-        currentFn = node.name.text;
+    // Phase 2: call edges from the walker's sightings.
+    for (const sym of records) {
+      if (sym.kind !== 'call') continue;
+      const caller = sym.callerClassName ? `${sym.callerClassName}.${sym.callerName}` : sym.callerName;
+      const callerRow = getNode.get(caller, relPath, this.projectRoot) as { id: number } | undefined;
+      const calleeRow = getNodeByName.get(sym.callee, this.projectRoot) as { id: number } | undefined;
+      if (callerRow && calleeRow && callerRow.id !== calleeRow.id) {
+        insertEdge.run(callerRow.id, calleeRow.id, this.projectRoot);
+        edgeCount++;
       }
-
-      if (ts.isCallExpression(node) && currentFn) {
-        let calleeName: string | null = null;
-        if (ts.isIdentifier(node.expression)) {
-          calleeName = node.expression.text;
-        } else if (ts.isPropertyAccessExpression(node.expression) && ts.isIdentifier(node.expression.name)) {
-          calleeName = node.expression.name.text;
-        }
-        if (calleeName) {
-          const callerRow = getNode.get(currentFn, relPath, this.projectRoot) as { id: number } | undefined;
-          const calleeRow = getNodeByName.get(calleeName, this.projectRoot) as { id: number } | undefined;
-          if (callerRow && calleeRow && callerRow.id !== calleeRow.id) {
-            insertEdge.run(callerRow.id, calleeRow.id, this.projectRoot);
-            edgeCount++;
-          }
-        }
-      }
-
-      ts.forEachChild(node, (child) => extractCalls(child, currentFn));
-    };
-
-    ts.forEachChild(sourceFile, (child) => extractCalls(child, null));
+    }
 
     return [nodeCount, edgeCount];
   }

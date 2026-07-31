@@ -157,9 +157,8 @@ export async function fetchContextLength(
     const url = normalizeBase(baseUrl);
     return fetchOllamaContextLength(url, modelName);
   }
-  if (provider === 'unsloth') {
-    return fetchOpenAICompatContextLength(baseUrl, modelName, apiKey);
-  }
+  // unsloth and custom providers share the OpenAI-compatible probe (the
+  // separate unsloth arm was a dead duplicate — round-5 hygiene nit).
   return fetchOpenAICompatContextLength(baseUrl, modelName, apiKey);
 }
 

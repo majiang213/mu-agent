@@ -1,11 +1,42 @@
 import Database from 'better-sqlite3';
 import type { Model } from '@earendil-works/pi-ai';
-import { parseStructuredSummary } from './episode.js';
+import { buildSearchableContent, parseStructuredSummary } from './episode.js';
 import { resolveApiKey } from '../../provider/model-info.js';
 
-interface LLMSummary {
+export interface LLMSummary {
   description: string;
   keywords: string[];
+}
+
+/**
+ * Pure SQL half of the summarization pipeline (round-5, candidate 2):
+ * persist the LLM summary and re-index the episode's FTS row with THE one
+ * recipe (buildSearchableContent — the same function writeEpisodeSync used
+ * at insert time). Directly testable with a fake summary — no model needed.
+ */
+export function applyEpisodeSummary(db: Database.Database, episodeId: string, summary: LLMSummary): void {
+  const ep = db.prepare(`SELECT rowid, user_input, result_summary FROM episodes WHERE id = ?`).get(episodeId) as
+    { rowid: number; user_input: string; result_summary: string } | undefined;
+
+  const txn = db.transaction(() => {
+    db.prepare(`UPDATE episodes SET description = ?, keywords = ? WHERE id = ?`).run(
+      summary.description,
+      JSON.stringify(summary.keywords),
+      episodeId,
+    );
+    if (ep) {
+      const structured = parseStructuredSummary(ep.result_summary);
+      const newContent = buildSearchableContent(ep.user_input, structured, summary);
+      db.prepare(`INSERT INTO episodes_fts(episodes_fts, rowid) VALUES('delete', ?)`).run(ep.rowid);
+      db.prepare(`INSERT INTO episodes_fts(rowid, user_input, searchable_content) VALUES(?,?,?)`).run(
+        ep.rowid,
+        ep.user_input,
+        newContent,
+      );
+    }
+    db.prepare(`DELETE FROM pending_summaries WHERE episode_id = ?`).run(episodeId);
+  });
+  txn();
 }
 
 async function generateEpisodeSummary(
@@ -79,37 +110,7 @@ export async function processPendingSummaries(
   for (const row of pending) {
     try {
       const summary = await generateEpisodeSummary(row, model);
-      const structuredSummary = parseStructuredSummary(row.result_summary);
-
-      const txn = db.transaction(() => {
-        db.prepare(
-          `
-          UPDATE episodes SET description = ?, keywords = ?, is_summarized = 1
-          WHERE id = ?
-        `,
-        ).run(summary.description, JSON.stringify(summary.keywords), row.episode_id);
-
-        const ep = db.prepare(`SELECT rowid, user_input FROM episodes WHERE id = ?`).get(row.episode_id) as
-          { rowid: number; user_input: string } | undefined;
-        if (ep) {
-          const newContent = [
-            ep.user_input,
-            summary.description,
-            summary.keywords.join(' '),
-            structuredSummary?.key_finding ?? '',
-            (structuredSummary?.files ?? []).join(' '),
-          ].join(' ');
-          db.prepare(`INSERT INTO episodes_fts(episodes_fts, rowid) VALUES('delete', ?)`).run(ep.rowid);
-          db.prepare(`INSERT INTO episodes_fts(rowid, user_input, searchable_content) VALUES(?,?,?)`).run(
-            ep.rowid,
-            ep.user_input,
-            newContent,
-          );
-        }
-
-        db.prepare(`DELETE FROM pending_summaries WHERE episode_id = ?`).run(row.episode_id);
-      });
-      txn();
+      applyEpisodeSummary(db, row.episode_id, summary);
     } catch (err) {
       console.warn(
         '[summarizer] Failed to process episode',

@@ -1,5 +1,14 @@
+/**
+ * The action_type vocabulary — ONE HOME (round-5, candidate 6). The write
+ * side (inferRunActionType) and read side (detectActionWords) both use this
+ * type; the previous stringly-typed contract had already drifted (the old
+ * comment listed 'fix'/'explain', which neither side ever produced).
+ */
+export const ACTION_TYPES = ['edit', 'fix_failed', 'create', 'review', 'check', 'answer'] as const;
+export type ActionType = (typeof ACTION_TYPES)[number];
+
 export interface StructuredSummary {
-  action: string; // 'edit'|'fix'|'review'|'explain'|'check'|'create'|'answer'
+  action: ActionType;
   files: string[]; // MODIFY 修改的文件列表
   locate_files: string[]; // LOCATE 找到的文件列表
   verify_passed: boolean | null; // VERIFY 结果，null=无 VERIFY step
@@ -17,11 +26,9 @@ export interface EpisodeRow {
   files_changed: string | null; // JSON array string
   success: number; // 0|1
   result_summary: string; // JSON StructuredSummary
-  is_summarized: number;
   step_outputs: string | null; // JSON array
   description: string | null;
   keywords: string | null; // JSON array string
-  tokens_used: number;
 }
 
 export interface SemanticFact {
@@ -49,11 +56,9 @@ const EPISODE_COLUMN_LIST = [
   'files_changed',
   'success',
   'timestamp',
-  'is_summarized',
   'step_outputs',
   'description',
   'keywords',
-  'tokens_used',
   'project_root',
 ] as const;
 
