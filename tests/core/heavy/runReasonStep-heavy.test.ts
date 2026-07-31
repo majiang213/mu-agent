@@ -89,7 +89,7 @@ function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {
         strictPlanning: true,
       })),
       getCurrentState: vi.fn(() => State.REASON),
-      resetForRetry: vi.fn(),
+      resetFileBudget: vi.fn(),
       getStateConfig: vi.fn(() => ({ allowedTools: [], prompt: '' })),
     } as unknown as RunConfig['stateMachine'],
     safetyConfig: {},

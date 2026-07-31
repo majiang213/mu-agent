@@ -184,6 +184,11 @@ export class SetupWizard {
     const statuses = getLspStatuses(process.cwd());
 
     if (statuses.length === 0) {
+      this.addStepText('\n  ' + C.dim('No supported languages detected in this project.'));
+      // Round-5 fix: gate the clear on an explicit Continue — pi-tui defers
+      // renders to process.nextTick, so clearing synchronously after
+      // requestRender painted zero frames of this step.
+      await this.waitForSelect([{ value: 'continue', label: 'Continue' }], 0);
       this.clearStep();
       return;
     }
@@ -206,6 +211,11 @@ export class SetupWizard {
         '\n\n  Uninstalled language servers need manual install; see each server docs.',
     );
     this.tui.requestRender();
+    // Round-5 fix: the table must actually paint — pi-tui defers renders to
+    // process.nextTick, so clearing synchronously after requestRender showed
+    // zero frames. Gate the clear on an explicit Continue (same rhythm as
+    // steps 1/3).
+    await this.waitForSelect([{ value: 'continue', label: 'Continue' }], 0);
     this.clearStep();
   }
 

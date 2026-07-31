@@ -118,13 +118,15 @@ describe('E2E: Full Agent Flow (mock LLM)', () => {
     expect(locateTools).not.toContain('bash');
   });
 
-  it('StateMachineAgent resetForRetry resets to REASON', () => {
+  it('StateMachineAgent resetFileBudget resets only the file budget (round-5)', () => {
     const agent = new StateMachineAgent('qwen2.5:7b');
     agent.transitionTo(State.MODIFY);
     agent.recordToolCall('edit');
-    agent.resetForRetry();
+    agent.resetFileBudget();
 
-    expect(agent.getCurrentState()).toBe(State.REASON);
+    // The old resetForRetry also wrote currentState = REASON — a dead write
+    // with no reader (round-5 hygiene); the state is untouched now.
+    expect(agent.getCurrentState()).toBe(State.MODIFY);
     expect(agent.getFileCount()).toBe(0);
   });
 });

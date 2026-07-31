@@ -35,7 +35,9 @@ async function runBatch(
   let completed = 0;
   const tasks = Array.from({ length: batchSize }, (_, i) => {
     const idx = startIndex + i;
-    onEvent?.({ type: 'sample_start', index: idx, total: startIndex + batchSize });
+    // No `total` — the tree glyph (├/└) is the SamplingBlock's render-time
+    // knowledge, computed from its own child count (round-5, candidate 8).
+    onEvent?.({ type: 'sample_start', index: idx });
     return runOneSample(
       mission,
       { ...cfg, temperature: samplingTemp },
@@ -59,9 +61,9 @@ async function runBatch(
     );
   });
   const results = await Promise.all(tasks);
-  const failed = results.filter((r) => r === null).length;
-  if (failed > 0)
-    console.warn('[sampler] ' + failed + '/' + results.length + ' samples failed in batch at index ' + startIndex);
+  // No console.warn here (round-5 hygiene): failed samples already surface
+  // through the typed sample_failed events — a stderr write only pollutes
+  // the TUI's managed display.
   return results.flatMap((r) => (r !== null ? [r] : []));
 }
 
@@ -78,6 +80,15 @@ export async function samplePlans(
   const maxCount = getMaxCount(cfg.stateMachine.getModelParams().tier);
 
   let candidates = dedupPlans(seedCandidates);
+
+  // Round-5 (candidate 8): the sampler owns the sample display protocol —
+  // seed candidates (e.g. the planner's phase-0) get their sample events
+  // here, instead of the planner faking them with hardcoded batch-size
+  // knowledge.
+  candidates.forEach((seed, seedIdx) => {
+    onEvent?.({ type: 'sample_start', index: seedIdx });
+    onEvent?.({ type: 'sample_complete', index: seedIdx, steps: seed.steps });
+  });
   let sampleIndex = Math.max(candidates.length, indexOffset);
 
   const firstBatch = await runBatch(

@@ -56,7 +56,7 @@ export async function runStepAgent(
         // model without an agent rebuild. Restored in finally as hygiene.
         cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
         stagnationDetector.reset();
-        cfg.stateMachine.resetForRetry();
+        cfg.stateMachine.resetFileBudget();
         // Restore + clear only THIS step's checkpoints (owner = this step's
         // stateMachine instance) — the store is shared, a store-wide wipe
         // would disarm rollback for parallel siblings and prior steps.
@@ -89,10 +89,38 @@ export async function redrive(
 }
 
 /**
- * The complete() exit protocol: prompt, then one reminder round if the model
- * ended its turn without calling complete(). Callers supply the capture
- * predicate and the per-state reminder text; the choreography (prompt →
- * check → steer → re-drive) lives here and nowhere else.
+ * The nudge-round choreography of the complete() exit protocol (round-5,
+ * candidate 5): while not captured, remind; once captured, validate — one
+ * repair round per call. Stops when the capture is accepted, when no
+ * progress is made, or when maxRounds is hit. Callers own the capture
+ * predicate and all steer texts; the rounds themselves live here and
+ * nowhere else (previously runReasonAttempt hand-rolled two near-identical
+ * copies with an A/B repair-chance asymmetry).
+ */
+export async function captureRounds(
+  agent: Agent,
+  cfg: RunConfig,
+  stagnationDetector: StagnationDetector,
+  options: DriveUntilCompleteOptions,
+): Promise<void> {
+  const maxRounds = options.maxRounds ?? 1;
+  for (let round = 0; round < maxRounds; round++) {
+    if (!options.hasCaptured()) {
+      const text = typeof options.reminderSteer === 'function' ? options.reminderSteer(round) : options.reminderSteer;
+      await redrive(agent, text, cfg, stagnationDetector);
+      if (!options.hasCaptured()) return; // no progress — stop
+      continue;
+    }
+    const repair = options.validate?.() ?? null;
+    if (repair === null) return;
+    await redrive(agent, repair, cfg, stagnationDetector);
+    return; // exactly one repair chance per call
+  }
+}
+
+/**
+ * The complete() exit protocol: prompt, then nudge rounds until captured
+ * (and valid, when a validate option is given).
  */
 export async function driveUntilComplete(
   agent: Agent,
@@ -102,9 +130,7 @@ export async function driveUntilComplete(
   options: DriveUntilCompleteOptions,
 ): Promise<void> {
   await runStepAgent(agent, input, cfg, stagnationDetector);
-  if (!options.hasCaptured()) {
-    await redrive(agent, options.reminderSteer, cfg, stagnationDetector);
-  }
+  await captureRounds(agent, cfg, stagnationDetector, options);
 }
 
 /**
@@ -181,19 +207,31 @@ export async function runReasonAttempt(
   });
 
   const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
-  const agent = buildStepAgent(systemPrompt, conversationHistory, stepCfg, onEvent, [completeTool, ...extraTools]);
-  subscribeStepEvents(agent, State.REASON, stagnationDetector, stepCfg, { onEvent });
+  // REASON builds and drives through the same StepAgentDriver seam as every
+  // other step (round-5, candidate 5) — previously it bypassed the seam its
+  // own module defines.
+  const driver = cfg.stepDriver ?? defaultStepDriver;
+  const agent = driver.buildAgent({
+    systemPrompt,
+    initialMessages: conversationHistory,
+    state: State.REASON,
+    cfg: stepCfg,
+    tools: [completeTool, ...extraTools],
+    stagnationDetector,
+    onEvent,
+  });
 
   cfg.registerAgent?.(agent);
   try {
     if (fromState !== undefined) {
       onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
     }
-    await driveUntilComplete(agent, mission.description, stepCfg, stagnationDetector, {
+    await driver.driveUntilComplete(agent, mission.description, stepCfg, stagnationDetector, {
       hasCaptured: () => capturedComplete !== null,
       reminderSteer: '[REMINDER] You must call complete() to submit your execution plan.',
     });
 
+    // Clarification is conversation, not capture protocol — stays here.
     if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
       const questions = Array.isArray(capturedComplete['questions']) ? (capturedComplete['questions'] as string[]) : [];
       const answer = await onNeedsClarify(questions);
@@ -206,9 +244,25 @@ export async function runReasonAttempt(
       );
     }
 
-    // Parse + failure re-drives stay INSIDE the registered window: abort (ESC)
-    // must reach the agent during these runs too (previously they ran after
-    // unregisterAgent and could not be aborted — round-4 ESC-blind fix).
+    // Capture-and-validate rounds (parse-repair / missing-error), INSIDE the
+    // registered window so abort (ESC) reaches these runs too (round-4 fix).
+    // A/B aligned (round-5): a plan captured on the error round now earns the
+    // same single repair chance as one captured on the first drive.
+    await captureRounds(agent, stepCfg, stagnationDetector, {
+      hasCaptured: () => capturedComplete !== null,
+      reminderSteer:
+        '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
+      validate: () => {
+        if (capturedComplete === null || capturedComplete['needsClarify'] === true) return null;
+        const { error } = parseDirectives(capturedComplete);
+        if (!error) return null;
+        capturedComplete = null; // fresh attempt
+        return `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`;
+      },
+      maxRounds: 2,
+    });
+
+    // Final parse after the rounds.
     let lastParseError: string | null = null;
     if (capturedComplete !== null) {
       const c = capturedComplete;
@@ -220,34 +274,6 @@ export async function runReasonAttempt(
         return { steps };
       }
       lastParseError = error;
-      capturedComplete = null;
-      await redrive(
-        agent,
-        `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`,
-        stepCfg,
-        stagnationDetector,
-      );
-      if (capturedComplete !== null) {
-        const { steps: retrySteps, error: retryError } = parseDirectives(capturedComplete);
-        if (!retryError) {
-          return { steps: retrySteps };
-        }
-        lastParseError = retryError;
-      }
-    } else {
-      await redrive(
-        agent,
-        '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
-        stepCfg,
-        stagnationDetector,
-      );
-      if (capturedComplete !== null) {
-        const { steps, error } = parseDirectives(capturedComplete);
-        if (!error) {
-          return { steps };
-        }
-        lastParseError = error;
-      }
     }
 
     if (throwOnFailure) {

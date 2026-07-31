@@ -72,7 +72,7 @@ function makeCfg(): RunConfig {
       })),
       getAllowedTools: vi.fn(() => []),
       getCurrentState: vi.fn(() => State.REASON),
-      resetForRetry: vi.fn(),
+      resetFileBudget: vi.fn(),
       getStateConfig: vi.fn(() => ({ allowedTools: [], prompt: '' })),
       recordToolCall: vi.fn(),
       canModifyMoreFiles: vi.fn(() => true),
@@ -166,19 +166,26 @@ describe('samplePlans — adaptive sampling', () => {
     expect(events.some((e) => e.type === 'sampling_stopped' && e.reason === 'no_new_info')).toBe(true);
   });
 
-  it('fires sample_start with correct total', async () => {
+  it('fires sample_start events with sequential indices', async () => {
     const plan = makePlan('p', [State.MODIFY]);
     setupAttemptMock([plan, plan]);
     const cfg = makeCfg();
     const events: ExecutionEvent[] = [];
     await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), []);
-    const startEvents = events.filter((e) => e.type === 'sample_start');
-    expect(startEvents.length).toBeGreaterThan(0);
-    for (const e of startEvents) {
-      if (e.type === 'sample_start') {
-        expect(e.total).toBeGreaterThan(0);
-        expect(e.total).not.toBe(-1);
-      }
-    }
+    const indices = events
+      .filter((e) => e.type === 'sample_start')
+      .map((e) => (e as { type: 'sample_start'; index: number }).index);
+    expect(indices).toEqual([0, 1]);
+  });
+
+  it('emits sample events for seed candidates — the sampler owns the protocol (round-5)', async () => {
+    const seed = makePlan('seed', [State.LOCATE, State.MODIFY]);
+    const same = makePlan('same', [State.LOCATE, State.MODIFY]);
+    setupAttemptMock([same, same]);
+    const cfg = makeCfg();
+    const events: ExecutionEvent[] = [];
+    await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), [seed]);
+    expect(events.some((e) => e.type === 'sample_start' && e.index === 0)).toBe(true);
+    expect(events.some((e) => e.type === 'sample_complete' && e.index === 0)).toBe(true);
   });
 });

@@ -485,16 +485,14 @@ export class AssistantTurn implements Component {
 
 export class SampleTurn implements Component {
   private index: number;
-  private total: number;
   private thinking = '';
   private steps: StepDirective[] | null = null;
   private failed = false;
   private streaming = true;
   expanded = false;
 
-  constructor(index: number, total: number) {
+  constructor(index: number) {
     this.index = index;
-    this.total = total;
   }
 
   updateThinking(content: string): void {
@@ -521,12 +519,13 @@ export class SampleTurn implements Component {
 
   invalidate(): void {}
 
-  private isLast(): boolean {
-    return this.index === this.total - 1;
-  }
-
-  render(width: number): string[] {
-    const branch = this.isLast() ? '└' : '├';
+  /**
+   * The tree glyph is render-time knowledge passed in by the SamplingBlock
+   * (which knows the real child count) — a stored per-batch `total` used to
+   * misjudge this after expansion rounds (round-5, candidate 8).
+   */
+  render(width: number, isLast = false): string[] {
+    const branch = isLast ? '└' : '├';
     const label = C.dim(`  ${branch} plan ${this.index + 1}`);
 
     let status: string;
@@ -581,7 +580,9 @@ export class SamplingBlock implements Component {
   render(width: number): string[] {
     if (this.sampleTurns.length === 0 && this.extraLines.length === 0) return [];
     const lines: string[] = ['', C.dim('  ⚡ Heavy Thinking')];
-    for (const turn of this.sampleTurns) lines.push(...turn.render(width));
+    for (let i = 0; i < this.sampleTurns.length; i++) {
+      lines.push(...this.sampleTurns[i]!.render(width, i === this.sampleTurns.length - 1));
+    }
     for (const l of this.extraLines) lines.push(truncateToWidth(C.dim(l), width));
     lines.push('');
     return lines;

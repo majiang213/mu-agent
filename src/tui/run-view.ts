@@ -55,6 +55,36 @@ export class RunView {
 
   constructor(private readonly deps: RunViewDeps) {}
 
+  /**
+   * ctrl+t toggle: expand every thinking/sample block, or collapse all when
+   * any is expanded. The policy lives here (the view-model owns the block
+   * registries) — the shell only binds keys (round-5, candidate 4).
+   * Returns whether any block exists (false → shell skips the render).
+   */
+  toggleThinking(): boolean {
+    const blocks = [...this.thinkingBlocks, ...this.sampleTurns];
+    if (blocks.length === 0) return false;
+    const anyExpanded = blocks.some((b) => b.expanded);
+    for (const b of blocks) b.setExpanded(!anyExpanded);
+    return true;
+  }
+
+  /** ctrl+o toggle: same algebra over tool blocks. */
+  toggleTools(): boolean {
+    if (this.toolBlocks.length === 0) return false;
+    const anyExpanded = this.toolBlocks.some((b) => b.expanded);
+    for (const b of this.toolBlocks) b.setExpanded(!anyExpanded);
+    return true;
+  }
+
+  /** ctrl+d: sync debug block visibility/expansion with the shell's debugMode. */
+  setDebugVisible(visible: boolean): void {
+    for (const b of this.debugBlocks) {
+      b.setVisible(visible);
+      b.setExpanded(visible);
+    }
+  }
+
   /** Detach run-scoped components from the terminal (end of run, abort, error). */
   dispose(): void {
     if (this.samplingBlock) {
@@ -148,7 +178,7 @@ export class RunView {
       host.insertBeforeLoader(this.samplingBlock);
     } else if (event.type === 'sample_start') {
       if (this.samplingBlock) {
-        const turn = new SampleTurn(event.index, event.total);
+        const turn = new SampleTurn(event.index);
         this.samplingBlock.addSample(turn);
         this.sampleTurns.push(turn);
       }
@@ -171,7 +201,9 @@ export class RunView {
               : 'worse';
       this.samplingBlock?.addLine(`  ↻ Refinement ${event.round}: ${label}`);
     } else if (event.type === 'deliberation_complete') {
-      void event;
+      // Render the summary the deliberator computes (was a dead payload —
+      // round-5 hygiene).
+      this.samplingBlock?.addLine(`  ✓ ${event.summary}`);
     } else if (event.type === 'deliberation_fallback') {
       this.samplingBlock?.addLine(`  ⚠ ${event.reason}`);
     } else if (event.type === 'deliberation_clarification') {

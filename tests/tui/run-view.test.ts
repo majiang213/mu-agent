@@ -3,7 +3,7 @@ import type { Component, Loader } from '@earendil-works/pi-tui';
 
 import { RunView } from '../../src/tui/run-view.js';
 import type { RunViewHost } from '../../src/tui/run-view.js';
-import { AssistantTurn, HeaderLine, SamplingBlock, ToolExecutionBlock } from '../../src/tui/blocks.js';
+import { AssistantTurn, HeaderLine, SamplingBlock, SampleTurn, ToolExecutionBlock } from '../../src/tui/blocks.js';
 import { MetricsCollector } from '../../src/tui/metrics.js';
 
 /**
@@ -127,6 +127,69 @@ describe('sampling_stopped labels', () => {
     runView.handleEvent({ type: 'deliberation_start', candidateCount: 2 });
     for (const reason of ['converged', 'max_count', 'max_rounds', 'no_new_info'] as const) {
       runView.handleEvent({ type: 'sampling_stopped', reason });
+    }
+  });
+});
+
+describe('round-5 candidate 8: tree glyph is render-time knowledge', () => {
+  it('SamplingBlock computes ├/└ from child positions — no double └ after expansion', () => {
+    const block = new SamplingBlock();
+    block.addSample(new SampleTurn(0));
+    block.addSample(new SampleTurn(1));
+    // Expansion round adds a third turn: glyph of plan 2 must be ├, not └
+    // (a stored per-batch total used to render both plan 2 and plan 3 as └).
+    block.addSample(new SampleTurn(2));
+    const text = block.render(80).join('\n');
+    expect(text).toContain('├ plan 1');
+    expect(text).toContain('├ plan 2');
+    expect(text).not.toContain('└ plan 2');
+    expect(text).toContain('└ plan 3');
+  });
+});
+
+describe('round-5 candidate 4: toggle policy lives in RunView', () => {
+  it('toggleTools expands all, then collapses all; returns false with no blocks', () => {
+    const { runView } = makeHarness();
+    expect(runView.toggleTools()).toBe(false);
+
+    runView.handleEvent({ type: 'tool_execution_start', tool: 'read', toolId: 'id-1', args: {} });
+    runView.handleEvent({ type: 'tool_execution_start', tool: 'bash', toolId: 'id-2', args: {} });
+    expect(runView.toolBlocks.every((b) => !b.expanded)).toBe(true);
+
+    expect(runView.toggleTools()).toBe(true);
+    expect(runView.toolBlocks.every((b) => b.expanded)).toBe(true);
+
+    expect(runView.toggleTools()).toBe(true);
+    expect(runView.toolBlocks.every((b) => !b.expanded)).toBe(true);
+  });
+
+  it('toggleThinking covers sample turns', () => {
+    const { runView } = makeHarness();
+    runView.handleEvent({ type: 'deliberation_start', candidateCount: 2 });
+    runView.handleEvent({ type: 'sample_start', index: 0 });
+    runView.handleEvent({ type: 'sample_start', index: 1 });
+    expect(runView.sampleTurns.length).toBe(2);
+
+    expect(runView.toggleThinking()).toBe(true);
+    expect(runView.sampleTurns.every((t) => t.expanded)).toBe(true);
+
+    expect(runView.toggleThinking()).toBe(true);
+    expect(runView.sampleTurns.every((t) => !t.expanded)).toBe(true);
+  });
+
+  it('setDebugVisible syncs debug block visibility and expansion', () => {
+    const { runView } = makeHarness({ debugMode: true });
+    runView.handleEvent({ type: 'turn_start', systemPrompt: 'sys', userPrompt: 'user' });
+    expect(runView.debugBlocks.length).toBeGreaterThan(0);
+
+    runView.setDebugVisible(false);
+    for (const b of runView.debugBlocks) {
+      expect(b.expanded).toBe(false);
+    }
+
+    runView.setDebugVisible(true);
+    for (const b of runView.debugBlocks) {
+      expect(b.expanded).toBe(true);
     }
   });
 });

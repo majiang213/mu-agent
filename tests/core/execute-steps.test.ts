@@ -91,7 +91,7 @@ function makeCfg(overrides?: Partial<RunConfig>): RunConfig {
     })),
     getCurrentState: vi.fn(() => State.REASON),
     transitionTo: vi.fn(),
-    resetForRetry: vi.fn(),
+    resetFileBudget: vi.fn(),
   };
   return {
     model: {} as RunConfig['model'],

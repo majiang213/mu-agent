@@ -7,6 +7,7 @@ import type { ExecutionEvent, Mission } from './types.js';
 import { runReasonStep, runStep } from './step-runner.js';
 import { compressConversationHistoryWithLLM } from '../compaction/index.js';
 import { buildRunSetup } from './setup.js';
+import type { RunSetupFactory } from './setup.js';
 import { isAbortError } from './abort.js';
 import { runWithVerifyRetry } from './verify-retry.js';
 import { MemoryStore } from '../memory/index.js';
@@ -24,6 +25,13 @@ export class ReactAgent {
   private _memoryStore: MemoryStore | null = null;
   private _isRunning = false;
   private _aborted = false;
+
+  /**
+   * @param setupFactory — the assembly seam (round-5, candidate 1).
+   * Production uses buildRunSetup; tests inject a fake RunSetup rather than
+   * mocking the assembly layer's import fan-out.
+   */
+  constructor(private readonly setupFactory: RunSetupFactory = buildRunSetup) {}
 
   abort(): void {
     this._aborted = true;
@@ -65,7 +73,7 @@ export class ReactAgent {
     this._isRunning = true;
 
     const cwd = options?.cwd ?? process.cwd();
-    const setup = await buildRunSetup(config, cwd, {
+    const setup = await this.setupFactory(config, cwd, {
       registerAgent: (a: Agent) => this.registerAgent(a),
       unregisterAgent: (a) => this._activeAgents.delete(a),
     });

@@ -101,8 +101,14 @@ export class StateMachineAgent {
     return this.fileCount;
   }
 
-  resetForRetry(): void {
-    this.currentState = State.REASON;
+  /**
+   * Reset the per-step file budget for a retry. Named honestly (round-5
+   * hygiene): this used to also write currentState = REASON — a dead write
+   * with no reader (tool gating is read before driving; the next state is
+   * set by resetForNextTask / runReasonAttempt), and a misleading one on
+   * non-REASON steps' retries.
+   */
+  resetFileBudget(): void {
     this.fileCount = 0;
   }
 

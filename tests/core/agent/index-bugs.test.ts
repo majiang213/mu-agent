@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { State } from '../../../src/core/types.js';
-import type { ExecutedStep, StepDirective } from '../../../src/core/types.js';
+import type { ExecutedStep } from '../../../src/core/types.js';
+import type { RunConfig } from '../../../src/core/agent/types.js';
+import type { AgentRegistryHooks, RunSetup, RunSetupFactory } from '../../../src/core/agent/setup.js';
 
-// ---- module mocks ----
-
-vi.mock('../../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(),
-  subscribeStepEvents: vi.fn(),
-}));
+/**
+ * Facade tests drive ReactAgent.run() through TWO seams:
+ * - the step pipeline (step-runner.js) — the one behavioral mock below;
+ * - the RunSetupFactory seam (round-5, candidate 1) — a fake RunSetup that
+ *   replaces the 14 module mocks which used to neuter buildRunSetup's
+ *   import fan-out (builder, state-machine, safety, locator, webfetch,
+ *   websearch, model-info, lsp, memory, memory-search, context, defaults,
+ *   child_process, os).
+ */
 
 vi.mock('../../../src/core/agent/step-runner.js', () => ({
   runReasonStep: vi.fn(),
@@ -15,122 +20,14 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
   runStep: vi.fn(),
 }));
 
-vi.mock('../../../src/core/agent/state-machine.js', () => ({
-  StateMachineAgent: vi.fn(function () {
-    return {
-      getModelParams: vi.fn(() => ({
-        tier: 'LARGE',
-        maxRetries: 3,
-        strictPlanning: false,
-        paramCount: 0,
-      })),
-      getCurrentState: vi.fn(() => State.REASON),
-      transitionTo: vi.fn(),
-      clone: vi.fn(),
-      resetForNextTask: vi.fn(),
-      getAllowedTools: vi.fn(() => []),
-      recordToolCall: vi.fn(),
-      canModifyMoreFiles: vi.fn(() => true),
-      resetForRetry: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/tool/safety/index.js', () => ({
-  SafeModifier: vi.fn(function () {
-    return {
-      createCheckpoint: vi.fn(),
-      restoreAndClearWhere: vi.fn(async () => {}),
-      restore: vi.fn(),
-      hasCheckpoint: vi.fn(() => false),
-      clearCheckpoint: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/tool/locator.js', () => ({ astLocatorTool: {} }));
-vi.mock('../../../src/tool/webfetch.js', () => ({ webfetchTool: {} }));
-vi.mock('../../../src/tool/websearch.js', () => ({ websearchTool: {} }));
-
-vi.mock('../../../src/provider/model-info.js', () => ({
-  // buildModel lives here since round-4 hygiene (moved from step-runner.js).
-  buildModel: vi.fn(async () => ({
-    id: 'test-model',
-    name: 'test-model',
-    api: 'openai-completions',
-    provider: 'ollama',
-    baseUrl: 'http://localhost:11434/v1',
-    reasoning: false,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 100000,
-  })),
-  fetchOllamaParamCount: vi.fn(async () => null),
-  fetchContextLength: vi.fn(async () => 128000),
-  resolveApiKey: vi.fn(() => 'ollama'),
-  OLLAMA_DUMMY_API_KEY: 'ollama',
-}));
-
-vi.mock('../../../src/tool/lsp.js', () => ({
-  LspClient: vi.fn(function () {
-    return {
-      init: vi.fn(async () => {}),
-      dispose: vi.fn(),
-      touchFile: vi.fn(async () => []),
-    };
-  }),
-}));
-
-vi.mock('../../../src/core/memory/index.js', () => {
-  const store = {
-    processPendingSummaries: vi.fn(async () => {}),
-    writeEpisodeSync: vi.fn(),
-    index: vi.fn(() => ''),
-    search: vi.fn(() => ''),
-    searchById: vi.fn(() => null),
-    close: vi.fn(),
-  };
-  return {
-    MemoryStore: Object.assign(
-      vi.fn(function () {
-        return store;
-      }),
-      { open: vi.fn(() => store) },
-    ),
-  };
-});
-
-vi.mock('../../../src/tool/memory-search.js', () => ({
-  createMemorySearchTool: vi.fn(() => ({})),
-}));
-
-vi.mock('../../../src/core/agent/context.js', () => ({
-  loadContext: vi.fn(() => null),
-}));
-
-vi.mock('../../../src/config/defaults.js', () => ({
-  DEFAULT_TEMPERATURE: 0.7,
-  DEFAULT_CONTEXT_RATIO: 0.2,
-  MU_AGENT_DIR: '.mu-agent',
-}));
-
-vi.mock('node:child_process', () => ({
-  execSync: vi.fn(() => ''),
-}));
-
-vi.mock('node:os', () => ({
-  homedir: vi.fn(() => '/home/test'),
-}));
-
-// ---- dynamic imports ----
+// ---- dynamic imports after mocks ----
 
 const { runReasonStep, executeSteps, runStep } = await import('../../../src/core/agent/step-runner.js');
 const { ReactAgent } = await import('../../../src/core/agent/index.js');
 
 // ---- helpers ----
 
-function makeCfg() {
+function makeCfg(hooks: AgentRegistryHooks): RunConfig {
   const stateMachine = {
     clone: vi.fn(),
     resetForNextTask: vi.fn(),
@@ -143,13 +40,13 @@ function makeCfg() {
     })),
     getCurrentState: vi.fn(() => State.REASON),
     transitionTo: vi.fn(),
-    resetForRetry: vi.fn(),
+    resetFileBudget: vi.fn(),
     recordToolCall: vi.fn(),
     canModifyMoreFiles: vi.fn(() => true),
   };
   return {
-    model: {} as never,
-    stateMachine: stateMachine as never,
+    model: {} as RunConfig['model'],
+    stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
     locator: null,
     safeModifier: {
@@ -158,16 +55,46 @@ function makeCfg() {
       restore: vi.fn(),
       hasCheckpoint: vi.fn(() => false),
       clearCheckpoint: vi.fn(),
-    } as never,
+    } as unknown as RunConfig['safeModifier'],
     env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
     temperature: 0.7,
     contextRatio: 0.2,
     apiKey: 'test',
     projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
+    registerAgent: hooks.registerAgent,
+    unregisterAgent: hooks.unregisterAgent,
   };
 }
+
+interface FakeSetup {
+  factory: RunSetupFactory;
+  setup: RunSetup;
+}
+
+/** A RunSetup whose subsystems are all stubs; cfg honors the registry hooks. */
+function makeFakeSetup(): FakeSetup {
+  const setup: RunSetup = {
+    cfg: null as unknown as RunConfig, // filled by the factory (needs hooks)
+    memoryStore: {
+      writeEpisodeSync: vi.fn(),
+      close: vi.fn(),
+    } as unknown as RunSetup['memoryStore'],
+    memoryIndex: '',
+    memorySearchTool: {} as RunSetup['memorySearchTool'],
+    pendingSummaries: Promise.resolve(),
+    close: vi.fn(),
+  };
+  const factory: RunSetupFactory = async (_config, _cwd, hooks) => {
+    setup.cfg = makeCfg(hooks);
+    return setup;
+  };
+  return { factory, setup };
+}
+
+const config = {
+  model: { name: 'test', provider: 'ollama' as const, baseUrl: 'http://localhost:11434' },
+  safety: {},
+};
 
 // ---- Bug 5: abort() vs registerAgent race ----
 
@@ -192,36 +119,25 @@ describe('Bug 5: abort() vs registerAgent race window', () => {
   });
 });
 
-// ---- Bug 20: runReasonStep outside try block ----
+// ---- Bug 20: resource leak when REASON throws ----
 
-describe('Bug 20: runReasonStep outside try block causes resource leak', () => {
+describe('Bug 20: setup.close() runs even when runReasonStep throws', () => {
   beforeEach(() => {
     vi.mocked(runReasonStep).mockReset();
     vi.mocked(executeSteps).mockReset();
   });
 
-  it('lspClient.dispose() is called even when runReasonStep throws', async () => {
-    // Arrange: runReasonStep throws an error.
+  it('disposes the run setup even when REASON fails', async () => {
     vi.mocked(runReasonStep).mockRejectedValue(new Error('REASON failed'));
 
-    const agent = new ReactAgent();
+    const { factory, setup } = makeFakeSetup();
+    const agent = new ReactAgent(factory);
 
-    const config = {
-      model: { name: 'test', provider: 'ollama' as const, baseUrl: 'http://localhost:11434' },
-      safety: {},
-    };
-
-    // Act: run() should throw, but lspClient.dispose() should still be called.
-    await expect(agent.run('test task', config as never)).rejects.toThrow();
-
-    // Bug 20: runReasonStep is called BEFORE the try block (line 187).
-    // When it throws, the catch/finally blocks handle it, but lspClient.dispose()
-    // is in the finally block at line 358. However, lspClient was initialized at line 127-128
-    // INSIDE the try block. If runReasonStep is called before the try block and throws,
-    // lspClient was never initialized, so dispose() might not be called on the right object.
-    // The real issue: if runReasonStep is moved into the try block, the finally handles it.
-    // Currently it IS inside try (line 187), so this test verifies the fix path works.
-    // We test that no unhandled resource leak occurs.
+    // run() throws, but the finally block must dispose the setup — the fake
+    // makes the assertion direct (previously inferred through a mocked
+    // LspClient.dispose three modules away).
+    await expect(agent.run('test task', config as never)).rejects.toThrow('REASON failed');
+    expect(setup.close).toHaveBeenCalledOnce();
   });
 });
 
@@ -259,11 +175,7 @@ describe('Bug 21: VERIFY retry with steps=[] misreported as success', () => {
       output: JSON.stringify({ answer: 'done' }),
     });
 
-    const agent = new ReactAgent();
-    const config = {
-      model: { name: 'test', provider: 'ollama' as const, baseUrl: 'http://localhost:11434' },
-      safety: {},
-    };
+    const agent = new ReactAgent(makeFakeSetup().factory);
 
     // Act
     const result = await agent.run('test task', config as never);
@@ -316,11 +228,7 @@ describe('Bug 22: retry plan without VERIFY returns success:true', () => {
       output: JSON.stringify({ answer: 'done' }),
     });
 
-    const agent = new ReactAgent();
-    const config = {
-      model: { name: 'test', provider: 'ollama' as const, baseUrl: 'http://localhost:11434' },
-      safety: {},
-    };
+    const agent = new ReactAgent(makeFakeSetup().factory);
 
     // Act
     const result = await agent.run('test task', config as never);
@@ -353,13 +261,7 @@ describe('Bug 25: conversationHistory assistant message uses wrong role', () => 
       output: JSON.stringify({ answer: 'The answer is 42' }),
     });
 
-    const agent = new ReactAgent();
-    const config = {
-      model: { name: 'test', provider: 'ollama' as const, baseUrl: 'http://localhost:11434' },
-      safety: {},
-    };
-
-    const conversationHistory: Array<{ role: string; content: string }> = [];
+    const agent = new ReactAgent(makeFakeSetup().factory);
 
     // Act
     await agent.run('what is the answer?', config as never, undefined, []);

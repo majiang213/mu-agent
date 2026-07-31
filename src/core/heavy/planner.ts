@@ -54,8 +54,8 @@ export async function planWithHeavyThinking(
     }
     onEvent?.({ type: 'state_change', from: State.REASON, to: 'SAMPLING' });
     onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE + 1 });
-    onEvent?.({ type: 'sample_start', index: 0, total: SAMPLING_BATCH_SIZE + 1 });
-    onEvent?.({ type: 'sample_complete', index: 0, steps: phase0Result.steps });
+    // No fake sample events here — the sampler emits them for seed
+    // candidates (round-5, candidate 8).
     phase0Candidate = { id: 'plan-phase0', steps: phase0Result.steps };
   } catch (_) {
     void _;

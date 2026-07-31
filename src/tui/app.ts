@@ -91,30 +91,18 @@ export class TuiApp {
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+t')) {
-        const thinkingExpandables = [...(this.runView?.thinkingBlocks ?? []), ...(this.runView?.sampleTurns ?? [])];
-        if (thinkingExpandables.length > 0) {
-          const anyExpanded = thinkingExpandables.some((b) => b.expanded);
-          for (const b of thinkingExpandables) b.setExpanded(!anyExpanded);
-          this.tui.requestRender(true);
-        }
+        // Toggle policy lives in the RunView view-model (round-5, candidate 4).
+        if (this.runView?.toggleThinking()) this.tui.requestRender(true);
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+o')) {
-        const toolExpandables = this.runView?.toolBlocks ?? [];
-        if (toolExpandables.length > 0) {
-          const anyExpanded = toolExpandables.some((b) => b.expanded);
-          for (const b of toolExpandables) b.setExpanded(!anyExpanded);
-          this.tui.requestRender(true);
-        }
+        if (this.runView?.toggleTools()) this.tui.requestRender(true);
         return { consume: true };
       }
       if (matchesKey(data, 'ctrl+d')) {
         this.debugMode = !this.debugMode;
         this.hintLine.setDebugMode(this.debugMode);
-        for (const b of this.runView?.debugBlocks ?? []) {
-          b.setVisible(this.debugMode);
-          b.setExpanded(this.debugMode);
-        }
+        this.runView?.setDebugVisible(this.debugMode);
         this.tui.requestRender(true);
         return { consume: true };
       }

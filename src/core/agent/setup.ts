@@ -33,6 +33,14 @@ export interface AgentRegistryHooks {
 }
 
 /**
+ * The assembly seam of ReactAgent (round-5, candidate 1): production wires
+ * buildRunSetup; facade tests inject a fake RunSetup instead of mocking the
+ * assembly layer's import fan-out — same pattern as StepAgentDriver one
+ * level down.
+ */
+export type RunSetupFactory = (config: Config, cwd: string, hooks: AgentRegistryHooks) => Promise<RunSetup>;
+
+/**
  * Build everything a run needs: model probe, tool stack, env block, LSP,
  * memory, and the RunConfig itself. Previously assembled inline across ~90
  * lines of ReactAgent.run() — run() now reads as pipeline: setup → reason →

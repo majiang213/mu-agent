@@ -34,7 +34,7 @@ export type ExecutionEvent =
   | { type: 'task_end'; taskIndex: number; taskTotal: number }
   | { type: 'clarification_needed'; questions: string[] }
   | { type: 'deliberation_start'; candidateCount: number }
-  | { type: 'sample_start'; index: number; total: number }
+  | { type: 'sample_start'; index: number }
   | { type: 'sample_thinking'; index: number; content: string }
   | { type: 'sample_complete'; index: number; steps: import('../types.js').StepDirective[] }
   | { type: 'sample_failed'; index: number }
@@ -67,7 +67,8 @@ export interface StepAgentBuildInput {
   tools: AgentTool[];
   readFiles?: Set<string>;
   stagnationDetector: StagnationDetector;
-  onLlmText: (text: string) => void;
+  /** Optional since round 5 — REASON builds through the same seam and ignores llm text. */
+  onLlmText?: (text: string) => void;
   onEvent?: (event: ExecutionEvent) => void;
   onTurnEndComplete?: () => void;
 }
@@ -75,8 +76,17 @@ export interface StepAgentBuildInput {
 export interface DriveUntilCompleteOptions {
   /** True once the state's complete() tool call has been captured. */
   hasCaptured: () => boolean;
-  /** Per-state steer guidance for the one reminder round. */
-  reminderSteer: string;
+  /** Per-state steer guidance for a no-capture round (a function may vary it per round). */
+  reminderSteer: string | ((round: number) => string);
+  /**
+   * After a capture: return a repair steer message to re-drive once, or null
+   * to accept. May reset the capture first (fresh attempt). REASON wraps
+   * parseDirectives with this (round-5, candidate 5) — "captured AND valid"
+   * is driver's business, not two hand-rolled copies in the caller.
+   */
+  validate?: () => string | null;
+  /** Cap on nudge rounds (reminder + one repair max per call site). */
+  maxRounds?: number;
 }
 
 /**
