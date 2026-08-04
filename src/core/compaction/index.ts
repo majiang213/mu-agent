@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
-import { completeSimple } from '@earendil-works/pi-ai';
+import { estimateTokens as piEstimateTokens, generateSummary } from '@earendil-works/pi-coding-agent';
 import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
 import { OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
 
@@ -8,6 +8,10 @@ import { OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
 // (builder.ts transformContext) ever tuned maxTokens; the class wrapper and
 // its remaining knobs had no production reader and were collapsed into the
 // one function below (round-4 hygiene).
+//
+// Gap 86: token estimation and LLM summarization are pi-native
+// (estimateTokens / generateSummary); only mu-agent's trigger and splice
+// policy lives here.
 const PRESERVE_FIRST_N = 2;
 const PRESERVE_LAST_N = 6;
 const MIN_MESSAGES_TO_COMPACT = 10;
@@ -16,12 +20,9 @@ function isSteerMessage(msg: AgentMessage): boolean {
   return msg.role === 'steer';
 }
 
+/** pi's estimateTokens is per-message; steer (mu-agent private role) scores 0. */
 function estimateTokens(messages: AgentMessage[]): number {
-  return messages.reduce((sum, msg) => {
-    const c = (msg as { content?: unknown }).content;
-    const text = typeof c === 'string' ? c : JSON.stringify(c ?? '');
-    return sum + Math.ceil(text.length / 4);
-  }, 0);
+  return messages.reduce((sum, msg) => sum + piEstimateTokens(msg), 0);
 }
 
 function compressMessage(msg: AgentMessage): AgentMessage {
@@ -79,17 +80,9 @@ export function compactLoopMessages(messages: AgentMessage[], maxTokens: number)
 
 const SUMMARY_TRIGGER_COUNT = 16;
 const SUMMARY_PRESERVE_LAST_N = 8;
-
-function formatMessagesForSummary(messages: AgentMessage[]): string {
-  return messages
-    .map((m) => {
-      const role = m.role === 'user' ? 'User' : 'Assistant';
-      const c = (m as { content?: unknown }).content;
-      const text = typeof c === 'string' ? c : JSON.stringify(c ?? '');
-      return `${role}: ${text}`;
-    })
-    .join('\n');
-}
+// pi generateSummary sizes its response as 0.8 * reserveTokens; 250 keeps the
+// old ~200-token summary target.
+const SUMMARY_RESERVE_TOKENS = 250;
 
 export async function compressConversationHistoryWithLLM(
   messages: AgentMessage[],
@@ -108,35 +101,17 @@ export async function compressConversationHistoryWithLLM(
   if (head.length === 0) return messages;
 
   try {
-    const formatted = formatMessagesForSummary(head);
-    const result = await completeSimple(
+    // steer is a mu-agent private role that pi's convertToLlm (inside
+    // generateSummary) does not know — policy layer filters it first.
+    const summaryText = await generateSummary(
+      head.filter((m) => !isSteerMessage(m)),
       model,
-      {
-        systemPrompt:
-          'You are summarizing a conversation history for a coding assistant session. Be concise and factual.',
-        messages: [
-          {
-            role: 'user',
-            content: `Summarize the following conversation. Preserve: what tasks the user requested, what was accomplished or changed, any important context for future tasks. Keep under 200 tokens.\n\nConversation:\n${formatted}`,
-            timestamp: Date.now(),
-          },
-        ],
-      },
-      {
-        temperature: 0,
-        apiKey,
-      },
+      SUMMARY_RESERVE_TOKENS,
+      apiKey,
     );
-
-    const summaryText =
-      result.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text)
-        .join('') || 'Prior conversation omitted.';
-
     const summaryMsg = {
       role: 'assistant' as const,
-      content: `[Prior conversation summary] ${summaryText}`,
+      content: `[Prior conversation summary] ${summaryText || 'Prior conversation omitted.'}`,
       timestamp: Date.now(),
     } as unknown as AgentMessage;
 
