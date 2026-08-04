@@ -1,6 +1,6 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentEvent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
-import { streamSimple } from '@earendil-works/pi-ai';
+import { streamSimple } from '@earendil-works/pi-ai/compat';
 
 import { runEditPostCheck } from '../../tool/safety/modification.js';
 import { resolveProjectPath } from '../../tool/safety/paths.js';

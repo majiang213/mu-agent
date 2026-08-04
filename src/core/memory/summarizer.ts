@@ -43,7 +43,7 @@ async function generateEpisodeSummary(
   row: { episode_id: string; user_input: string; result_summary: string },
   model: Model<'openai-completions'>,
 ): Promise<LLMSummary> {
-  const { completeSimple } = await import('@earendil-works/pi-ai');
+  const { completeSimple } = await import('@earendil-works/pi-ai/compat');
   let context = row.user_input;
   const s = parseStructuredSummary(row.result_summary);
   if (s) {
