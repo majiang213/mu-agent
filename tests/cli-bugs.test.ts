@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -24,10 +24,8 @@ describe('Bug 17: applyCliOverrides writes config before loadConfig', () => {
     // loadConfig reads the file with CLI overrides already written.
     // This ensures the agent uses the correct config, not stale pre-override values.
 
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const sourcePath = path.join(process.cwd(), 'src/cli.ts');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const sourcePath = join(process.cwd(), 'src/cli.ts');
+    const source = readFileSync(sourcePath, 'utf-8');
 
     // Find the run command action handler
     const runActionMatch = source.match(/\.action\(async \(task, options\)[\s\S]*?\)\s*\)/);

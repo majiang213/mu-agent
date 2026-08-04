@@ -102,7 +102,7 @@ describe('parseDirectives (unified directives module)', () => {
     });
 
     it('filters out steps with empty focus', () => {
-      const { steps, error } = parseDirectives({
+      const { steps } = parseDirectives({
         steps: [
           { state: 'LOCATE', focus: '' },
           { state: 'MODIFY', focus: 'fix it' },
@@ -113,7 +113,7 @@ describe('parseDirectives (unified directives module)', () => {
     });
 
     it('filters out non-object entries', () => {
-      const { steps, error } = parseDirectives({
+      const { steps } = parseDirectives({
         steps: [null, 'string', 42, { state: 'ANSWER', focus: 'valid' }],
       });
       expect(steps).toHaveLength(1);

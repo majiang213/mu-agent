@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 // Bug 13: compaction summary is injected as role:'user', creating consecutive user messages.

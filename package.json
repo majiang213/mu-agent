@@ -33,8 +33,8 @@
     "test": "vitest run",
     "dev": "tsx src/cli.ts",
     "cli": "tsx src/cli.ts",
-    "lint": "eslint src",
-    "lint:fix": "eslint src --fix",
+    "lint": "eslint src tests",
+    "lint:fix": "eslint src tests --fix",
     "format": "prettier --write src tests",
     "format:check": "prettier --check src tests",
     "prepare": "husky"

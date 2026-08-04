@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // Bug 19 (graph/retriever.ts:32-168): Each retrieve() opens/closes 3-4 DB connections.
 // Bug 19 (graph/retriever.ts:187): Empty BM25 index cached for 5 minutes after 0 results.
@@ -13,10 +15,8 @@ describe('Bug 19: GraphRetriever excessive DB connections', () => {
     // In parallel LOCATE steps, this can exhaust file descriptors.
 
     // We verify by checking the source code structure.
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const sourcePath = path.join(process.cwd(), 'src/core/graph/retriever.ts');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const sourcePath = join(process.cwd(), 'src/core/graph/retriever.ts');
+    const source = readFileSync(sourcePath, 'utf-8');
 
     // Count occurrences of `new Database(` in the retriever class
     const newDbMatches = source.match(/new Database\(/g);
@@ -38,10 +38,8 @@ describe('Bug 19: BM25 index caches empty result for 5 minutes', () => {
     // If nodes are added during that window, retrieve() still returns empty.
 
     // We verify by checking the source code.
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const sourcePath = path.join(process.cwd(), 'src/core/graph/retriever.ts');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const sourcePath = join(process.cwd(), 'src/core/graph/retriever.ts');
+    const source = readFileSync(sourcePath, 'utf-8');
 
     // Find the catch block in ensureBM25
     const ensureBM25Match = source.match(/private ensureBM25[\s\S]*?(?=^\s*private|^\s*\}$)/m);

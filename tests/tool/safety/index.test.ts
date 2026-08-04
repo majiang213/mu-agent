@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SafeModifier } from '../../../src/tool/safety/checkpoint.js';
-import { syntaxCheckHook, damageCheckHook } from '../../../src/tool/safety/post-check.js';
-import { writeFile, readFile, mkdir, rm } from 'node:fs/promises';
+import { syntaxCheckHook } from '../../../src/tool/safety/post-check.js';
+import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 

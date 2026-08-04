@@ -54,7 +54,6 @@ describe('StateMachine + Metrics (no Ollama required)', () => {
     ];
 
     for (let i = 0; i < steps.length; i++) {
-      const step = steps[i]!;
       const taskId = `step-${i}`;
       metrics.startTask(taskId);
       metrics.recordLLMCall(taskId, 400, 150);

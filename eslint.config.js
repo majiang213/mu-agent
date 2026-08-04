@@ -34,7 +34,7 @@ export default [
     languageOptions: {
       parser: tsParser,
       parserOptions: {
-        project: './tsconfig.json',
+        project: './tsconfig.test.json',
       },
       globals: {
         ...globals.node,
@@ -46,11 +46,14 @@ export default [
     rules: {
       ...tsPlugin.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      // TS 文件的未定义标识符由 tsc 负责（类型名如 RequestInit 会误报）
+      'no-undef': 'off',
       'no-console': 'off',
     },
   },
   prettierConfig,
   {
-    ignores: ['dist/**', 'node_modules/**'],
+    ignores: ['dist/**', 'node_modules/**', 'tests/fixtures/**', 'tests/e2e/**', '.claude/**'],
   },
 ];

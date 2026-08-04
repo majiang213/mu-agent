@@ -208,7 +208,9 @@ describe('runReasonStep — heavy path', () => {
       await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], {
         onEvent: (e) => events.push(e),
       });
-    } catch {}
+    } catch {
+      // runReasonStep may throw on the fallback path; the events are what matters.
+    }
     expect(events.some((e) => e.type === 'deliberation_start')).toBe(true);
     expect(events.some((e) => e.type === 'deliberation_fallback')).toBe(true);
   });

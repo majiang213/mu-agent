@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -42,10 +42,8 @@ describe('Bug 10: buildFull() lacks transaction protection', () => {
     // Import the source and check if buildFull uses transaction.
     // Since we can't easily mock better-sqlite3, we verify the behavior
     // by reading the source file.
-    const fs = require('node:fs');
-    const path = require('node:path');
-    const sourcePath = path.join(process.cwd(), 'src/core/graph/builder.ts');
-    const source = fs.readFileSync(sourcePath, 'utf-8');
+    const sourcePath = join(process.cwd(), 'src/core/graph/builder.ts');
+    const source = readFileSync(sourcePath, 'utf-8');
 
     // Check that buildFull uses db.transaction()
     const buildFullMatch = source.match(/buildFull\(\)[\s\S]*?(?=^\s{2}(?:updateFiles|private|}))/m);
