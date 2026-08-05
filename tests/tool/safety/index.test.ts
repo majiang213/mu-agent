@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { SafeModifier } from '../../../src/tool/safety/checkpoint.js';
-import { syntaxCheckHook } from '../../../src/tool/safety/post-check.js';
+import { syntaxOk } from '../../../src/tool/safety/modification.js';
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -47,13 +47,13 @@ describe('PostCheckHooks', () => {
 
   it('should pass syntax check for valid file', async () => {
     await writeFile(testFile, 'const x = 1;', 'utf-8');
-    const passed = await syntaxCheckHook.check(testFile, '');
+    const passed = await syntaxOk(testFile);
     expect(passed).toBe(true);
   });
 
   it('should fail syntax check for invalid braces', async () => {
     await writeFile(testFile, 'function test() {', 'utf-8');
-    const passed = await syntaxCheckHook.check(testFile, '');
+    const passed = await syntaxOk(testFile);
     expect(passed).toBe(false);
   });
 });

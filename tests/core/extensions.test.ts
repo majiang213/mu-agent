@@ -15,18 +15,15 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ExtensionRunner, ModelRegistry } from '@earendil-works/pi-coding-agent';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
-import {
-  loadExtensionRunner,
-  extensionToolsForState,
-  createExtensionHostState,
-  buildExtensionActions,
-} from '../../src/core/extensions/index.js';
-import type { ExtensionHostState } from '../../src/core/extensions/index.js';
+import { loadExtensionRunner, extensionToolsForState } from '../../src/core/extensions/loader.js';
+import { createExtensionHostState, buildExtensionActions } from '../../src/core/extensions/host-actions.js';
+import type { ExtensionHostState } from '../../src/core/extensions/host-actions.js';
 import { buildStepAgent, subscribeStepEvents } from '../../src/core/agent/builder.js';
 import { StagnationDetector } from '../../src/core/cognitive/index.js';
 import type { Config } from '../../src/config/types.js';
 import type { RunConfig } from '../../src/core/agent/types.js';
 import { State } from '../../src/core/types.js';
+import { makeRunConfig } from '../helpers/run-config.js';
 
 declare global {
   // Extension files are loaded via jiti — they communicate with the test
@@ -70,7 +67,7 @@ async function loadRunner(
 }
 
 function makeCfg(runner: ExtensionRunner | undefined, host: ExtensionHostState): RunConfig {
-  return {
+  return makeRunConfig({
     model: {
       id: 'test',
       name: 'test',
@@ -83,27 +80,25 @@ function makeCfg(runner: ExtensionRunner | undefined, host: ExtensionHostState):
       contextWindow: 128000,
       maxTokens: 100000,
     },
-    models: {},
     stateMachine: {
-      getModelParams: vi.fn(() => ({ tier: 'LARGE', maxRetries: 3, strictPlanning: false, maxFilesPerTask: 5 })),
+      getModelParams: vi.fn(() => ({ tier: 'LARGE' })),
       transitionTo: vi.fn(),
       recordToolCall: vi.fn(),
       canModifyMoreFiles: vi.fn(() => true),
-    },
+    } as unknown as RunConfig['stateMachine'],
     safetyConfig: { enableCheckpoint: false },
-    locator: null,
-    safeModifier: { createCheckpoint: vi.fn(async () => {}), hasCheckpoint: vi.fn(() => false) },
+    safeModifier: {
+      createCheckpoint: vi.fn(async () => {}),
+      hasCheckpoint: vi.fn(() => false),
+    } as unknown as RunConfig['safeModifier'],
     env: { cwd: projectRoot, platform: 'linux', isGitRepo: false, date: '2026-01-01' },
     temperature: 0.1,
     contextRatio: 0.75,
-    apiKey: 'test',
     projectRoot,
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
     lspClient: undefined,
     ...(runner ? { extensionRunner: runner } : {}),
     extensionHost: host,
-  } as unknown as RunConfig;
+  });
 }
 
 interface CapturedAgentOpts {

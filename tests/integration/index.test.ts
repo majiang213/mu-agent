@@ -4,7 +4,7 @@ import { StateMachineAgent } from '../../src/core/agent/state-machine.js';
 import { ReactAgent } from '../../src/core/agent/index.js';
 import { StagnationDetector } from '../../src/core/cognitive/index.js';
 import { ASTLocator } from '../../src/tool/locator.js';
-import { SafeModifier } from '../../src/tool/safety/index.js';
+import { SafeModifier } from '../../src/tool/safety/checkpoint.js';
 
 describe('Integration Tests', () => {
   describe('Module Integration', () => {
@@ -54,8 +54,6 @@ describe('Integration Tests', () => {
       stagnationDetector.recordToolCall({
         tool: 'read',
         input: { path: 'test.ts' },
-        output: {},
-        timestamp: Date.now(),
       });
 
       const check1 = stagnationDetector.check();
@@ -65,8 +63,6 @@ describe('Integration Tests', () => {
         stagnationDetector.recordToolCall({
           tool: 'read',
           input: { path: 'test.ts' },
-          output: {},
-          timestamp: Date.now(),
         });
       }
 

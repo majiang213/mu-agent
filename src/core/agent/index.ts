@@ -1,7 +1,7 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { SessionManager, ExtensionRunner } from '@earendil-works/pi-coding-agent';
-import type { ExtensionHostState } from '../extensions/index.js';
+import type { ExtensionHostState } from '../extensions/host-actions.js';
 import type { Config } from '../../config/types.js';
 import { State } from '../types.js';
 import type { StateResult, ExecutedStep } from '../types.js';
@@ -12,7 +12,6 @@ import { buildRunSetup } from './setup.js';
 import type { RunSetupFactory } from './setup.js';
 import { isAbortError } from './abort.js';
 import { runWithVerifyRetry } from './verify-retry.js';
-import { MemoryStore } from '../memory/index.js';
 
 export type { ExecutionEvent };
 
@@ -24,7 +23,6 @@ export type { ExecutionEvent };
 export class ReactAgent {
   private _pendingClarification: ((answer: string) => void) | null = null;
   private _activeAgents: Set<Agent> = new Set();
-  private _memoryStore: MemoryStore | null = null;
   private _isRunning = false;
   private _aborted = false;
 
@@ -72,12 +70,11 @@ export class ReactAgent {
       onModelBuilt?: (model: import('@earendil-works/pi-ai').Model<'openai-completions'>) => void;
     },
   ): Promise<StateResult> {
-    const baseMission: Mission = {
+    let mission: Mission = {
       id: `task-${Date.now()}`,
       description: input,
       state: 'running',
     };
-    let mission = { ...baseMission };
 
     if (this._isRunning) throw new Error('ReactAgent.run() already running');
     this._isRunning = true;
@@ -90,8 +87,7 @@ export class ReactAgent {
       ...(options?.sessionManager ? { sessionManager: options.sessionManager } : {}),
       ...(options?.extensions ? { extensions: options.extensions } : {}),
     });
-    this._memoryStore = setup.memoryStore;
-    const { cfg, memoryIndex, memorySearchTool } = setup;
+    const { cfg, memoryIndex, memorySearchTool, memoryStore } = setup;
     options?.onModelBuilt?.(cfg.model);
 
     // Gap 85-A: extension notify sink + session lifecycle events. The sink is
@@ -145,7 +141,7 @@ export class ReactAgent {
         memoryIndex,
         memorySearchTool,
         onNeedsClarify: clarifyCallback,
-        memoryStore: this._memoryStore,
+        memoryStore,
       });
 
       if (outcome.kind === 'failed') {
@@ -189,26 +185,20 @@ export class ReactAgent {
       }
 
       const finalResult: StateResult = {
-        state: State.DONE,
         success: true,
         output: allStepResults[allStepResults.length - 1]?.output ?? 'Task completed',
-        nextState: State.DONE,
-        messages: [],
       };
-      this._memoryStore?.writeEpisodeSync(mission, allStepResults, finalResult);
+      memoryStore?.writeEpisodeSync(mission, allStepResults, finalResult);
       mission = { ...mission, state: 'completed' as const };
       return finalResult;
     } catch (err) {
       const isAbort = isAbortError(err);
       if (!isAbort) {
         const errResult: StateResult = {
-          state: State.DONE,
           success: false,
           output: err instanceof Error ? err.message : String(err),
-          nextState: State.DONE,
-          messages: [],
         };
-        this._memoryStore?.writeEpisodeSync(mission, allStepResults, errResult);
+        memoryStore?.writeEpisodeSync(mission, allStepResults, errResult);
       }
       throw err;
     } finally {

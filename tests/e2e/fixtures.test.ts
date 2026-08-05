@@ -102,7 +102,6 @@ interface TurnRecord {
   tools: ToolCall[];
   promptLen: number;
   responseLen: number;
-  contextTokens: number;
 }
 
 function parseRunLog(logPath: string): TurnRecord[] {
@@ -139,7 +138,6 @@ function parseRunLog(logPath: string): TurnRecord[] {
           tools: [],
           promptLen: 0,
           responseLen: 0,
-          contextTokens: 0,
         };
         break;
 
@@ -173,7 +171,6 @@ function parseRunLog(logPath: string): TurnRecord[] {
         if (currentTurn) {
           currentTurn.promptLen = event.promptLen;
           currentTurn.responseLen = event.responseLen;
-          currentTurn.contextTokens = event.contextTokens;
           turns.push(currentTurn);
           currentTurn = null;
         }
@@ -232,7 +229,7 @@ function printRunSummary(opts: {
       prevState = t.state;
     }
 
-    const tokens = t.promptLen > 0 ? `  (prompt=${t.promptLen} resp=${t.responseLen} ctx=${t.contextTokens})` : '';
+    const tokens = t.promptLen > 0 ? `  (prompt=${t.promptLen} resp=${t.responseLen})` : '';
     console.error(`  Turn ${i + 1}${tokens}`);
 
     // ── MODEL INPUT: system prompt ──────────────────────────────

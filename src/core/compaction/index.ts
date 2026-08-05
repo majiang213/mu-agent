@@ -2,7 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Model } from '@earendil-works/pi-ai';
 import { estimateTokens as piEstimateTokens, generateSummary } from '@earendil-works/pi-coding-agent';
 import { DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
-import { OLLAMA_DUMMY_API_KEY } from '../../provider/model-info.js';
+import { resolveApiKey } from '../../provider/model-info.js';
 
 // In-loop compaction policy — fixed constants, not config: the only consumer
 // (builder.ts transformContext) ever tuned maxTokens; the class wrapper and
@@ -88,7 +88,7 @@ export async function compressConversationHistoryWithLLM(
   messages: AgentMessage[],
   model: Model<'openai-completions'>,
   contextRatio = DEFAULT_CONTEXT_RATIO,
-  apiKey = OLLAMA_DUMMY_API_KEY,
+  apiKey?: string,
 ): Promise<AgentMessage[]> {
   const triggerTokens = Math.floor(model.contextWindow * contextRatio);
   if (messages.length <= SUMMARY_TRIGGER_COUNT && estimateTokens(messages) <= triggerTokens) {
@@ -107,7 +107,9 @@ export async function compressConversationHistoryWithLLM(
       head.filter((m) => !isSteerMessage(m)),
       model,
       SUMMARY_RESERVE_TOKENS,
-      apiKey,
+      // provider-dummy knowledge has one home (model-info resolveApiKey) —
+      // compaction no longer hardcodes the ollama sentinel as its default.
+      resolveApiKey({ provider: model.provider, ...(apiKey !== undefined ? { apiKey } : {}) }),
     );
     const summaryMsg = {
       role: 'assistant' as const,

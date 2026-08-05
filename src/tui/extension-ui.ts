@@ -61,7 +61,6 @@ export interface ExtensionUIDeps {
   getToolsExpanded: () => boolean;
   setToolsExpanded: (expanded: boolean) => void;
   /** Loader text swap while a run streams (RunView owns the loader). */
-  setWorkingMessage?: (message?: string) => void;
   /**
    * Dialog open/close signal — while > 0 the TuiApp's global key listener
    * must yield (Escape cancels the dialog, not the run; pi-tui global
@@ -104,17 +103,19 @@ export function createExtensionUI(deps: ExtensionUIDeps): ExtensionUIContext {
     deps.warn(msg);
   };
 
-  /** Shared dialog lifecycle: overlay + signal/timeout dismissal + settle-once. */
+  /** Shared dialog lifecycle: overlay + signal/timeout dismissal + settle-once.
+   * The overlay size is the only per-dialog knob (editor wants it bigger). */
   function runDialog<T>(
     body: Component & { handleInput?(data: string): void },
     title: string,
     opts: ExtensionUIDialogOptions | undefined,
     cancelValue: T,
     wire: (box: FocusDelegate, done: (value: T) => void) => void,
+    overlay: OverlayOptions = { width: '60%', maxHeight: '50%', anchor: 'center' },
   ): Promise<T> {
     return new Promise((resolve) => {
       const box = new FocusDelegate(body, title);
-      const handle = tui.showOverlay(box, { width: '60%', maxHeight: '50%', anchor: 'center' });
+      const handle = tui.showOverlay(box, overlay);
       deps.dialogOpenChanged(1);
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -209,22 +210,18 @@ export function createExtensionUI(deps: ExtensionUIDeps): ExtensionUIContext {
     editor(title, prefill) {
       const ed = new Editor(tui, editorTheme, { paddingX: 1 });
       if (prefill) ed.setText(prefill);
-      return new Promise<string | undefined>((resolve) => {
-        const box = new FocusDelegate(ed, title);
-        const handle = tui.showOverlay(box, { width: '80%', maxHeight: '60%', anchor: 'center' });
-        deps.dialogOpenChanged(1);
-        let settled = false;
-        const done = (value: string | undefined): void => {
-          if (settled) return;
-          settled = true;
-          deps.dialogOpenChanged(-1);
-          handle.hide();
-          tui.requestRender();
-          resolve(value);
-        };
-        box.onEscape = () => done(undefined);
-        ed.onSubmit = (value) => done(value);
-      });
+      // No signal/timeout options (pi's editor dialog doesn't take them) —
+      // the settle-once lifecycle is runDialog's, only the overlay size differs.
+      return runDialog<string | undefined>(
+        ed,
+        title,
+        undefined,
+        undefined,
+        (_box, done) => {
+          ed.onSubmit = (value) => done(value);
+        },
+        { width: '80%', maxHeight: '60%', anchor: 'center' },
+      );
     },
 
     notify(message, type) {
@@ -241,9 +238,10 @@ export function createExtensionUI(deps: ExtensionUIDeps): ExtensionUIContext {
       renderStatusLine();
     },
 
-    setWorkingMessage(message) {
-      if (deps.setWorkingMessage) deps.setWorkingMessage(message);
-      else warnOnce('setWorkingMessage', '[extensions] ui.setWorkingMessage() has no loader in this view');
+    setWorkingMessage() {
+      // No host ever provided the dep (one adapter = hypothetical seam) —
+      // honest degradation is the only path (round-8, candidate 7).
+      warnOnce('setWorkingMessage', '[extensions] ui.setWorkingMessage() has no loader in this view');
     },
     setWorkingVisible() {
       warnOnce('setWorkingVisible', '[extensions] ui.setWorkingVisible() is not configurable in mu-agent');

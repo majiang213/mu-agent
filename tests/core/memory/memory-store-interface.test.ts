@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MemoryStore } from '../../../src/core/memory/index.js';
-import { State } from '../../../src/core/types.js';
 import type { Mission } from '../../../src/core/agent/types.js';
 import type { StateResult } from '../../../src/core/types.js';
 
@@ -26,7 +25,7 @@ function makeMission(desc: string): Mission {
 }
 
 function makeResult(success: boolean): StateResult {
-  return { state: State.DONE, success, output: '', nextState: State.DONE };
+  return { success, output: '' };
 }
 
 describe('MemoryStore (deepened interface)', () => {

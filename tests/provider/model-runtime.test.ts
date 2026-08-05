@@ -29,7 +29,12 @@ beforeEach(() => {
 
 describe('buildModels → ModelRuntime (Gap 85-C)', () => {
   it('registers the configured provider into the shared runtime', async () => {
-    const { runtime } = await buildModels('m1:latest', 'ollama', 'http://localhost:11434', 0.5);
+    const { runtime } = await buildModels({
+      name: 'm1:latest',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      contextRatio: 0.5,
+    });
     expect(runtime.getRegisteredProviderIds()).toContain('ollama');
     const entry = runtime.getModel('ollama', 'm1:latest');
     expect(entry).toBeDefined();
@@ -38,13 +43,28 @@ describe('buildModels → ModelRuntime (Gap 85-C)', () => {
   });
 
   it('runtime is the process-wide singleton shared with the idle TUI selector', async () => {
-    const { runtime } = await buildModels('m1:latest', 'ollama', 'http://localhost:11434', 0.5);
+    const { runtime } = await buildModels({
+      name: 'm1:latest',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      contextRatio: 0.5,
+    });
     expect(await getSharedModelRuntime()).toBe(runtime);
   });
 
   it('a second buildModels re-registers on the SAME runtime (no per-run rebuild)', async () => {
-    const first = await buildModels('m1:latest', 'ollama', 'http://localhost:11434', 0.5);
-    const second = await buildModels('m2:latest', 'ollama', 'http://localhost:11434', 0.5);
+    const first = await buildModels({
+      name: 'm1:latest',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      contextRatio: 0.5,
+    });
+    const second = await buildModels({
+      name: 'm2:latest',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      contextRatio: 0.5,
+    });
     expect(second.runtime).toBe(first.runtime);
   });
 
@@ -56,7 +76,12 @@ describe('buildModels → ModelRuntime (Gap 85-C)', () => {
   });
 
   it('refreshModels lists the live server catalog for the selector', async () => {
-    const { runtime } = await buildModels('m1:latest', 'ollama', 'http://localhost:11434', 0.5);
+    const { runtime } = await buildModels({
+      name: 'm1:latest',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434',
+      contextRatio: 0.5,
+    });
     const registered = runtime.getRegisteredProviderConfig('ollama');
     expect(registered?.refreshModels).toBeDefined();
     const live = await registered!.refreshModels!({} as never);

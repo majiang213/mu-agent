@@ -4,7 +4,6 @@ import type { Component, Loader } from '@earendil-works/pi-tui';
 import { RunView } from '../../src/tui/run-view.js';
 import type { RunViewHost } from '../../src/tui/run-view.js';
 import { AssistantTurn, HeaderLine, SamplingBlock, SampleTurn, ToolExecutionBlock } from '../../src/tui/blocks.js';
-import { MetricsCollector } from '../../src/tui/metrics.js';
 import { State } from '../../src/core/types.js';
 
 /**
@@ -31,15 +30,11 @@ function makeHarness(options: { debugMode?: boolean } = {}) {
   };
   const loader = { setMessage: vi.fn() } as unknown as Loader;
   const header = new HeaderLine('test-model', '~/proj', 'main');
-  const metrics = new MetricsCollector();
-  metrics.startTask('t1');
   const onClarification = vi.fn();
   const runView = new RunView({
     host,
     header,
     loader,
-    metrics,
-    taskId: 't1',
     isDebugMode: () => options.debugMode ?? false,
     onClarification,
   });
@@ -62,7 +57,7 @@ describe('Bug 11: tool_execution_end matches by toolId, not tool name', () => {
 describe('Bug 23: sampling block is removed when the run ends', () => {
   it('dispose() removes the sampling block through the host', () => {
     const { runView, insertedLoader, removed } = makeHarness();
-    runView.handleEvent({ type: 'deliberation_start', candidateCount: 3 });
+    runView.handleEvent({ type: 'deliberation_start' });
     const sampling = insertedLoader.find((c) => c instanceof SamplingBlock);
     expect(sampling).toBeDefined();
 
@@ -106,7 +101,7 @@ describe('clarification events', () => {
 
   it('deliberation_clarification appends to the sampling block and unlocks', () => {
     const { runView, onClarification } = makeHarness();
-    runView.handleEvent({ type: 'deliberation_start', candidateCount: 2 });
+    runView.handleEvent({ type: 'deliberation_start' });
     runView.handleEvent({ type: 'deliberation_clarification', question: 'which file?' });
     expect(onClarification).toHaveBeenCalledTimes(1);
   });
@@ -125,7 +120,7 @@ describe('rollback_performed', () => {
 describe('sampling_stopped labels', () => {
   it('every reason variant is labeled without throwing', () => {
     const { runView } = makeHarness();
-    runView.handleEvent({ type: 'deliberation_start', candidateCount: 2 });
+    runView.handleEvent({ type: 'deliberation_start' });
     for (const reason of ['converged', 'max_count', 'max_rounds', 'no_new_info'] as const) {
       runView.handleEvent({ type: 'sampling_stopped', reason });
     }
@@ -166,7 +161,7 @@ describe('round-5 candidate 4: toggle policy lives in RunView', () => {
 
   it('toggleThinking covers sample turns', () => {
     const { runView } = makeHarness();
-    runView.handleEvent({ type: 'deliberation_start', candidateCount: 2 });
+    runView.handleEvent({ type: 'deliberation_start' });
     runView.handleEvent({ type: 'sample_start', index: 0 });
     runView.handleEvent({ type: 'sample_start', index: 1 });
     expect(runView.sampleTurns.length).toBe(2);

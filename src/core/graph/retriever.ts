@@ -13,7 +13,10 @@ export interface RetrieveResult {
 }
 
 export class GraphRetriever {
-  private bm25Index: Map<number, { counts: Map<string, number>; docLen: number; node: RetrieveResult }> | null = null;
+  // Index value = scoring data only; the node COLUMNS are re-SELECTed by
+  // fetchNodes (SQLite is the source of truth) — a stored projection here
+  // was write-only (round-8, candidate 9).
+  private bm25Index: Map<number, { counts: Map<string, number>; docLen: number }> | null = null;
   private projectRoot: string;
   private db: Database.Database | null = null;
 
@@ -196,19 +199,7 @@ export class GraphRetriever {
           counts.set(token, (counts.get(token) ?? 0) + 1);
           docLen++;
         }
-        this.bm25Index.set(row.id, {
-          counts,
-          docLen,
-          node: {
-            id: row.id,
-            name: row.name,
-            filePath: row.file_path,
-            startLine: row.start_line,
-            endLine: row.end_line,
-            nodeType: row.node_type,
-            bm25Score: 0,
-          },
-        });
+        this.bm25Index.set(row.id, { counts, docLen });
       }
     } catch (err) {
       console.warn('[graph] ensureBM25 error:', err instanceof Error ? err.message : String(err));

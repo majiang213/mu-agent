@@ -11,8 +11,8 @@ import {
 import { MU_AGENT_DIR, DEFAULT_EXTENSION_TOOL_STATES, EXTENSION_TOOL_BLACKLIST } from '../../config/defaults.js';
 import type { Config } from '../../config/types.js';
 import type { State } from '../types.js';
-import type { ExtensionHostState } from './stubs.js';
-import { buildExtensionActions, buildExtensionContextActions } from './stubs.js';
+import type { ExtensionHostState } from './host-actions.js';
+import { buildExtensionActions, buildExtensionContextActions } from './host-actions.js';
 
 export interface ExtensionLoadResult {
   /** Undefined when disabled or nothing was discovered — zero overhead path. */

@@ -19,24 +19,35 @@ describe('Bug 17: applyCliOverrides writes config before loadConfig', () => {
     }
   });
 
-  it('applyCliOverrides is called before loadConfig in the run command', () => {
-    // Bug 17: applyCliOverrides must be called BEFORE loadConfig so that
-    // loadConfig reads the file with CLI overrides already written.
-    // This ensures the agent uses the correct config, not stale pre-override values.
-
+  it('run command merges CLI overrides in memory and never persists them', () => {
+    // Bug 17's modern invariant (second-pass C9 + round-7 C7): the run/tui
+    // commands NEVER write config — overrides apply in memory via
+    // mergeCliOverrides inside resolveRunConfig. Only `mu-agent config`
+    // persists. loadConfig therefore never reads half-written CLI values.
     const sourcePath = join(process.cwd(), 'src/cli.ts');
     const source = readFileSync(sourcePath, 'utf-8');
 
-    // Find the run command action handler
-    const runActionMatch = source.match(/\.action\(async \(task, options\)[\s\S]*?\)\s*\)/);
+    // resolveRunConfig must merge overrides around loadConfig (in memory).
+    const resolverMatch = source.match(/async function resolveRunConfig[\s\S]*?\n\}/);
+    expect(resolverMatch).not.toBeNull();
+    expect(resolverMatch![0]).toContain('mergeCliOverrides(loadConfig()');
+    expect(resolverMatch![0]).not.toContain('saveConfig');
+
+    // The run command action must not persist anything.
+    const runActionMatch = source.match(/addModelFlags\(program\.command\('run'\)[\s\S]*?createConsolePresenter/);
     expect(runActionMatch).not.toBeNull();
+    expect(runActionMatch![0]).not.toContain('saveConfig');
+  });
 
-    const runAction = runActionMatch![0];
-    const applyPos = runAction.indexOf('applyCliOverrides');
-    const loadPos = runAction.indexOf('loadConfig');
-
-    // applyCliOverrides must come first so loadConfig reads the updated config file.
-    expect(applyPos).toBeLessThan(loadPos);
+  it('R8-B1: --resume threads the configured theme into the first theme init', () => {
+    // pickSession runs before the tui action's initMuAgentTheme(config.theme);
+    // a no-arg init there poisons the idempotent singleton and drops the theme.
+    const sourcePath = join(process.cwd(), 'src/cli.ts');
+    const source = readFileSync(sourcePath, 'utf-8');
+    const pickMatch = source.match(/async function pickSession[\s\S]*?\n\}/);
+    expect(pickMatch).not.toBeNull();
+    expect(pickMatch![0]).toContain('initMuAgentTheme(themeName)');
+    expect(source).toContain('pickSession(config.theme)');
   });
 
   it('first-run with --model creates config with all required fields', () => {

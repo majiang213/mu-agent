@@ -1,7 +1,6 @@
 import type { StepDirective } from '../types.js';
 
 export interface PlanCandidate {
-  id: string;
   steps: StepDirective[];
 }
 

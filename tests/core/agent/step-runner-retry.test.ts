@@ -1,189 +1,61 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { State } from '../../../src/core/types.js';
+import { describe, it, expect, vi } from 'vitest';
 import type { RunConfig } from '../../../src/core/agent/types.js';
+import { makeRunConfig, makeStateMachineFake, makeStagnationFake } from '../../helpers/run-config.js';
+import { runStepAgent } from '../../../src/core/agent/reason-runner.js';
 
-// ---- module mocks (must be hoisted before any dynamic imports) ----
+// ONE leaf mock (round-8, candidate 2): no-op sleep keeps the retry loop
+// fast. Everything else is real — runStepAgent takes its collaborators
+// (agent, cfg, stagnation) as arguments, so the builder / git-guard /
+// cognitive / model-info / checkpoint / locator / prompts / complete /
+// compaction / defaults module mocks were testing nothing.
 
-vi.mock('../../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(),
-  subscribeStepEvents: vi.fn(),
-}));
-
-vi.mock('../../../src/tool/safety/git-guard.js', () => ({
-  wrapWithGitGuard: vi.fn((t) => t),
-  gitAllowlistGuidance: vi.fn(() => 'status, log, diff'),
-}));
-
-// Keep the retry loop fast: real retryDelayMs logic, no-op sleep.
 vi.mock('../../../src/core/failure/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/failure/index.js')>();
   return { ...actual, sleep: vi.fn(async () => {}) };
 });
 
-vi.mock('../../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(function () {
-    return {
-      recordToolCall: vi.fn(),
-      recordError: vi.fn(),
-      check: vi.fn(() => ({ detected: false })),
-      reset: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/provider/model-info.js', () => ({
-  fetchContextLength: vi.fn(async () => 128000),
-}));
-
-vi.mock('../../../src/tool/safety/checkpoint.js', () => ({
-  SafeModifier: vi.fn(function () {
-    return { createCheckpoint: vi.fn(), restoreAndClearWhere: vi.fn(async () => {}) };
-  }),
-}));
-
-vi.mock('../../../src/core/graph/locator.js', () => ({
-  CodeGraphLocator: vi.fn(function () {
-    return {
-      locate: vi.fn(() => ({ tree: '', suggestedFiles: [], snippets: {} })),
-      updateFiles: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/core/prompts/agent.js', () => ({
-  buildSystemPrompt: vi.fn(() => 'system'),
-  buildUserPrompt: vi.fn(() => 'user'),
-}));
-
-vi.mock('../../../src/tool/complete.js', () => ({
-  buildCompleteTool: vi.fn(() => ({
-    name: 'complete',
-    label: 'Complete',
-    description: '',
-    parameters: {},
-    execute: vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] })),
-  })),
-}));
-
-vi.mock('../../../src/core/compaction/index.js', () => ({
-  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
-  compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
-}));
-
-vi.mock('../../../src/config/defaults.js', () => ({
-  DEFAULT_TEMPERATURE: 0.7,
-  MAX_TEMPERATURE: 1.0,
-  RETRY_TEMPERATURE_STEP: 0.1,
-  DEFAULT_CONTEXT_RATIO: 0.2,
-}));
-
-// ---- dynamic imports after mocks ----
-
-const { buildStepAgent, subscribeStepEvents } = await import('../../../src/core/agent/builder.js');
-const { runStepAgent } = await import('../../../src/core/agent/reason-runner.js');
-
 // ---- helpers ----
 
-function makeStagnationDetector() {
-  return {
-    recordToolCall: vi.fn(),
-    recordError: vi.fn(),
-    check: vi.fn(() => ({ detected: false })),
-    reset: vi.fn(),
-  };
+function makeCfg(): RunConfig {
+  return makeRunConfig({
+    stateMachine: makeStateMachineFake({ extraParams: { maxFilesPerTask: 5 } }),
+  });
 }
 
-function makeCfg(maxRetries = 3): RunConfig {
-  const stateMachine = {
-    clone: vi.fn(),
-    resetForNextTask: vi.fn(),
-    getAllowedTools: vi.fn(() => []),
-    getModelParams: vi.fn(() => ({
-      tier: 'LARGE' as const,
-      maxRetries,
-      strictPlanning: false,
-      maxFilesPerTask: 5,
-      paramCount: 0,
-    })),
-    getCurrentState: vi.fn(() => State.REASON),
-    transitionTo: vi.fn(),
-    resetFileBudget: vi.fn(),
-  };
+function makeFailingAgent(boom: Error) {
   return {
-    model: {} as RunConfig['model'],
-    models: {} as RunConfig['models'],
-    stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: {
-      createCheckpoint: vi.fn(),
-      restoreAndClearWhere: vi.fn(async () => {}),
-    } as unknown as RunConfig['safeModifier'],
-    env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
-    temperature: 0,
-    contextRatio: 0.2,
-    apiKey: 'test',
-    projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
+    prompt: vi.fn().mockRejectedValue(boom),
+    steer: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    abort: vi.fn(),
   };
 }
 
 // ---- tests ----
 
 describe('runStepAgent', () => {
-  beforeEach(() => {
-    vi.mocked(subscribeStepEvents).mockImplementation(() => {});
-  });
-
   describe('retry exhaustion', () => {
     it('rejects with the last captured error when all retries are exhausted', async () => {
-      // The real maxRetries inside runStepAgent is Math.max(cfg value, 3) = 3.
-      const cfg = makeCfg(3);
-      const stagnation = makeStagnationDetector();
+      // The retry budget is a constant 3 inside runStepAgent (round-8, C1).
+      const cfg = makeCfg();
+      const stagnation = makeStagnationFake();
       const boom = new Error('LLM permanently unavailable');
+      const fakeAgent = makeFailingAgent(boom);
 
-      // Build a fake agent whose prompt always throws.
-      const promptMock = vi.fn().mockRejectedValue(boom);
-      const fakeAgent = {
-        prompt: promptMock,
-        steer: vi.fn(),
-        on: vi.fn(),
-        off: vi.fn(),
-        abort: vi.fn(),
-      };
-
-      vi.mocked(buildStepAgent).mockReturnValue(fakeAgent as never);
-
-      // The bug: runStepAgent returns undefined instead of rejecting.
-      // This assertion must FAIL before the fix because the function
-      // currently resolves with undefined after the loop ends.
       await expect(runStepAgent(fakeAgent as never, 'do something', cfg, stagnation as never)).rejects.toThrow(
         'LLM permanently unavailable',
       );
     });
 
     it('calls agent.prompt exactly maxRetries times before exhausting retries', async () => {
-      const cfg = makeCfg(3);
-      const stagnation = makeStagnationDetector();
-      const boom = new Error('LLM permanently unavailable');
+      const cfg = makeCfg();
+      const stagnation = makeStagnationFake();
+      const fakeAgent = makeFailingAgent(new Error('LLM permanently unavailable'));
 
-      const promptMock = vi.fn().mockRejectedValue(boom);
-      const fakeAgent = {
-        prompt: promptMock,
-        steer: vi.fn(),
-        on: vi.fn(),
-        off: vi.fn(),
-        abort: vi.fn(),
-      };
-
-      vi.mocked(buildStepAgent).mockReturnValue(fakeAgent as never);
-
-      // Consume the (currently resolving) promise; we only care about call count here.
       await runStepAgent(fakeAgent as never, 'do something', cfg, stagnation as never).catch(() => {});
 
-      // Math.max(3, 3) = 3 — prompt must have been attempted exactly 3 times.
-      expect(promptMock).toHaveBeenCalledTimes(3);
+      expect(fakeAgent.prompt).toHaveBeenCalledTimes(3);
     });
   });
 });

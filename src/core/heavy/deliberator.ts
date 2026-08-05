@@ -2,7 +2,8 @@ import type { Model } from '@earendil-works/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
 import type { StepDirective } from '../types.js';
 import type { PlanCandidate, DeliberateOutcome } from './types.js';
-import { formatDirective, parseDirectivesJson } from '../agent/directives.js';
+import { formatDirective, parseDirectivesJson, DIRECTIVE_GRAMMAR_PROSE } from '../agent/directives.js';
+import { completeText } from '../complete-text.js';
 import { allPlansSimilar, jaccardPlans } from './plan-set.js';
 
 const DELIBERATION_SYSTEM = `You are a coding task planner reviewing multiple independently generated execution plans for the same task.
@@ -22,11 +23,7 @@ Output format (JSON array only, nothing else):
 ]
 
 Rules:
-- Each entry is one of: a single step {state, focus, why?}, a subplan {subplan: {analyzerState, focus}}, or a parallel group {parallel: [...]}.
-- "state" must be a valid state name; "focus" describes the action.
-- "analyzerState" for subplan must be "PLAN".
-- "why" is optional — include only when it adds real information.
-- Maximum 6 entries.
+${DIRECTIVE_GRAMMAR_PROSE}
 - If the task is genuinely unclear and you cannot synthesize a plan, output exactly: needs_clarification: true
   followed by: question: <one specific question>`;
 
@@ -61,15 +58,12 @@ async function runSingleDeliberation(
 
   let raw: string;
   try {
-    const result = await cfg.models.completeSimple(
+    raw = await completeText(
+      cfg.models,
       deliberationModel,
-      { systemPrompt: DELIBERATION_SYSTEM, messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }] },
+      { systemPrompt: DELIBERATION_SYSTEM, user: userPrompt },
       { temperature: cfg.temperature },
     );
-    raw = result.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map((c) => c.text)
-      .join('');
   } catch {
     onEvent?.({ type: 'deliberation_fallback', reason: 'LLM call failed' });
     return null;
@@ -113,15 +107,14 @@ New plan:
 ${formatStepsForJudge(newSteps)}`;
 
   try {
-    const result = await models.completeSimple(
-      deliberationModel,
-      { systemPrompt: JUDGE_SYSTEM, messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }] },
-      { temperature: 0 },
-    );
-    const raw = result.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map((c) => c.text)
-      .join('')
+    const raw = (
+      await completeText(
+        models,
+        deliberationModel,
+        { systemPrompt: JUDGE_SYSTEM, user: userPrompt },
+        { temperature: 0 },
+      )
+    )
       .trim()
       .toUpperCase();
 
@@ -220,6 +213,6 @@ export async function deliberate(
 }
 
 export function pickShortest(candidates: PlanCandidate[]): PlanCandidate {
-  if (candidates.length === 0) return { id: 'empty', steps: [] };
+  if (candidates.length === 0) return { steps: [] };
   return candidates.reduce((a, b) => (a.steps.length <= b.steps.length ? a : b));
 }

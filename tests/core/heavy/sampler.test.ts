@@ -1,178 +1,101 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { State } from '../../../src/core/types.js';
 import type { PlanCandidate } from '../../../src/core/heavy/types.js';
-
-vi.mock('../../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(() => ({ steer: vi.fn() })),
-  subscribeStepEvents: vi.fn(),
-}));
-
-vi.mock('../../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(function () {
-    return {
-      recordToolCall: vi.fn(),
-      recordError: vi.fn(),
-      check: vi.fn(() => ({ detected: false })),
-      reset: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/core/compaction/index.js', () => ({
-  compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
-  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
-}));
-
-vi.mock('../../../src/tool/complete.js', () => ({
-  buildCompleteTool: vi.fn(() => ({ name: 'complete', execute: vi.fn() })),
-}));
-
-vi.mock('../../../src/core/prompts/agent.js', () => ({
-  buildSystemPrompt: vi.fn(() => 'mocked system prompt'),
-  buildUserPrompt: vi.fn(() => 'mocked user prompt'),
-}));
-
-vi.mock('../../../src/core/agent/reason-runner.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/agent/reason-runner.js')>();
-  return { ...actual, runReasonAttempt: vi.fn() };
-});
-
-vi.mock('../../../src/tool/safety/index.js', () => ({
-  syntaxCheckHook: vi.fn(),
-  damageCheckHook: vi.fn(),
-  SafeModifier: vi.fn(() => ({ restoreAndClearWhere: vi.fn(async () => {}) })),
-}));
-
+import type { SampleAttempt } from '../../../src/core/heavy/sampler.js';
 import { samplePlans } from '../../../src/core/heavy/sampler.js';
-import { runReasonAttempt } from '../../../src/core/agent/reason-runner.js';
 import type { RunConfig, ExecutionEvent } from '../../../src/core/agent/types.js';
+import { makeRunConfig, makeStateMachineFake } from '../../helpers/run-config.js';
+
+/**
+ * samplePlans tests fake the ONE LLM attempt through SamplerConfig.runSample
+ * (round-7, candidate 2) — no module-graph mocks; the fork + event mapping +
+ * stop conditions under test are the sampler's own.
+ */
 
 function makeStep(state: State) {
   return { state, focus: `focus ${state}` };
 }
 
-function makePlan(id: string, states: State[]): PlanCandidate {
-  return { id, steps: states.map(makeStep) };
+function makePlan(states: State[]): PlanCandidate {
+  return { steps: states.map(makeStep) };
 }
 
 function makeCfg(): RunConfig {
-  return {
+  return makeRunConfig({
     model: { id: 'test-model', provider: 'ollama', baseUrl: 'http://localhost/v1' } as RunConfig['model'],
-    models: {} as RunConfig['models'],
-    stateMachine: {
-      transitionTo: vi.fn(),
-      clone: vi.fn(function (this: unknown) {
-        return this;
-      }),
-      getModelParams: vi.fn(() => ({
-        tier: 'SMALL',
-        paramCount: 7,
-        maxFilesPerTask: 2,
-        maxRetries: 1,
-        strictPlanning: true,
-      })),
-      getAllowedTools: vi.fn(() => []),
-      getCurrentState: vi.fn(() => State.REASON),
-      resetFileBudget: vi.fn(),
-      getStateConfig: vi.fn(() => ({ allowedTools: [], prompt: '' })),
-      recordToolCall: vi.fn(),
-      canModifyMoreFiles: vi.fn(() => true),
-    } as unknown as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: {
-      restoreAndClearWhere: vi.fn(async () => {}),
-      createCheckpoint: vi.fn(),
-      hasCheckpoint: vi.fn(() => false),
-      getCheckpoint: vi.fn(),
-      clearCheckpoint: vi.fn(),
-    } as unknown as RunConfig['safeModifier'],
-    env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' } as RunConfig['env'],
+    stateMachine: makeStateMachineFake({ tier: 'SMALL', extraParams: { maxFilesPerTask: 2 } }),
     temperature: 0.7,
     contextRatio: 0.75,
     apiKey: 'ollama',
-    projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
-  };
+  });
 }
+
+const MISSION = { id: 't', description: 'fix', state: 'running' as const };
 
 describe('samplePlans — adaptive sampling', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // nothing to clear — fakes are per-test through config
   });
 
-  // Samples are mocked at the unified runReasonAttempt seam: each call
-  // returns the next plan (or throws for a failed sample).
-  function setupAttemptMock(plans: PlanCandidate[]) {
+  /** Each call returns the next plan round-robin (or throws for a failed sample). */
+  function fakeAttempt(plans: PlanCandidate[]): SampleAttempt {
     let callCount = 0;
-    vi.mocked(runReasonAttempt).mockImplementation(async () => {
+    return async () => {
       const plan = plans[callCount % plans.length]!;
       callCount++;
       return { steps: plan.steps };
-    });
+    };
   }
 
+  const failingAttempt: SampleAttempt = async () => {
+    throw new Error('sample failed');
+  };
+
   it('returns seed candidate immediately when first batch all fail', async () => {
-    const seed = makePlan('seed', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    vi.mocked(runReasonAttempt).mockRejectedValue(new Error('sample failed'));
-    const cfg = makeCfg();
-    const result = await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, undefined, [seed]);
+    const seed = makePlan([State.LOCATE, State.MODIFY, State.VERIFY]);
+    const result = await samplePlans(MISSION, makeCfg(), [], { runSample: failingAttempt }, undefined, [seed]);
     expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe('seed');
+    expect(result[0]).toBe(seed);
   });
 
   it('stops with converged when first batch all have same state sequence', async () => {
-    const plan = makePlan('p', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    setupAttemptMock([plan, plan]);
-    const cfg = makeCfg();
+    const plan = makePlan([State.LOCATE, State.MODIFY, State.VERIFY]);
     const events: ExecutionEvent[] = [];
-    const result = await samplePlans(
-      { id: 't', description: 'fix', state: 'running' },
-      cfg,
-      [],
-      {},
-      (e) => events.push(e),
-      [],
+    const result = await samplePlans(MISSION, makeCfg(), [], { runSample: fakeAttempt([plan, plan]) }, (e) =>
+      events.push(e),
     );
     expect(events.some((e) => e.type === 'sampling_stopped' && e.reason === 'converged')).toBe(true);
     expect(result.length).toBe(1);
   });
 
   it('deduplicates candidates with same state sequence', async () => {
-    const plan1 = makePlan('p1', [State.LOCATE, State.MODIFY]);
-    const plan2 = makePlan('p2', [State.LOCATE, State.MODIFY]);
-    setupAttemptMock([plan1, plan2]);
-    const cfg = makeCfg();
-    const result = await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, undefined, []);
+    const plan1 = makePlan([State.LOCATE, State.MODIFY]);
+    const plan2 = makePlan([State.LOCATE, State.MODIFY]);
+    const result = await samplePlans(MISSION, makeCfg(), [], { runSample: fakeAttempt([plan1, plan2]) });
     expect(result.length).toBe(1);
   });
 
   it('seed candidate with same seq as batch result is deduplicated', async () => {
-    const seed = makePlan('seed', [State.LOCATE, State.MODIFY]);
-    const plan = makePlan('p', [State.LOCATE, State.MODIFY]);
-    setupAttemptMock([plan, plan]);
-    const cfg = makeCfg();
-    const result = await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, undefined, [seed]);
+    const seed = makePlan([State.LOCATE, State.MODIFY]);
+    const plan = makePlan([State.LOCATE, State.MODIFY]);
+    const result = await samplePlans(MISSION, makeCfg(), [], { runSample: fakeAttempt([plan, plan]) }, undefined, [
+      seed,
+    ]);
     expect(result.length).toBe(1);
   });
 
   it('fires sampling_stopped no_new_info when batch brings no new sequences', async () => {
-    const seed = makePlan('seed', [State.LOCATE, State.MODIFY]);
-    const same = makePlan('same', [State.LOCATE, State.MODIFY]);
-    setupAttemptMock([same, same]);
-    const cfg = makeCfg();
+    const seed = makePlan([State.LOCATE, State.MODIFY]);
+    const same = makePlan([State.LOCATE, State.MODIFY]);
     const events: ExecutionEvent[] = [];
-    await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), [seed]);
+    await samplePlans(MISSION, makeCfg(), [], { runSample: fakeAttempt([same, same]) }, (e) => events.push(e), [seed]);
     expect(events.some((e) => e.type === 'sampling_stopped' && e.reason === 'no_new_info')).toBe(true);
   });
 
   it('fires sample_start events with sequential indices', async () => {
-    const plan = makePlan('p', [State.MODIFY]);
-    setupAttemptMock([plan, plan]);
-    const cfg = makeCfg();
+    const plan = makePlan([State.MODIFY]);
     const events: ExecutionEvent[] = [];
-    await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), []);
+    await samplePlans(MISSION, makeCfg(), [], { runSample: fakeAttempt([plan, plan]) }, (e) => events.push(e), []);
     const indices = events
       .filter((e) => e.type === 'sample_start')
       .map((e) => (e as { type: 'sample_start'; index: number }).index);
@@ -180,13 +103,21 @@ describe('samplePlans — adaptive sampling', () => {
   });
 
   it('emits sample events for seed candidates — the sampler owns the protocol (round-5)', async () => {
-    const seed = makePlan('seed', [State.LOCATE, State.MODIFY]);
-    const same = makePlan('same', [State.LOCATE, State.MODIFY]);
-    setupAttemptMock([same, same]);
-    const cfg = makeCfg();
+    const seed = makePlan([State.LOCATE, State.MODIFY]);
+    const same = makePlan([State.LOCATE, State.MODIFY]);
     const events: ExecutionEvent[] = [];
-    await samplePlans({ id: 't', description: 'fix', state: 'running' }, cfg, [], {}, (e) => events.push(e), [seed]);
+    await samplePlans(MISSION, makeCfg(), [], { runSample: fakeAttempt([same, same]) }, (e) => events.push(e), [seed]);
     expect(events.some((e) => e.type === 'sample_start' && e.index === 0)).toBe(true);
     expect(events.some((e) => e.type === 'sample_complete' && e.index === 0)).toBe(true);
+  });
+
+  it('maps thinking events from the attempt into sample_thinking (the part the slot does NOT fake)', async () => {
+    const thinkAttempt: SampleAttempt = async (_m, _c, _h, o) => {
+      o.onEvent?.({ type: 'message_thinking_update', content: 'hmm' });
+      return { steps: [makeStep(State.MODIFY)] };
+    };
+    const events: ExecutionEvent[] = [];
+    await samplePlans(MISSION, makeCfg(), [], { runSample: thinkAttempt }, (e) => events.push(e), []);
+    expect(events.some((e) => e.type === 'sample_thinking' && e.content === 'hmm')).toBe(true);
   });
 });

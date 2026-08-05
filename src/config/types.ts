@@ -2,9 +2,11 @@
  * Configuration types for mu-agent
  */
 
+import type { ProviderName } from '../provider/providers.js';
+
 export interface ModelConfig {
-  /** Provider type */
-  provider: 'ollama' | 'custom' | 'unsloth';
+  /** Provider type — vocabulary lives in provider/providers.ts (PROVIDER_FACTS) */
+  provider: ProviderName;
   /** Model name, e.g. "qwen2.5:7b" */
   name: string;
   /** Base URL for API, e.g. "http://localhost:11434" */

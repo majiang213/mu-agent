@@ -43,3 +43,45 @@ export function buildCompleteTool(state: State, onComplete: (args: Record<string
     },
   };
 }
+
+/**
+ * The complete() capture protocol's one home (architecture review 2026-08-05,
+ * candidate 1). Callers used to re-invent `let capturedComplete = null` +
+ * closure + `hasCaptured` predicates at every site (runStep, runReasonAttempt)
+ * — the slot, the tool, and the predicate now live behind one interface.
+ *
+ * Reminder/validate TEXTS stay caller-owned: they are per-state or per-phase
+ * policy (REASON's plan reminder differs from a MODIFY step's), not protocol.
+ */
+export class CompleteCapture {
+  private args: Record<string, unknown> | null = null;
+  /** The tool to hand to the step agent — captures into this instance. */
+  readonly tool: AgentTool;
+
+  constructor(readonly state: State) {
+    this.tool = buildCompleteTool(state, (a) => {
+      this.args = a;
+    });
+  }
+
+  /** driveUntilComplete's hasCaptured predicate. */
+  captured(): boolean {
+    return this.args !== null;
+  }
+
+  /** Read the captured args without consuming (post-drive inspection). */
+  peek(): Record<string, unknown> | null {
+    return this.args;
+  }
+
+  /** Drop the capture — a fresh attempt follows (clarify / parse-repair). */
+  reset(): void {
+    this.args = null;
+  }
+}
+
+/** The generic per-state reminder steer used when a step ends without complete(). */
+export function completeReminder(state: State): string {
+  const fields = STATE_REGISTRY[state]?.reminderFields ?? 'see system prompt';
+  return `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${fields}.`;
+}

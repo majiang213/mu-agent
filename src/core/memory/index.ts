@@ -19,12 +19,16 @@ import type { Mission } from '../agent/types.js';
  * index rendering and search.
  */
 export class MemoryStore {
+  /** model+models are only meaningful together (summary processing guards on
+   * both) — one atomic option, not two parallel optionals (round-8, C9). */
+  private summarizer?: { model: Model<'openai-completions'>; models: Models };
+
   constructor(
     private db: Database.Database,
     private projectRoot: string,
-    private model?: Model<'openai-completions'>,
-    private models?: Models,
+    summarizer?: { model: Model<'openai-completions'>; models: Models },
   ) {
+    this.summarizer = summarizer;
     decaySemanticFacts(db, projectRoot);
   }
 
@@ -35,10 +39,10 @@ export class MemoryStore {
    * sat at the git root while episodes partitioned by the raw cwd, so runs
    * from a subdirectory were invisible to runs from the root.
    */
-  static open(cwd: string, model?: Model<'openai-completions'>, models?: Models): MemoryStore {
+  static open(cwd: string, summarizer?: { model: Model<'openai-completions'>; models: Models }): MemoryStore {
     const root = findGitRoot(cwd);
     const db = initMemoryDb(root);
-    return new MemoryStore(db, root, model, models);
+    return new MemoryStore(db, root, summarizer);
   }
 
   writeEpisodeSync(mission: Mission, allStepResults: ExecutedStep[], finalResult: StateResult): string {
@@ -74,8 +78,8 @@ export class MemoryStore {
   }
 
   async processPendingSummaries(): Promise<void> {
-    if (!this.model || !this.models) return;
-    await _processPendingSummaries(this.db, this.models, this.model, this.projectRoot);
+    if (!this.summarizer) return;
+    await _processPendingSummaries(this.db, this.summarizer.models, this.summarizer.model, this.projectRoot);
   }
 
   close(): void {

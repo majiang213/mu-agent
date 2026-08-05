@@ -18,16 +18,16 @@ export function tierForParams(billions: number): ModelParams['tier'] {
 export function detectModelParams(paramCount: number | null): ModelParams {
   const billions = paramCount !== null ? paramCount / 1e9 : null;
   if (billions === null) {
-    return { tier: 'LARGE', paramCount: 0, maxRetries: 3, strictPlanning: false };
+    return { tier: 'LARGE' };
   }
   const tier = tierForParams(billions);
   if (tier === 'SMALL') {
-    return { tier, paramCount: billions, maxRetries: 1, strictPlanning: true };
+    return { tier };
   }
   if (tier === 'MEDIUM') {
-    return { tier, paramCount: billions, maxRetries: 2, strictPlanning: true };
+    return { tier };
   }
-  return { tier, paramCount: billions, maxRetries: 3, strictPlanning: false };
+  return { tier };
 }
 
 /**

@@ -4,6 +4,7 @@ import type { EpisodeRow, StructuredSummary } from './types.js';
 import type { ExecutedStep, StateResult } from '../types.js';
 import type { Mission } from '../agent/types.js';
 import { buildStructuredSummary, extractEntitiesForWrite } from './extractor.js';
+import { nowSeconds } from './db.js';
 import { updateSemanticFacts } from './semantic.js';
 
 /**
@@ -44,7 +45,7 @@ export function writeEpisodeSync(
   const structuredSummary = buildStructuredSummary(allStepResults, finalResult, mission.description);
   const actionType = structuredSummary.action;
   const resultSummary = JSON.stringify(structuredSummary);
-  const filesChanged = structuredSummary.files ?? [];
+  const filesChanged = structuredSummary.files;
 
   const stepOutputs = allStepResults.map((s) => ({
     state: s.state,
@@ -65,7 +66,7 @@ export function writeEpisodeSync(
       )
       .run(
         episodeId,
-        Math.floor(Date.now() / 1000),
+        nowSeconds(),
         projectRoot,
         mission.description,
         actionType,
@@ -89,7 +90,7 @@ export function writeEpisodeSync(
       `
       INSERT INTO pending_summaries (episode_id, created_at) VALUES (?, ?)
     `,
-    ).run(episodeId, Math.floor(Date.now() / 1000));
+    ).run(episodeId, nowSeconds());
 
     for (const entity of entities) {
       // INSERT OR IGNORE: if entity already exists the provided entityId is discarded.

@@ -8,7 +8,10 @@ const MAX_CONTENT_LENGTH = 32000;
  *  (architecture review 2026-07-30, candidate 7). */
 export type FetchLike = typeof fetch;
 
-const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+export const defaultFetch: FetchLike = (url, init) => fetch(url, init);
+
+/** The one User-Agent for mu-agent HTTP tools (webfetch + websearch). */
+export const MU_AGENT_UA = 'mu-agent/1.0 (coding assistant)';
 
 function validateUrl(urlString: string): URL {
   let parsed: URL;
@@ -43,7 +46,7 @@ function validateUrl(urlString: string): URL {
 async function fetchUrl(fetchImpl: FetchLike, url: string, format: 'markdown' | 'text' | 'html'): Promise<string> {
   validateUrl(url);
   const response = await fetchImpl(url, {
-    headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
+    headers: { 'User-Agent': MU_AGENT_UA },
     signal: AbortSignal.timeout(15000),
     redirect: 'manual',
   });
@@ -54,34 +57,29 @@ async function fetchUrl(fetchImpl: FetchLike, url: string, format: 'markdown' | 
     if (!location) throw new Error(`Redirect with no location header`);
     validateUrl(location);
     const redirectResponse = await fetchImpl(location, {
-      headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
+      headers: { 'User-Agent': MU_AGENT_UA },
       signal: AbortSignal.timeout(15000),
       redirect: 'follow',
     });
     if (!redirectResponse.ok) {
       throw new Error(`HTTP ${redirectResponse.status}`);
     }
-    const contentType = redirectResponse.headers.get('content-type') ?? '';
-    const raw = await redirectResponse.text();
-    if (format === 'html') return raw;
-    if (format === 'text') return stripHtml(raw);
-    if (contentType.includes('text/html')) return htmlToMarkdown(raw, location);
-    return raw;
+    return formatBody(await redirectResponse.text(), redirectResponse.headers.get('content-type') ?? '', format);
   }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
-  const contentType = response.headers.get('content-type') ?? '';
-  const raw = await response.text();
+  return formatBody(await response.text(), response.headers.get('content-type') ?? '', format);
+}
 
+/** The 4-way body-format decision — ONE home (the redirect and direct
+ * branches each restated it; round-8, candidate 9). */
+function formatBody(raw: string, contentType: string, format: 'markdown' | 'text' | 'html'): string {
   if (format === 'html') return raw;
   if (format === 'text') return stripHtml(raw);
-
-  if (contentType.includes('text/html')) {
-    return htmlToMarkdown(raw, url);
-  }
+  if (contentType.includes('text/html')) return htmlToMarkdown(raw);
   return raw;
 }
 
@@ -94,7 +92,7 @@ function stripHtml(html: string): string {
     .trim();
 }
 
-function htmlToMarkdown(html: string, _baseUrl: string): string {
+function htmlToMarkdown(html: string): string {
   return NodeHtmlMarkdown.translate(html);
 }
 

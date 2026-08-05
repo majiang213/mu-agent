@@ -22,6 +22,28 @@ export function steer(agent: Agent, content: string): void {
   agent.steer({ role: 'steer', content, timestamp: Date.now() });
 }
 
+/** Content-part shape every pi message/tool-result shares. */
+type ContentPart = { type: string; text?: string; thinking?: string };
+
+/**
+ * "What is visible text" has ONE home (round-8, candidate 4): flatten a
+ * content-part array down to the text (or thinking) strings. Used by the
+ * streamFn prompt snapshot, tool_execution_end output, message_update
+ * streaming, and turn_end finalization — previously four near-copies.
+ */
+function flattenParts(parts: ContentPart[], kind: 'text' | 'thinking'): string[] {
+  return parts.flatMap((c) => {
+    if (c.type !== kind) return [];
+    const v = kind === 'text' ? c.text : c.thinking;
+    return v ? [v] : [];
+  });
+}
+
+/** Think-block stripping: closed blocks everywhere; the streaming path also
+ * strips a trailing unclosed block (mid-stream partial). */
+const THINK_BLOCK_RE = /<think>[\s\S]*?<\/think>/g;
+const THINK_OPEN_RE = /<think>[\s\S]*$/;
+
 export function buildStepAgent(
   systemPrompt: string,
   initialMessages: AgentMessage[],
@@ -47,9 +69,7 @@ export function buildStepAgent(
       const userPromptText =
         lastUserMsg && 'content' in lastUserMsg
           ? Array.isArray(lastUserMsg.content)
-            ? (lastUserMsg.content as Array<{ type: string; text?: string }>)
-                .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
-                .join('\n')
+            ? flattenParts(lastUserMsg.content as ContentPart[], 'text').join('\n')
             : typeof lastUserMsg.content === 'string'
               ? lastUserMsg.content
               : ''
@@ -310,14 +330,6 @@ export function subscribeStepEvents(
       }
     }
 
-    if (event.type === 'message_update') {
-      emitObserve({
-        type: 'message_update',
-        message: event.message,
-        assistantMessageEvent: event.assistantMessageEvent,
-      });
-    }
-
     if (event.type === 'tool_execution_start') {
       emitObserve({
         type: 'tool_execution_start',
@@ -335,8 +347,6 @@ export function subscribeStepEvents(
       stagnationDetector.recordToolCall({
         tool: event.toolName,
         input: event.args,
-        output: null,
-        timestamp: Date.now(),
       });
       if (event.toolName === 'edit' || event.toolName === 'write') {
         const args = event.args as Record<string, unknown>;
@@ -364,8 +374,7 @@ export function subscribeStepEvents(
         event.result &&
         typeof event.result === 'object' &&
         Array.isArray((event.result as { content?: unknown }).content)
-          ? (event.result as { content: Array<{ type: string; text?: string }> }).content
-              .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
+          ? flattenParts((event.result as { content: ContentPart[] }).content, 'text')
               .join('\n')
               .slice(0, 3000)
           : undefined;
@@ -401,26 +410,25 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'message_update') {
+      emitObserve({
+        type: 'message_update',
+        message: event.message,
+        assistantMessageEvent: event.assistantMessageEvent,
+      });
       // pi-agent-core's AgentEvent union does not type these payloads — the
       // structural shape is asserted here (upstream type gap, documented).
       const ae = (event as unknown as { assistantMessageEvent?: { type: string } }).assistantMessageEvent;
-      const msg = (
-        event as unknown as { message?: { content?: Array<{ type: string; text?: string; thinking?: string }> } }
-      ).message;
+      const msg = (event as unknown as { message?: { content?: ContentPart[] } }).message;
       if (msg?.content) {
-        const parts = msg.content;
         if (ae?.type === 'thinking_delta' || ae?.type === 'thinking_start') {
-          const thinking = parts
-            .flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking as string] : []))
-            .join('');
+          const thinking = flattenParts(msg.content, 'thinking').join('');
           if (thinking) onEvent?.({ type: 'message_thinking_update', content: thinking });
         }
         if (ae?.type === 'text_delta' || ae?.type === 'text_start') {
-          const text = parts
-            .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
+          const text = flattenParts(msg.content, 'text')
             .join('')
-            .replace(/<think>[\s\S]*?<\/think>/g, '')
-            .replace(/<think>[\s\S]*$/, '');
+            .replace(THINK_BLOCK_RE, '')
+            .replace(THINK_OPEN_RE, '');
           if (text) onEvent?.({ type: 'message_update', content: text });
         }
       }
@@ -435,15 +443,12 @@ export function subscribeStepEvents(
       });
       const msg = event.message;
       if (msg && 'content' in msg && Array.isArray(msg.content)) {
-        const parts = msg.content as Array<{ type: string; text?: string; thinking?: string }>;
-        const thinking = parts.flatMap((c) => (c.type === 'thinking' && c.thinking ? [c.thinking as string] : []));
-        const text = parts.flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []));
+        const parts = msg.content as ContentPart[];
+        const thinking = flattenParts(parts, 'thinking');
+        const text = flattenParts(parts, 'text');
         if (thinking.length > 0) onEvent?.({ type: 'message_thinking_end', content: thinking.join('\n') });
         if (text.length > 0) {
-          const joined = text
-            .join('\n')
-            .replace(/<think>[\s\S]*?<\/think>/g, '')
-            .trim();
+          const joined = text.join('\n').replace(THINK_BLOCK_RE, '').trim();
           if (joined) {
             onEvent?.({ type: 'message_end', content: joined });
             onLlmText?.(joined);
@@ -456,7 +461,6 @@ export function subscribeStepEvents(
         type: 'turn_end',
         promptLen: inputTokens,
         responseLen: usage?.output ?? 0,
-        contextTokens: inputTokens,
       });
 
       {

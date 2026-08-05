@@ -3,6 +3,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { Config } from './types.js';
 import { mergeWithDefaults, MU_AGENT_DIR } from './defaults.js';
+import { isProviderName, PROVIDER_NAMES } from '../provider/providers.js';
 
 const GLOBAL_CONFIG_PATH = join(homedir(), '.config', 'mu-agent', 'config.json');
 const PROJECT_CONFIG_PATH = join(MU_AGENT_DIR, 'config.json');
@@ -15,6 +16,29 @@ const PROJECT_CONFIG_PATH = join(MU_AGENT_DIR, 'config.json');
  */
 export function configPaths(cwd: string = process.cwd()): string[] {
   return [join(cwd, PROJECT_CONFIG_PATH), GLOBAL_CONFIG_PATH];
+}
+
+/**
+ * First-existing-wins partial config for setup-wizard defaults (round-7,
+ * candidate 5) — replaces the wizard's two homegrown readers (one async, one
+ * sync). Deliberately merge-free: these are DEFAULTS to prefill inputs, not
+ * the resolved config — loadConfig() remains the only reader of truth.
+ * Malformed files are skipped, scanning continues, per-key first-wins.
+ */
+export function readExistingDefaults(cwd?: string): { model?: Partial<Config['model']>; theme?: string } {
+  const out: { model?: Partial<Config['model']>; theme?: string } = {};
+  for (const p of configPaths(cwd)) {
+    if (!existsSync(p)) continue;
+    try {
+      const parsed = readJson(p);
+      if (!out.model && parsed.model) out.model = parsed.model;
+      if (out.theme === undefined && typeof parsed.theme === 'string') out.theme = parsed.theme;
+    } catch {
+      // ignore malformed file, keep scanning
+    }
+    if (out.model && out.theme !== undefined) break;
+  }
+  return out;
 }
 
 export class ConfigNotFoundError extends Error {
@@ -47,8 +71,8 @@ function validateConfig(cfg: Config, source: string): void {
   if (!model.baseUrl || typeof model.baseUrl !== 'string') {
     throw new Error(`${source}: model.baseUrl must be a non-empty string`);
   }
-  if (!['ollama', 'custom', 'unsloth'].includes(model.provider)) {
-    throw new Error(`${source}: model.provider must be one of: ollama, custom, unsloth`);
+  if (!isProviderName(model.provider)) {
+    throw new Error(`${source}: model.provider must be one of: ${PROVIDER_NAMES.join(', ')}`);
   }
   const ext = cfg.extensions;
   if (ext) {
@@ -68,7 +92,7 @@ function validateConfig(cfg: Config, source: string): void {
 }
 
 export function loadConfig(projectRoot?: string): Config {
-  const projectConfigPath = projectRoot ? join(projectRoot, MU_AGENT_DIR, 'config.json') : PROJECT_CONFIG_PATH;
+  const projectConfigPath = configPaths(projectRoot ?? process.cwd())[0]!;
 
   const globalExists = existsSync(GLOBAL_CONFIG_PATH);
   const projectExists = existsSync(projectConfigPath);
@@ -106,7 +130,7 @@ export function loadConfig(projectRoot?: string): Config {
 }
 
 export function saveConfig(updates: Partial<Config>, projectRoot?: string): void {
-  const projectConfigPath = projectRoot ? join(projectRoot, MU_AGENT_DIR, 'config.json') : PROJECT_CONFIG_PATH;
+  const projectConfigPath = configPaths(projectRoot ?? process.cwd())[0]!;
 
   const existing: Partial<Config> = existsSync(projectConfigPath) ? readJson(projectConfigPath) : {};
 

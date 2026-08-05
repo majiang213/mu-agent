@@ -2,10 +2,9 @@ import { Text } from '@earendil-works/pi-tui';
 import type { Component, Loader } from '@earendil-works/pi-tui';
 
 import type { ExecutionEvent } from '../core/agent/index.js';
-import { C } from './theme.js';
+import { C, notifyIcon } from './theme.js';
 import { AssistantTurn, DebugBlock, SampleTurn, SamplingBlock, ThinkingBlock, ToolExecutionBlock } from './blocks.js';
 import type { HeaderLine } from './blocks.js';
-import type { MetricsCollector } from './metrics.js';
 
 /**
  * What RunView needs from the terminal — the SEAM (third-pass review,
@@ -26,8 +25,6 @@ export interface RunViewDeps {
   host: RunViewHost;
   header: HeaderLine;
   loader: Loader;
-  metrics: MetricsCollector;
-  taskId: string;
   /** Read at turn_start so mid-run ctrl+d toggles take effect. */
   isDebugMode: () => boolean;
   /** clarification / deliberation_clarification → TuiApp unlocks the editor. */
@@ -113,7 +110,7 @@ export class RunView {
   }
 
   readonly handleEvent = (event: ExecutionEvent): void => {
-    const { host, header, loader, metrics, taskId } = this.deps;
+    const { host, header, loader } = this.deps;
 
     if (event.type === 'state_change') {
       const prevState = this.loaderState;
@@ -172,8 +169,10 @@ export class RunView {
     } else if (event.type === 'session_info') {
       header.setProviderInfo(event.provider, event.tier, event.contextWindow);
     } else if (event.type === 'turn_end') {
-      metrics.recordLLMCall(taskId, event.promptLen, event.responseLen);
-      header.updateTokenStats(event.promptLen, event.responseLen, event.contextTokens);
+      // turn_end carries real usage tokens — HeaderLine is the one run-stats
+      // accumulator (round-7, C8; no second chars÷4 estimate). promptLen IS the
+      // latest context size (round-8, C1 — the event used to state it twice).
+      header.updateTokenStats(event.promptLen, event.responseLen);
     } else if (event.type === 'task_start') {
       header.setState(event.description.slice(0, 20), event.taskIndex + 1, event.taskTotal);
     } else if (event.type === 'task_end') {
@@ -197,8 +196,6 @@ export class RunView {
       this.samplingBlock?.getSample(event.index)?.complete(event.steps);
     } else if (event.type === 'sample_failed') {
       this.samplingBlock?.getSample(event.index)?.fail();
-    } else if (event.type === 'sampling_progress') {
-      void event;
     } else if (event.type === 'deliberation_refinement') {
       const label =
         event.verdict === 'converged'
@@ -241,8 +238,7 @@ export class RunView {
       errBlock.setResult(true, event.output.slice(0, 300));
       host.insertBeforeEditor(errBlock);
     } else if (event.type === 'extension_notify') {
-      const icon = event.level === 'error' ? C.err('✗') : event.level === 'warning' ? C.err('⚠') : C.dim('ℹ');
-      host.insertBeforeEditor(new Text(`\n  ${icon} ${event.message}\n`, 0, 0));
+      host.insertBeforeEditor(new Text(`\n  ${notifyIcon(event.level)} ${event.message}\n`, 0, 0));
     } else if (event.type === 'sampling_stopped') {
       const labels: Record<typeof event.reason, string> = {
         converged: 'converged',

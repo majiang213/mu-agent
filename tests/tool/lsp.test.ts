@@ -7,10 +7,13 @@ import { LspClient, type LspConnection, type LspServerFactory } from '../../src/
 /**
  * These tests cross the LspConnection seam with a fake server — the previous
  * versions asserted on lsp.ts source text with fs.readFileSync + regex.
+ * init() is driven headlessly through the commandAvailable probe
+ * (round-7, candidate 10) — no private startServer pokes.
  */
 
 interface FakeServer {
   connection: LspConnection;
+  requests: Array<{ method: string }>;
   notifications: Array<{ method: string; params: unknown }>;
   publish(uri: string, diagnostics: unknown[]): void;
 }
@@ -18,13 +21,15 @@ interface FakeServer {
 function makeFakeServer(): FakeServer {
   let diagnosticsHandler: ((params: { uri: string; diagnostics: never[] }) => void) | null = null;
   const server: FakeServer = {
+    requests: [],
     notifications: [],
     connection: {
       listen() {},
       onNotification(_method, handler) {
         diagnosticsHandler = handler as typeof diagnosticsHandler;
       },
-      async sendRequest() {
+      async sendRequest(method) {
+        server.requests.push({ method });
         return {};
       },
       async sendNotification(method, params) {
@@ -39,77 +44,122 @@ function makeFakeServer(): FakeServer {
   return server;
 }
 
-function makeClient(server: FakeServer): LspClient {
-  const factory: LspServerFactory = () => ({ connection: server.connection, kill: () => {} });
-  return new LspClient(factory);
+interface ClientHarness {
+  client: LspClient;
+  server: FakeServer;
+  factoryCalls: Array<{ cmd: string }>;
+  dir: string;
+  file: string;
+  cleanup: () => void;
 }
 
-function tmpTsFile(): { dir: string; file: string; cleanup: () => void } {
+function makeHarness(
+  opts: { commandAvailable?: (cmd: string) => boolean; diagnosticsTimeoutMs?: number } = {},
+): ClientHarness {
   const dir = mkdtempSync(join(tmpdir(), 'lsp-seam-'));
+  // tsconfig.json → typescript detected by init()'s detectLanguages.
+  writeFileSync(join(dir, 'tsconfig.json'), '{}\n');
   const file = join(dir, 'sample.ts');
   writeFileSync(file, 'const x: number = "oops";\n');
-  return { dir, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+
+  const server = makeFakeServer();
+  const factoryCalls: Array<{ cmd: string }> = [];
+  const factory: LspServerFactory = (cmd) => {
+    factoryCalls.push({ cmd });
+    return { connection: server.connection, kill: () => {} };
+  };
+  const client = new LspClient({
+    serverFactory: factory,
+    commandAvailable: opts.commandAvailable ?? (() => true),
+    ...(opts.diagnosticsTimeoutMs !== undefined ? { diagnosticsTimeoutMs: opts.diagnosticsTimeoutMs } : {}),
+  });
+  return { client, server, factoryCalls, dir, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 describe('LspClient through the LspConnection seam', () => {
-  it('sends didOpen before didChange for a new file', async () => {
-    const server = makeFakeServer();
-    const client = makeClient(server);
-    const { dir, file, cleanup } = tmpTsFile();
+  it('init() starts the detected language server through the probe', async () => {
+    const h = makeHarness();
     try {
-      // Inject the connection directly (init() needs real language servers).
-      await (
-        client as unknown as { startServer: (l: string, c: string, a: string[], r: string) => Promise<void> }
-      ).startServer('typescript', 'fake-server', [], dir);
-      const wait = client.touchFile(file);
+      await h.client.init(h.dir);
+      expect(h.factoryCalls.map((c) => c.cmd)).toEqual(['typescript-language-server']);
+      expect(h.server.requests.map((r) => r.method)).toContain('initialize');
+      expect(h.server.notifications.map((n) => n.method)).toContain('initialized');
+    } finally {
+      h.client.dispose();
+      h.cleanup();
+    }
+  });
+
+  it('init() skips servers the probe reports as not installed', async () => {
+    const h = makeHarness({ commandAvailable: () => false });
+    try {
+      await h.client.init(h.dir);
+      expect(h.factoryCalls).toHaveLength(0);
+    } finally {
+      h.client.dispose();
+      h.cleanup();
+    }
+  });
+
+  it('init() dedups languages sharing one server cmd', async () => {
+    const h = makeHarness();
+    try {
+      // package.json → javascript also detected; both entries use
+      // typescript-language-server, so the factory must fire exactly once.
+      writeFileSync(join(h.dir, 'package.json'), '{}\n');
+      await h.client.init(h.dir);
+      expect(h.factoryCalls).toHaveLength(1);
+    } finally {
+      h.client.dispose();
+      h.cleanup();
+    }
+  });
+
+  it('sends didOpen before didChange for a new file', async () => {
+    const h = makeHarness();
+    try {
+      await h.client.init(h.dir);
+      const wait = h.client.touchFile(h.file);
       // Give notifications a tick, then answer with diagnostics.
       await new Promise((r) => setTimeout(r, 10));
-      server.publish(`file://${file}`, []);
+      h.server.publish(`file://${h.file}`, []);
       await wait;
 
-      const methods = server.notifications.map((n) => n.method);
+      const methods = h.server.notifications.map((n) => n.method);
       expect(methods).toContain('textDocument/didOpen');
       expect(methods).toContain('textDocument/didChange');
       expect(methods.indexOf('textDocument/didOpen')).toBeLessThan(methods.indexOf('textDocument/didChange'));
     } finally {
-      client.dispose();
-      cleanup();
+      h.client.dispose();
+      h.cleanup();
     }
   });
 
   it('sends didOpen only once per file across repeated touches', async () => {
-    const server = makeFakeServer();
-    const client = makeClient(server);
-    const { dir, file, cleanup } = tmpTsFile();
+    const h = makeHarness();
     try {
-      await (
-        client as unknown as { startServer: (l: string, c: string, a: string[], r: string) => Promise<void> }
-      ).startServer('typescript', 'fake-server', [], dir);
+      await h.client.init(h.dir);
       for (let i = 0; i < 2; i++) {
-        const wait = client.touchFile(file);
+        const wait = h.client.touchFile(h.file);
         await new Promise((r) => setTimeout(r, 10));
-        server.publish(`file://${file}`, []);
+        h.server.publish(`file://${h.file}`, []);
         await wait;
       }
-      const opens = server.notifications.filter((n) => n.method === 'textDocument/didOpen');
+      const opens = h.server.notifications.filter((n) => n.method === 'textDocument/didOpen');
       expect(opens).toHaveLength(1);
     } finally {
-      client.dispose();
-      cleanup();
+      h.client.dispose();
+      h.cleanup();
     }
   });
 
   it('returns only severity-1 diagnostics formatted as [LSP] lines', async () => {
-    const server = makeFakeServer();
-    const client = makeClient(server);
-    const { dir, file, cleanup } = tmpTsFile();
+    const h = makeHarness();
     try {
-      await (
-        client as unknown as { startServer: (l: string, c: string, a: string[], r: string) => Promise<void> }
-      ).startServer('typescript', 'fake-server', [], dir);
-      const wait = client.touchFile(file);
+      await h.client.init(h.dir);
+      const wait = h.client.touchFile(h.file);
       await new Promise((r) => setTimeout(r, 10));
-      server.publish(`file://${file}`, [
+      h.server.publish(`file://${h.file}`, [
         {
           range: { start: { line: 0, character: 6 } },
           severity: 1,
@@ -123,14 +173,33 @@ describe('LspClient through the LspConnection seam', () => {
       expect(lines[0]).toContain(':1 -');
       expect(lines[0]).toContain("Type 'string' is not assignable");
     } finally {
-      client.dispose();
-      cleanup();
+      h.client.dispose();
+      h.cleanup();
+    }
+  });
+
+  it('times out to [] when the server never publishes diagnostics', async () => {
+    const h = makeHarness({ diagnosticsTimeoutMs: 20 });
+    try {
+      await h.client.init(h.dir);
+      const started = Date.now();
+      const lines = await h.client.touchFile(h.file);
+      expect(lines).toEqual([]);
+      expect(Date.now() - started).toBeLessThan(2000);
+    } finally {
+      h.client.dispose();
+      h.cleanup();
     }
   });
 
   it('returns [] for files with no language mapping or no server', async () => {
-    const client = makeClient(makeFakeServer());
-    expect(await client.touchFile('/tmp/whatever.unknownext')).toEqual([]);
-    expect(await client.touchFile('/tmp/still-no-server.ts')).toEqual([]);
+    const h = makeHarness();
+    try {
+      expect(await h.client.touchFile('/tmp/whatever.unknownext')).toEqual([]);
+      expect(await h.client.touchFile('/tmp/still-no-server.ts')).toEqual([]);
+    } finally {
+      h.client.dispose();
+      h.cleanup();
+    }
   });
 });

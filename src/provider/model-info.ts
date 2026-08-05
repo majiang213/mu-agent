@@ -3,8 +3,14 @@ import { homedir } from 'node:os';
 import type { Model, Models } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { MU_AGENT_DIR } from '../config/defaults.js';
+import { DEFAULT_CONTEXT_RATIO } from '../config/defaults.js';
 
 const FALLBACK_CONTEXT = 131072;
+// Sibling-catalog entries whose source gave no context length get this
+// conservative default — deliberately smaller than FALLBACK_CONTEXT (the
+// current-model probe fallback): overestimating a sibling's window would
+// silently misinform the selector.
+const SIBLING_CONTEXT_FALLBACK = 32768;
 
 /**
  * pi-ai's openai-completions API requires an apiKey string; Ollama ignores
@@ -217,14 +223,21 @@ export function resetSharedModelRuntime(): void {
   sharedRuntime = null;
 }
 
-export async function buildModels(
-  modelName: string,
-  provider: string,
-  baseUrl: string,
-  contextRatio: number,
-  apiKey?: string,
-): Promise<BuiltModel> {
-  const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
+/**
+ * Build + register the configured model. Takes the model slice of Config
+ * (structurally — tests pass literals): the contextRatio default derivation
+ * lives HERE now, not at both call sites (round-8, candidate 8).
+ */
+export async function buildModels(modelCfg: {
+  name: string;
+  provider: string;
+  baseUrl: string;
+  contextRatio?: number;
+  apiKey?: string;
+}): Promise<BuiltModel> {
+  const { name: modelName, provider, baseUrl, apiKey } = modelCfg;
+  const contextRatio = modelCfg.contextRatio ?? DEFAULT_CONTEXT_RATIO;
+  const apiBase = `${normalizeBase(baseUrl)}/v1`; // normalizeBase strips trailing slashes + any existing /v1
   const contextWindow = await fetchContextLength(provider, baseUrl, modelName, apiKey);
   const model: Model<'openai-completions'> = {
     id: modelName,
@@ -270,8 +283,10 @@ export async function buildModels(
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
           // Live siblings carry their probed context length when the fetcher
           // provides one (ollama does), a conservative default otherwise.
-          contextWindow: isCurrent ? contextWindow : (m.contextLength ?? 32768),
-          maxTokens: isCurrent ? model.maxTokens : Math.floor((m.contextLength ?? 32768) * (1 - contextRatio)),
+          contextWindow: isCurrent ? contextWindow : (m.contextLength ?? SIBLING_CONTEXT_FALLBACK),
+          maxTokens: isCurrent
+            ? model.maxTokens
+            : Math.floor((m.contextLength ?? SIBLING_CONTEXT_FALLBACK) * (1 - contextRatio)),
         };
       });
     },

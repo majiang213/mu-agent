@@ -5,7 +5,7 @@ import { directiveFingerprint, planFingerprint } from '../agent/directives.js';
 /**
  * Plan-set algebra — ONE HOME for the similarity/dedup operations Heavy
  * Thinking needs. Previously the exact-fingerprint set logic was implemented
- * four separate ways in sampler.ts (dedup, allSeenBefore, roundConverged,
+ * four separate ways in sampler.ts (dedup, all-seen, roundConverged,
  * plus an inline "new in batch" filter) and the fuzzy version once more in
  * deliberator.ts (jaccardDirectives, allPlansSimilar) — all leaning on the
  * same directive fingerprints (third-pass review, candidate 11).
@@ -26,16 +26,6 @@ export function roundConverged(roundCandidates: PlanCandidate[]): boolean {
   if (roundCandidates.length <= 1) return true;
   const fps = new Set(roundCandidates.map((c) => planFingerprint(c.steps)));
   return fps.size === 1;
-}
-
-/**
- * Every plan in `batch` already exists in `existing`. An empty batch returns
- * false — a failed round carries no information, it must not stop sampling.
- */
-export function allSeenBefore(batch: PlanCandidate[], existing: PlanCandidate[]): boolean {
-  if (batch.length === 0) return false;
-  const existingFps = new Set(existing.map((c) => planFingerprint(c.steps)));
-  return batch.every((c) => existingFps.has(planFingerprint(c.steps)));
 }
 
 /** Plans in `batch` whose fingerprint is not already present in `existing`. */

@@ -81,17 +81,17 @@ export function fmtToolArgs(tool: string, args?: Record<string, unknown>): strin
 
 /**
  * Per-task summary line segments (Gap 55), unstyled — the TUI applies color.
- * Success: "✓ done  100% success  llm×N  tokens≈X"; failure: "✗ failed …".
+ * Success: "✓ done  100% success  llm×N  tokens=X"; failure: "✗ failed …".
  */
-export function formatTaskSummary(m: { success: boolean; llmCalls: number; estimatedTokens: number }): {
+export function formatTaskSummary(m: { success: boolean; llmCalls: number; totalTokens: number }): {
   status: string;
   stats: string;
 } {
-  const tokens = fmtTokens(m.estimatedTokens);
+  const tokens = fmtTokens(m.totalTokens);
   if (m.success) {
-    return { status: '  ✓  done', stats: `  100% success  llm×${m.llmCalls}  tokens≈${tokens}` };
+    return { status: '  ✓  done', stats: `  100% success  llm×${m.llmCalls}  tokens=${tokens}` };
   }
-  return { status: '  ✗  failed', stats: `  llm×${m.llmCalls}  tokens≈${tokens}` };
+  return { status: '  ✗  failed', stats: `  llm×${m.llmCalls}  tokens=${tokens}` };
 }
 
 /** Strip the legacy presentation prefix from a loaded assistant message. */

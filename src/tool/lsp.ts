@@ -38,6 +38,23 @@ export interface LspServerHandle {
 
 export type LspServerFactory = (cmd: string, args: string[], projectRoot: string) => LspServerHandle | null;
 
+export interface LspClientOptions {
+  serverFactory?: LspServerFactory;
+  /**
+   * How long touchFile waits for fresh diagnostics before falling back to the
+   * last published set (default 5000ms). Tests shrink it to exercise the
+   * timeout race without a 5s stall (round-7, candidate 10).
+   */
+  diagnosticsTimeoutMs?: number;
+  /**
+   * Command-availability probe used by init() (default isCommandAvailable).
+   * Tests fake installed servers to drive the init/dedup paths headlessly.
+   */
+  commandAvailable?: (cmd: string) => boolean;
+}
+
+const DEFAULT_DIAGNOSTICS_TIMEOUT_MS = 5000;
+
 const stdioServerFactory: LspServerFactory = (cmd, args, projectRoot) => {
   const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], cwd: projectRoot });
   if (!proc.stdout || !proc.stdin) {
@@ -59,8 +76,15 @@ interface ConnectionState {
 
 export class LspClient {
   private connections = new Map<string, ConnectionState>();
+  private readonly serverFactory: LspServerFactory;
+  private readonly diagnosticsTimeoutMs: number;
+  private readonly commandAvailable: (cmd: string) => boolean;
 
-  constructor(private readonly serverFactory: LspServerFactory = stdioServerFactory) {}
+  constructor(options: LspClientOptions = {}) {
+    this.serverFactory = options.serverFactory ?? stdioServerFactory;
+    this.diagnosticsTimeoutMs = options.diagnosticsTimeoutMs ?? DEFAULT_DIAGNOSTICS_TIMEOUT_MS;
+    this.commandAvailable = options.commandAvailable ?? isCommandAvailable;
+  }
 
   async init(projectRoot: string): Promise<void> {
     const root = resolve(projectRoot);
@@ -71,7 +95,7 @@ export class LspClient {
         const entry = LANGUAGE_ENTRIES[lang];
         if (!entry?.lsp) return;
         if (startedCmds.has(entry.lsp.cmd)) return;
-        if (!isCommandAvailable(entry.lsp.cmd)) return;
+        if (!this.commandAvailable(entry.lsp.cmd)) return;
         startedCmds.add(entry.lsp.cmd);
         await this.startServer(lang, entry.lsp.cmd, entry.lsp.args, projectRoot);
       }),
@@ -153,7 +177,7 @@ export class LspClient {
           state.diagnosticsWaiters.delete(uri);
           resolve(diags);
         };
-        void resolveAfter(5000, state.diagnosticsMap.get(uri) ?? []).then((fallback) => {
+        void resolveAfter(this.diagnosticsTimeoutMs, state.diagnosticsMap.get(uri) ?? []).then((fallback) => {
           if (state.diagnosticsWaiters.has(uri)) cleanup(fallback);
         });
         state.diagnosticsWaiters.set(uri, cleanup);

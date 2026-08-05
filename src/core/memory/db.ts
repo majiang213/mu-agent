@@ -127,3 +127,23 @@ function applySchema(db: Database.Database): void {
     );
   `);
 }
+
+/** Unix seconds — the one clock read for all memory tables (was 7 inline copies). */
+export function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * Seconds since the meta key was last touched, or null when never. The
+ * debounce protocol (read meta → elapsed guard → work → touch) is shared by
+ * semantic-fact decay (24h) and summary processing (60s) — round-8, C9.
+ */
+export function metaElapsedSeconds(db: Database.Database, key: string): number | null {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
+  if (!row) return null;
+  return nowSeconds() - parseInt(row.value, 10);
+}
+
+export function touchMeta(db: Database.Database, key: string): void {
+  db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, nowSeconds().toString());
+}

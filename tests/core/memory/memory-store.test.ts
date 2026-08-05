@@ -32,7 +32,7 @@ function makeMission(desc: string): Mission {
 }
 
 function makeFinalResult(success: boolean, output = ''): StateResult {
-  return { state: State.DONE, success, output, nextState: State.DONE };
+  return { success, output };
 }
 
 describe('writeEpisodeSync', () => {

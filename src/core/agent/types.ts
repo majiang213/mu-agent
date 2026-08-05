@@ -5,8 +5,8 @@ import type { StateMachineAgent } from './state-machine.js';
 import type { StagnationDetector } from '../cognitive/index.js';
 import type { EnvContext } from '../prompts/agent.js';
 import type { SafetyConfig, HeavyThinkingConfig, ExtensionsConfig } from '../../config/types.js';
-import type { ExtensionHostState } from '../extensions/stubs.js';
-import type { SafeModifier } from '../../tool/safety/index.js';
+import type { ExtensionHostState } from '../extensions/host-actions.js';
+import type { SafeModifier } from '../../tool/safety/checkpoint.js';
 import type { LspClient } from '../../tool/lsp.js';
 import type { CodeGraphLocator } from '../graph/locator.js';
 import type { State } from '../types.js';
@@ -30,17 +30,16 @@ export type ExecutionEvent =
   | { type: 'message_thinking_end'; content: string }
   | { type: 'message_update'; content: string }
   | { type: 'message_thinking_update'; content: string }
-  | { type: 'turn_end'; promptLen: number; responseLen: number; contextTokens: number }
+  | { type: 'turn_end'; promptLen: number; responseLen: number }
   | { type: 'turn_start'; systemPrompt: string; userPrompt: string }
   | { type: 'task_start'; taskIndex: number; taskTotal: number; description: string }
   | { type: 'task_end'; taskIndex: number; taskTotal: number }
   | { type: 'clarification_needed'; questions: string[] }
-  | { type: 'deliberation_start'; candidateCount: number }
+  | { type: 'deliberation_start' }
   | { type: 'sample_start'; index: number }
   | { type: 'sample_thinking'; index: number; content: string }
   | { type: 'sample_complete'; index: number; steps: import('../types.js').StepDirective[] }
   | { type: 'sample_failed'; index: number }
-  | { type: 'sampling_progress'; completed: number; total: number }
   | { type: 'deliberation_refinement'; round: number; verdict: 'BETTER' | 'WORSE' | 'SAME' | 'converged' }
   | { type: 'deliberation_complete'; synthesizedStepCount: number; summary: string }
   | { type: 'deliberation_fallback'; reason: string }
@@ -59,7 +58,18 @@ export type ExecutionEvent =
 export interface Mission {
   id: string;
   description: string;
-  state: 'pending' | 'running' | 'completed' | 'failed';
+  state: 'running' | 'completed' | 'failed';
+}
+
+/** Options threaded through step execution. */
+export interface StepRunOptions {
+  onEvent?: (event: ExecutionEvent) => void;
+  memoryIndex?: string;
+  memorySearchTool?: AgentTool;
+}
+
+export interface ReasonStepOptions extends StepRunOptions {
+  onNeedsClarify?: (questions: string[]) => Promise<string>;
 }
 
 /** Everything needed to build and wire one step's Agent (StepAgentDriver). */
@@ -112,25 +122,34 @@ export interface StepAgentDriver {
 }
 
 /**
- * Everything a run needs (built once by buildRunSetup). Field roles:
- *
- * IMMUTABLE SERVICES — shared by reference across the whole run. The
- * safeModifier checkpoint store is shared even by parallel branches;
- * stateMachine is the one service cloned per branch (fork semantics live
- * in step-context.ts).
- *
- * PER-RUN SETTINGS — read-only after setup. Steps NEVER mutate this
- * object: runStep / runReasonAttempt spread it before building their
- * agent, so retry-temperature escalation writes to a step-local copy
- * (see runStepAgent; C14).
- *
- * HOOKS — optional lifecycle callbacks.
+ * RunConfig role slices (architecture review 2026-08-05, candidate 4).
+ * RunConfig composes them — fields stay flat, so no consumer changes — but
+ * the roles are now NAMED and type-checked: a function that only reaches the
+ * LLM can take ModelAccess, a test can build RunServices alone, and the
+ * grab-bag's ownership boundaries are vocabulary instead of a comment.
  */
-export interface RunConfig {
-  // ── immutable services ──
+
+/** Model access slice — everything about reaching the LLM. */
+export interface ModelAccess {
   model: Model<'openai-completions'>;
   /** pi-ai Models collection (Gap 89) — all LLM calls go models.streamSimple/completeSimple. */
   models: Models;
+  /**
+   * Base temperature for every step. Retry escalation (escalatedTemperature,
+   * defaults.ts) writes to the per-step spread, never the shared config (C14).
+   */
+  temperature: number;
+  contextRatio: number;
+  apiKey: string;
+}
+
+/**
+ * Immutable services slice — shared by reference across the whole run. The
+ * safeModifier checkpoint store is shared even by parallel branches;
+ * stateMachine is the one service cloned per branch (fork semantics live
+ * in step-context.ts).
+ */
+export interface RunServices {
   stateMachine: StateMachineAgent;
   safeModifier: SafeModifier;
   lspClient?: LspClient;
@@ -141,13 +160,27 @@ export interface RunConfig {
    * fallback mutated this read-only object; round-4, candidate 6).
    */
   locator: CodeGraphLocator | null;
+}
+
+/** Lifecycle hooks slice — optional callbacks + the step-driver test seam. */
+export interface RunHooks {
+  registerAgent?: (agent: Agent) => void;
+  unregisterAgent?: (agent: Agent) => void;
+  /** Test seam: replace runStep's build+drive collaborator (default: defaultStepDriver). */
+  stepDriver?: StepAgentDriver;
+}
+
+/**
+ * Everything a run needs (built once by buildRunSetup): the three role
+ * slices above, flattened, plus the per-run settings below — read-only after
+ * setup. Steps NEVER mutate this object: runStep / runReasonAttempt spread it
+ * before building their agent, so retry-temperature escalation writes to a
+ * step-local copy (see runStepAgent; C14).
+ */
+export interface RunConfig extends ModelAccess, RunServices, RunHooks {
   // ── per-run settings ──
   safetyConfig: SafetyConfig;
   env: EnvContext;
-  /** Base temperature for every step (escalation happens on the per-step spread). */
-  temperature: number;
-  contextRatio: number;
-  apiKey: string;
   projectRoot: string;
   heavyThinking?: HeavyThinkingConfig;
   /**
@@ -160,9 +193,4 @@ export interface RunConfig {
   extensionHost?: ExtensionHostState;
   /** Resolved extensions config (toolStates allowlist for extension tools). */
   extensionsConfig?: ExtensionsConfig;
-  /** Test seam: replace runStep's build+drive collaborator (default: defaultStepDriver). */
-  stepDriver?: StepAgentDriver;
-  // ── hooks ──
-  registerAgent?: (agent: Agent) => void;
-  unregisterAgent?: (agent: Agent) => void;
 }

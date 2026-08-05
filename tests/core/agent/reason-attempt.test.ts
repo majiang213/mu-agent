@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { State } from '../../../src/core/types.js';
 import type { RunConfig, StepAgentBuildInput } from '../../../src/core/agent/types.js';
 import { runReasonAttempt } from '../../../src/core/agent/reason-runner.js';
+import { makeRunConfig, makeStateMachineFake } from '../../helpers/run-config.js';
 
 /**
  * Round-5 candidate 5: runReasonAttempt builds and drives through the
@@ -62,28 +63,10 @@ async function callComplete(tools: StepAgentBuildInput['tools'], args: Record<st
 }
 
 function makeCfg(driver: RunConfig['stepDriver']): RunConfig {
-  const stateMachine = {
-    clone: vi.fn(),
-    transitionTo: vi.fn(),
-    resetFileBudget: vi.fn(),
-    getModelParams: vi.fn(() => ({ tier: 'LARGE' as const, maxRetries: 1, strictPlanning: false, paramCount: 0 })),
-  };
-  return {
-    model: {} as RunConfig['model'],
-    models: {} as RunConfig['models'],
-    stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: { restoreAndClearWhere: vi.fn(async () => {}) } as unknown as RunConfig['safeModifier'],
-    env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
-    temperature: 0,
-    contextRatio: 0.2,
-    apiKey: 'test',
-    projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
+  return makeRunConfig({
+    stateMachine: makeStateMachineFake(),
     stepDriver: driver,
-  };
+  });
 }
 
 const mission = { id: 't1', description: 'plan something', state: 'running' as const };

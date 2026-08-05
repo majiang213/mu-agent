@@ -1,130 +1,51 @@
 import { describe, it, expect, vi } from 'vitest';
 import { State } from '../../src/core/types.js';
 import type { StepDirective } from '../../src/core/types.js';
-import type { RunConfig, ExecutionEvent, StepAgentBuildInput } from '../../src/core/agent/types.js';
-
-// ONE leaf mock: control what the model "submits" via complete(). Everything
-// else is real — runStep is driven through the StepAgentDriver seam instead
-// of module-graph mocks (builder / prompts / cognitive / locator / git-guard
-// all dropped, round-4 candidate 5).
-vi.mock('../../src/tool/complete.js', () => ({
-  buildCompleteTool: vi.fn((state: State, onComplete: (args: Record<string, unknown>) => void) => ({
-    name: 'complete',
-    label: 'Complete',
-    description: '',
-    parameters: {},
-    execute: async (_id: unknown, args: Record<string, unknown>) => {
-      onComplete(args);
-      return { content: [{ type: 'text', text: 'ok' }] };
-    },
-  })),
-}));
-
-const { buildCompleteTool } = await import('../../src/tool/complete.js');
-
-function captureComplete(onComplete: (args: Record<string, unknown>) => void, state: State): void {
-  const schemas: Record<string, Record<string, unknown>> = {
-    LOCATE: { locations: [] },
-    MODIFY: { edited: [], linesChanged: 0 },
-    VERIFY: { passed: true, issues: [], summary: 'ok' },
-    ANSWER: { answer: 'done' },
-  };
-  const result = schemas[state] ?? { result: 'ok' };
-  onComplete(result);
-}
-
-vi.mocked(buildCompleteTool).mockImplementation((state, onComplete) => ({
-  name: 'complete',
-  label: 'Complete',
-  description: '',
-  parameters: {} as never,
-  execute: async () => {
-    captureComplete(onComplete, state);
-    return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
-  },
-}));
-
-/**
- * The StepAgentDriver fake: buildAgent records each build input keyed by the
- * agent it returns; driveUntilComplete "plays the model" by executing the
- * state's complete() tool once (the mocked buildCompleteTool turns that into
- * a captured complete() call). Parallel branches each get their own agent,
- * so the map keeps their build inputs unmixed.
- */
-function makeFakeDriver(): NonNullable<RunConfig['stepDriver']> {
-  const byAgent = new Map<object, StepAgentBuildInput>();
-  return {
-    buildAgent: vi.fn((input: StepAgentBuildInput) => {
-      const agent = {
-        prompt: vi.fn(async () => {}),
-        steer: vi.fn(),
-        on: vi.fn(),
-        off: vi.fn(),
-        abort: vi.fn(),
-      };
-      byAgent.set(agent, input);
-      return agent as never;
-    }),
-    driveUntilComplete: vi.fn(async (agent) => {
-      const input = byAgent.get(agent);
-      const completeTool = input?.tools.find((t) => t.name === 'complete');
-      if (completeTool) {
-        await completeTool.execute('id', {}, {} as never);
-      }
-    }),
-  };
-}
-
+import type { RunConfig, ExecutionEvent } from '../../src/core/agent/types.js';
+import { makeRunConfig, makeStateMachineFake } from '../helpers/run-config.js';
+import { makeScriptedDriver, type ScriptEntry } from '../helpers/scripted-driver.js';
 import { executeSteps } from '../../src/core/agent/step-runner.js';
 
-function makeCfg(overrides?: Partial<RunConfig>): RunConfig {
-  const stateMachine = {
-    clone: vi.fn(),
-    resetForNextTask: vi.fn(),
-    getAllowedTools: vi.fn(() => []),
-    getModelParams: vi.fn(() => ({
-      tier: 'LARGE' as const,
-      maxRetries: 1,
-      strictPlanning: false,
-      maxFilesPerTask: 5,
-      paramCount: 0,
-    })),
-    getCurrentState: vi.fn(() => State.REASON),
-    transitionTo: vi.fn(),
-    resetFileBudget: vi.fn(),
-  };
-  return {
-    model: {} as RunConfig['model'],
-    models: {} as RunConfig['models'],
-    stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: {
-      createCheckpoint: vi.fn(),
-      restoreAndClearWhere: vi.fn(async () => {}),
-    } as unknown as RunConfig['safeModifier'],
-    env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
-    temperature: 0,
-    contextRatio: 0.2,
-    apiKey: 'test',
-    projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
-    stepDriver: makeFakeDriver(),
+/**
+ * executeSteps driven through the StepAgentDriver seam (round-9, candidate 2):
+ * makeScriptedDriver plays the model by executing each step's REAL complete()
+ * tool — schema validation included. Replaces the complete.js module mock +
+ * hand-rolled fake driver (round-4 pattern), converging the suite on one
+ * test-driver vocabulary. `null` entries script "model never called
+ * complete()" (the llm-text fallback path); parallel branches drive in build
+ * order, so scripts are deterministic.
+ */
+
+// Valid per-state complete() payloads (STATE_REGISTRY completeSchema).
+const LOCATE_OK = {
+  locations: [{ file: 'a.ts', startLine: 1, endLine: 5, snippet: 'code' }],
+};
+const MODIFY_OK = { edited: ['a.ts'], linesChanged: 1 };
+const VERIFY_OK = { passed: true, issues: [], summary: 'ok' };
+const ANSWER_OK = { answer: 'done' };
+
+function makeCfg(script: ScriptEntry[], overrides?: Partial<RunConfig>): RunConfig {
+  return makeRunConfig({
+    stateMachine: makeStateMachineFake({ extraParams: { maxFilesPerTask: 5 } }),
+    stepDriver: makeScriptedDriver(script).driver,
     ...overrides,
-  };
+  });
 }
+
+/** Parallel branches fork the state machine; the fake clones to itself. */
+function makeParallelCfg(script: ScriptEntry[]): RunConfig {
+  const cfg = makeCfg(script);
+  (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
+  return cfg;
+}
+
+const MISSION = { id: 't1', description: 'task', state: 'running' as const };
 
 describe('executeSteps', () => {
   describe('the StepAgentDriver seam (round-4, candidate 5)', () => {
     it('runStep builds and drives through cfg.stepDriver', async () => {
-      const cfg = makeCfg();
-      await executeSteps(
-        [{ state: State.ANSWER, focus: 'respond' }],
-        { id: 't1', description: 'task', state: 'running' },
-        [],
-        cfg,
-      );
+      const cfg = makeCfg([ANSWER_OK]);
+      await executeSteps([{ state: State.ANSWER, focus: 'respond' }], MISSION, [], cfg);
       const driver = cfg.stepDriver!;
       expect(driver.buildAgent).toHaveBeenCalledTimes(1);
       expect(driver.driveUntilComplete).toHaveBeenCalledTimes(1);
@@ -141,39 +62,31 @@ describe('executeSteps', () => {
         { state: State.LOCATE, focus: 'find files' },
         { state: State.MODIFY, focus: 'fix bug' },
       ];
-      const results = await executeSteps(
-        directives,
-        { id: 't1', description: 'task', state: 'running' },
-        [],
-        makeCfg(),
-      );
+      const results = await executeSteps(directives, MISSION, [], makeCfg([LOCATE_OK, MODIFY_OK]));
       expect(results).toHaveLength(2);
       expect(results[0]!.state).toBe(State.LOCATE);
       expect(results[1]!.state).toBe(State.MODIFY);
     });
 
     it('returns empty array for empty directives', async () => {
-      const results = await executeSteps([], { id: 't1', description: 'task', state: 'running' }, [], makeCfg());
+      const results = await executeSteps([], MISSION, [], makeCfg([]));
       expect(results).toHaveLength(0);
     });
   });
 
   describe('parallel directives', () => {
+    const parallelModify: StepDirective[] = [
+      {
+        parallel: [
+          { state: State.MODIFY, focus: 'fix A' },
+          { state: State.MODIFY, focus: 'fix B' },
+        ],
+      },
+    ];
+
     it('emits parallel_start and parallel_complete events', async () => {
-      const cfg = makeCfg();
-      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
-
       const events: ExecutionEvent[] = [];
-      const directives: StepDirective[] = [
-        {
-          parallel: [
-            { state: State.MODIFY, focus: 'fix A' },
-            { state: State.MODIFY, focus: 'fix B' },
-          ],
-        },
-      ];
-
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
+      await executeSteps(parallelModify, MISSION, [], makeParallelCfg([MODIFY_OK, MODIFY_OK]), {
         onEvent: (e) => events.push(e),
       });
 
@@ -183,20 +96,8 @@ describe('executeSteps', () => {
     });
 
     it('does not emit state_change or task_start from parallel branches to prevent TUI header thrashing', async () => {
-      const cfg = makeCfg();
-      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
-
       const events: ExecutionEvent[] = [];
-      const directives: StepDirective[] = [
-        {
-          parallel: [
-            { state: State.MODIFY, focus: 'fix A' },
-            { state: State.MODIFY, focus: 'fix B' },
-          ],
-        },
-      ];
-
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
+      await executeSteps(parallelModify, MISSION, [], makeParallelCfg([MODIFY_OK, MODIFY_OK]), {
         onEvent: (e) => events.push(e),
       });
 
@@ -206,38 +107,17 @@ describe('executeSteps', () => {
     });
 
     it('emits parallel_overlap when two branches edit the same file', async () => {
-      const cfg = makeCfg();
-      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
-
-      for (const edited of [
-        ['a.ts', 'b.ts'],
-        ['b.ts', 'c.ts'],
-      ]) {
-        vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-          name: 'complete',
-          label: 'Complete',
-          description: '',
-          parameters: {} as never,
-          execute: async () => {
-            onComplete({ edited, linesChanged: 1 });
-            return { content: [{ type: 'text', text: 'ok' }], details: undefined };
-          },
-        }));
-      }
-
       const events: ExecutionEvent[] = [];
-      const directives: StepDirective[] = [
-        {
-          parallel: [
-            { state: State.MODIFY, focus: 'fix A' },
-            { state: State.MODIFY, focus: 'fix B' },
-          ],
-        },
-      ];
-
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
-        onEvent: (e) => events.push(e),
-      });
+      await executeSteps(
+        parallelModify,
+        MISSION,
+        [],
+        makeParallelCfg([
+          { edited: ['a.ts', 'b.ts'], linesChanged: 1 },
+          { edited: ['b.ts', 'c.ts'], linesChanged: 1 },
+        ]),
+        { onEvent: (e) => events.push(e) },
+      );
 
       const overlap = events.find((e) => e.type === 'parallel_overlap');
       expect(overlap).toBeDefined();
@@ -245,80 +125,38 @@ describe('executeSteps', () => {
     });
 
     it('does NOT emit parallel_overlap when branches edit disjoint files', async () => {
-      const cfg = makeCfg();
-      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
-
-      for (const edited of [['a.ts'], ['c.ts']]) {
-        vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-          name: 'complete',
-          label: 'Complete',
-          description: '',
-          parameters: {} as never,
-          execute: async () => {
-            onComplete({ edited, linesChanged: 1 });
-            return { content: [{ type: 'text', text: 'ok' }], details: undefined };
-          },
-        }));
-      }
-
       const events: ExecutionEvent[] = [];
-      const directives: StepDirective[] = [
-        {
-          parallel: [
-            { state: State.MODIFY, focus: 'fix A' },
-            { state: State.MODIFY, focus: 'fix B' },
-          ],
-        },
-      ];
-
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg, {
-        onEvent: (e) => events.push(e),
-      });
+      await executeSteps(
+        parallelModify,
+        MISSION,
+        [],
+        makeParallelCfg([
+          { edited: ['a.ts'], linesChanged: 1 },
+          { edited: ['c.ts'], linesChanged: 1 },
+        ]),
+        { onEvent: (e) => events.push(e) },
+      );
 
       expect(events.some((e) => e.type === 'parallel_overlap')).toBe(false);
     });
 
     it('returns one result per parallel branch', async () => {
-      const cfg = makeCfg();
-      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
-
-      const directives: StepDirective[] = [
-        {
-          parallel: [
-            { state: State.MODIFY, focus: 'fix A' },
-            { state: State.MODIFY, focus: 'fix B' },
-          ],
-        },
-      ];
-
-      const results = await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg);
+      const results = await executeSteps(parallelModify, MISSION, [], makeParallelCfg([MODIFY_OK, MODIFY_OK]));
 
       expect(results).toHaveLength(2);
       expect(results.every((r) => r.state === State.MODIFY)).toBe(true);
     });
 
     it('calls stateMachine.clone() for each parallel branch', async () => {
-      const cfg = makeCfg();
+      const cfg = makeCfg([MODIFY_OK, MODIFY_OK]);
       (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue({ ...cfg.stateMachine });
 
-      const directives: StepDirective[] = [
-        {
-          parallel: [
-            { state: State.MODIFY, focus: 'fix A' },
-            { state: State.MODIFY, focus: 'fix B' },
-          ],
-        },
-      ];
-
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg);
+      await executeSteps(parallelModify, MISSION, [], cfg);
 
       expect(cfg.stateMachine.clone).toHaveBeenCalledTimes(2);
     });
 
     it('returns 4 results for LOCATE + parallel(MODIFY, MODIFY) + VERIFY', async () => {
-      const cfg = makeCfg();
-      (cfg.stateMachine.clone as ReturnType<typeof vi.fn>).mockReturnValue(cfg.stateMachine);
-
       const directives: StepDirective[] = [
         { state: State.LOCATE, focus: 'find files' },
         {
@@ -330,7 +168,12 @@ describe('executeSteps', () => {
         { state: State.VERIFY, focus: 'run tests' },
       ];
 
-      const results = await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], cfg);
+      const results = await executeSteps(
+        directives,
+        MISSION,
+        [],
+        makeParallelCfg([LOCATE_OK, MODIFY_OK, MODIFY_OK, VERIFY_OK]),
+      );
 
       expect(results).toHaveLength(4);
       expect(results[0]!.state).toBe(State.LOCATE);
@@ -345,7 +188,7 @@ describe('executeSteps', () => {
       const events: ExecutionEvent[] = [];
       const directives: StepDirective[] = [{ state: State.ANSWER, focus: 'respond' }];
 
-      await executeSteps(directives, { id: 't1', description: 'task', state: 'running' }, [], makeCfg(), {
+      await executeSteps(directives, MISSION, [], makeCfg([ANSWER_OK]), {
         onEvent: (e) => events.push(e),
       });
 
@@ -356,15 +199,13 @@ describe('executeSteps', () => {
   });
 
   describe('subplan directives (Gap 80)', () => {
-    const mission = { id: 't1', description: 'task', state: 'running' as const };
-
     it('emits subplan_start event when encountering a subplan directive', async () => {
       const events: ExecutionEvent[] = [];
       const directives: StepDirective[] = [
         { subplan: { analyzerState: State.PLAN, focus: 'analyze changes and plan commits' } },
       ];
 
-      await executeSteps(directives, mission, [], makeCfg(), { onEvent: (e) => events.push(e) });
+      await executeSteps(directives, MISSION, [], makeCfg([null]), { onEvent: (e) => events.push(e) });
 
       const types = events.map((e) => e.type);
       expect(types).toContain('subplan_start');
@@ -373,32 +214,26 @@ describe('executeSteps', () => {
     it('includes PLAN step result in returned results', async () => {
       const directives: StepDirective[] = [{ subplan: { analyzerState: State.PLAN, focus: 'analyze and plan' } }];
 
-      const results = await executeSteps(directives, mission, [], makeCfg());
+      const results = await executeSteps(directives, MISSION, [], makeCfg([null]));
 
       expect(results.length).toBeGreaterThanOrEqual(1);
       expect(results[0]!.state).toBe(State.PLAN);
     });
 
     it('executes sub-steps produced by PLAN output', async () => {
-      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-        name: 'complete',
-        label: 'Complete',
-        description: '',
-        parameters: {} as never,
-        execute: async () => {
-          onComplete({
-            steps: [{ state: 'MODIFY', focus: 'fix the bug in math.js' }],
-            rationale: 'bug found',
-          });
-          return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
-        },
-      }));
-
       const directives: StepDirective[] = [
         { subplan: { analyzerState: State.PLAN, focus: 'run tests and plan fixes' } },
       ];
 
-      const results = await executeSteps(directives, mission, [], makeCfg());
+      const results = await executeSteps(
+        directives,
+        MISSION,
+        [],
+        makeCfg([
+          { steps: [{ state: 'MODIFY', focus: 'fix the bug in math.js' }], rationale: 'bug found' },
+          { edited: ['math.js'], linesChanged: 1 },
+        ]),
+      );
 
       expect(results).toHaveLength(2);
       expect(results[0]!.state).toBe(State.PLAN);
@@ -406,29 +241,28 @@ describe('executeSteps', () => {
     });
 
     it('emits subplan_complete with correct sub-step count', async () => {
-      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-        name: 'complete',
-        label: 'Complete',
-        description: '',
-        parameters: {} as never,
-        execute: async () => {
-          onComplete({
-            steps: [
-              { state: 'MODIFY', focus: 'fix bug A' },
-              { state: 'MODIFY', focus: 'fix bug B' },
-            ],
-            rationale: 'two bugs',
-          });
-          return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
-        },
-      }));
-
       const events: ExecutionEvent[] = [];
       const directives: StepDirective[] = [
         { subplan: { analyzerState: State.PLAN, focus: 'run tests and plan two fixes' } },
       ];
 
-      await executeSteps(directives, mission, [], makeCfg(), { onEvent: (e) => events.push(e) });
+      await executeSteps(
+        directives,
+        MISSION,
+        [],
+        makeCfg([
+          {
+            steps: [
+              { state: 'MODIFY', focus: 'fix bug A' },
+              { state: 'MODIFY', focus: 'fix bug B' },
+            ],
+            rationale: 'two bugs',
+          },
+          MODIFY_OK,
+          MODIFY_OK,
+        ]),
+        { onEvent: (e) => events.push(e) },
+      );
 
       const completeEv = events.find((e) => e.type === 'subplan_complete');
       expect(completeEv).toBeDefined();
@@ -437,59 +271,36 @@ describe('executeSteps', () => {
       }
     });
 
-    it('returns only PLAN result when PLAN output contains no valid steps', async () => {
+    it('returns only PLAN result when PLAN produces no capture (llm-text fallback)', async () => {
       const directives: StepDirective[] = [{ subplan: { analyzerState: State.PLAN, focus: 'plan something' } }];
 
-      const results = await executeSteps(directives, mission, [], makeCfg());
+      const results = await executeSteps(directives, MISSION, [], makeCfg([null]));
 
       expect(results).toHaveLength(1);
       expect(results[0]!.state).toBe(State.PLAN);
     });
 
-    it('filters nested subplan from PLAN output to prevent infinite recursion', async () => {
-      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-        name: 'complete',
-        label: 'Complete',
-        description: '',
-        parameters: {} as never,
-        execute: async () => {
-          onComplete({
-            steps: [{ subplan: { analyzerState: 'PLAN', focus: 'nested — should be filtered' } }],
-            rationale: 'nested subplan test',
-          });
-          return { content: [{ type: 'text' as const, text: 'ok' }], details: undefined };
-        },
-      }));
-
+    it('never recurses into a nested subplan (schema rejects it before the filter)', async () => {
+      // The PLAN completeSchema (stepsArraySchema allowSubplan:false) rejects a
+      // nested subplan at the tool boundary — the model's invalid call earns a
+      // validation error, no capture happens, and the parse guard marks the
+      // PLAN step failed. Either way: no recursion.
       const directives: StepDirective[] = [{ subplan: { analyzerState: State.PLAN, focus: 'top-level plan' } }];
 
-      const results = await executeSteps(directives, mission, [], makeCfg());
+      const results = await executeSteps(directives, MISSION, [], makeCfg([null]));
 
       expect(results).toHaveLength(1);
       expect(results[0]!.state).toBe(State.PLAN);
     });
 
     it('marks PLAN step as failed when output is unparseable (Gap 82-A)', async () => {
-      // PLAN returns non-JSON garbage → parse fails → planResult output rewritten to failure marker,
-      // no sub-steps executed, plan_parse_error event emitted.
-      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-        name: 'complete',
-        label: 'Complete',
-        description: '',
-        parameters: {} as never,
-        execute: async () => {
-          // call complete with valid steps arg so execute() captures it, but the *output*
-          // string (llmText) is what executeSteps parses — make it unparseable.
-          onComplete({ steps: [], rationale: '' });
-          return { content: [{ type: 'text' as const, text: 'this is not json at all' }], details: undefined };
-        },
-      }));
-
+      // Model ends without complete() → output falls back to the (empty)
+      // llmText → JSON.parse fails → planResult rewritten to failure marker.
       const directives: StepDirective[] = [
         { subplan: { analyzerState: State.PLAN, focus: 'plan that fails to parse' } },
       ];
 
-      const results = await executeSteps(directives, mission, [], makeCfg());
+      const results = await executeSteps(directives, MISSION, [], makeCfg([null]));
 
       expect(results).toHaveLength(1);
       expect(results[0]!.state).toBe(State.PLAN);
@@ -498,23 +309,14 @@ describe('executeSteps', () => {
       expect(parsed.error).toContain('unparseable');
     });
 
-    it('marks PLAN step as failed when steps is empty (Gap 82-A)', async () => {
-      vi.mocked(buildCompleteTool).mockImplementationOnce((_state, onComplete) => ({
-        name: 'complete',
-        label: 'Complete',
-        description: '',
-        parameters: {} as never,
-        execute: async () => {
-          onComplete({ steps: [], rationale: 'empty' });
-          return { content: [{ type: 'text' as const, text: 'empty plan' }], details: undefined };
-        },
-      }));
-
+    it('marks PLAN step as failed when the model cannot produce valid steps (Gap 82-A)', async () => {
+      // steps:[] violates the PLAN schema (minItems:1) — a real model attempt
+      // is rejected at the tool boundary; no capture → same failed marker.
       const directives: StepDirective[] = [
         { subplan: { analyzerState: State.PLAN, focus: 'plan that returns no steps' } },
       ];
 
-      const results = await executeSteps(directives, mission, [], makeCfg());
+      const results = await executeSteps(directives, MISSION, [], makeCfg([null]));
 
       expect(results).toHaveLength(1);
       const parsed = JSON.parse(results[0]!.output) as { failed?: boolean };

@@ -4,7 +4,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../../src/core/types.js';
 import { STATE_REGISTRY, GIT_OPERATIONS } from '../../src/core/state-registry.js';
 import {
-  GIT_HARD_DENY,
+  GIT_GUARD_SPEC,
   GIT_ALLOWLIST_ENTRIES,
   gitAllowlistGuidance,
   wrapWithGitGuard,
@@ -26,14 +26,14 @@ import { buildCompleteTool } from '../../src/tool/complete.js';
  * rejecting any shell metacharacter, requiring the first token to be exactly
  * `git`, and default-denying any subcommand not in the allowed set.
  *
- * `GIT_HARD_DENY` keeps its export name for compat but now carries the
+ * `GIT_GUARD_SPEC` (renamed from GIT_GUARD_SPEC, round-9 candidate 3) carries the
  * ALLOWLIST spec `{ summary, isForbidden }` where `isForbidden` returns a
  * reason string when the command is NOT allowlisted (forbidden), or null when
  * allowed. The block result omits the verbatim command (F1), and the
  * afterToolCall hook aborts the step on a `[GIT GUARD]` result.
  *
  * Tests cover:
- *   - GIT_HARD_DENY export shape (GitGuardSpec, not RegExp[])
+ *   - GIT_GUARD_SPEC export shape (GitGuardSpec, not RegExp[])
  *   - git guard blocks ALL 18 Gap 84 bypasses (allowlist defeats each)
  *   - git guard still blocks the original Gap 83 forbidden ops
  *   - git guard allows safe read/write operations through (no false positives)
@@ -70,18 +70,18 @@ async function runGuard(cmd: string): Promise<{ blocked: boolean; output: string
   return { blocked, output: text, executed: calls.length === 1 };
 }
 
-describe('Gap 83/84: GIT_HARD_DENY export shape (allowlist spec, not RegExp[])', () => {
+describe('Gap 83/84: GIT_GUARD_SPEC export shape (allowlist spec, not RegExp[])', () => {
   it('is a GitGuardSpec object with summary + isForbidden', () => {
-    expect(GIT_HARD_DENY).not.toBeNull();
-    expect(typeof GIT_HARD_DENY).toBe('object');
-    expect(GIT_HARD_DENY).not.toBeInstanceOf(Array);
-    expect(typeof (GIT_HARD_DENY as GitGuardSpec).summary).toBe('string');
-    expect((GIT_HARD_DENY as GitGuardSpec).summary.length).toBeGreaterThan(0);
-    expect(typeof (GIT_HARD_DENY as GitGuardSpec).isForbidden).toBe('function');
+    expect(GIT_GUARD_SPEC).not.toBeNull();
+    expect(typeof GIT_GUARD_SPEC).toBe('object');
+    expect(GIT_GUARD_SPEC).not.toBeInstanceOf(Array);
+    expect(typeof (GIT_GUARD_SPEC as GitGuardSpec).summary).toBe('string');
+    expect((GIT_GUARD_SPEC as GitGuardSpec).summary.length).toBeGreaterThan(0);
+    expect(typeof (GIT_GUARD_SPEC as GitGuardSpec).isForbidden).toBe('function');
   });
 
   it('isForbidden returns a reason string for forbidden, null for allowed', () => {
-    const spec = GIT_HARD_DENY as GitGuardSpec;
+    const spec = GIT_GUARD_SPEC as GitGuardSpec;
     // Gap 84 allowlist: `--force` is rejected at the push-flag layer.
     expect(spec.isForbidden('git push --force origin main')).not.toBeNull();
     expect(spec.isForbidden('git status')).toBeNull();
@@ -448,7 +448,7 @@ describe('round-4 candidate 7: allowlist entries parity (enumeration has one hom
     for (const entry of GIT_ALLOWLIST_ENTRIES) {
       const cmd = benignBySubcommand[entry.subcommand];
       expect(cmd, `no benign case for ${entry.subcommand}`).toBeDefined();
-      expect(GIT_HARD_DENY.isForbidden(cmd!), `entry not enforced as allowed: ${entry.subcommand}`).toBeNull();
+      expect(GIT_GUARD_SPEC.isForbidden(cmd!), `entry not enforced as allowed: ${entry.subcommand}`).toBeNull();
     }
   });
 
@@ -460,7 +460,7 @@ describe('round-4 candidate 7: allowlist entries parity (enumeration has one hom
     // The model-facing GIT instruction consumes the same derivation.
     expect(STATE_REGISTRY[State.GIT].instruction).toContain(gitAllowlistGuidance());
     // And the block-time summary too.
-    expect((GIT_HARD_DENY as GitGuardSpec).summary).toContain(gitAllowlistGuidance());
+    expect((GIT_GUARD_SPEC as GitGuardSpec).summary).toContain(gitAllowlistGuidance());
   });
 
   it('the parity table covers exactly the enforced allowlist (no stale entries)', () => {
@@ -486,7 +486,7 @@ describe('round-4 candidate 7: allowlist entries parity (enumeration has one hom
       'submodule',
     ];
     for (const bad of denied) {
-      expect(GIT_HARD_DENY.isForbidden(`git ${bad}`), `${bad} must stay denied`).not.toBeNull();
+      expect(GIT_GUARD_SPEC.isForbidden(`git ${bad}`), `${bad} must stay denied`).not.toBeNull();
     }
   });
 });

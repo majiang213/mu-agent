@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { SemanticFact } from './types.js';
+import { metaElapsedSeconds, nowSeconds, touchMeta } from './db.js';
 
 export function readSemanticFacts(db: Database.Database, projectRoot: string): SemanticFact[] {
   return db
@@ -26,7 +27,7 @@ export function updateSemanticFacts(db: Database.Database, userInput: string, pr
       ON CONFLICT(project_root, category, key, value)
       DO UPDATE SET confidence = MIN(confidence + 0.1, 1.0), last_seen = excluded.last_seen
     `,
-    ).run(randomUUID(), projectRoot, category, key, value, Math.floor(Date.now() / 1000), source);
+    ).run(randomUUID(), projectRoot, category, key, value, nowSeconds(), source);
   };
 
   if (/中文|chinese|用中文/i.test(userInput)) upsertFact('preference', 'language', 'zh', 'explicit');
@@ -58,13 +59,8 @@ export function updateSemanticFacts(db: Database.Database, userInput: string, pr
 }
 
 export function decaySemanticFacts(db: Database.Database, projectRoot: string): void {
-  const lastDecay = db.prepare(`SELECT value FROM meta WHERE key = 'last_decay_at'`).get() as
-    { value: string } | undefined;
-
-  if (lastDecay) {
-    const elapsed = Math.floor(Date.now() / 1000) - parseInt(lastDecay.value, 10);
-    if (elapsed < 24 * 3600) return;
-  }
+  const elapsed = metaElapsedSeconds(db, 'last_decay_at');
+  if (elapsed !== null && elapsed < 24 * 3600) return;
 
   db.prepare(
     `
@@ -85,7 +81,5 @@ export function decaySemanticFacts(db: Database.Database, projectRoot: string): 
   `,
   ).run(projectRoot);
 
-  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_decay_at', ?)`).run(
-    Math.floor(Date.now() / 1000).toString(),
-  );
+  touchMeta(db, 'last_decay_at');
 }

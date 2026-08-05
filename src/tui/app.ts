@@ -1,40 +1,44 @@
-import { Editor, Loader, ProcessTerminal, Text, TUI, matchesKey } from '@earendil-works/pi-tui';
+import { Editor, Loader, ProcessTerminal, Text, TUI } from '@earendil-works/pi-tui';
 import type { Component, KeybindingsManager, OverlayHandle } from '@earendil-works/pi-tui';
-import { ModelRegistry, ModelSelectorComponent } from '@earendil-works/pi-coding-agent';
-import type {
-  ExtensionCommandContextActions,
-  ExtensionContext,
-  ExtensionRunner,
-  SettingsManager,
-} from '@earendil-works/pi-coding-agent';
+import { ModelSelectorComponent } from '@earendil-works/pi-coding-agent';
+import type { SettingsManager } from '@earendil-works/pi-coding-agent';
 import type { Model } from '@earendil-works/pi-ai';
-import { homedir } from 'node:os';
+import { execSync } from 'node:child_process';
 
 import { ReactAgent } from '../core/agent/index.js';
 import { tierForParams } from '../core/agent/state-machine.js';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { MetricsCollector } from './metrics.js';
-import { C, stateColor, editorTheme } from './theme.js';
-import { createMuKeybindings, keyLabel, reservedKeys } from '../config/keybindings.js';
+import { C, stateColor, editorTheme, notifyIcon } from './theme.js';
+import { createMuKeybindings, keyLabel } from '../config/keybindings.js';
 import { saveConfig } from '../config/loader.js';
-import { DEFAULT_CONTEXT_RATIO } from '../config/defaults.js';
+import { collapseHome } from '../config/paths.js';
 import { buildModels, getSharedModelRuntime } from '../provider/model-info.js';
-import { createExtensionHostState, loadExtensionRunner } from '../core/extensions/index.js';
-import type { ExtensionHostState } from '../core/extensions/index.js';
-import { createExtensionUI } from './extension-ui.js';
-import type { ExtensionUIContext } from '@earendil-works/pi-coding-agent';
+import { ExtensionService } from './extension-service.js';
 import { formatRunResult, formatTaskSummary, assistantMessageForSession, stripLegacyPrefixes } from './presenter.js';
 import { isAbortError } from '../core/agent/abort.js';
 import type { Config } from '../config/types.js';
 import { getLspStatuses } from '../tool/lsp-status.js';
 import { SessionStore } from '../core/session/store.js';
-import { detectGitBranch, HeaderLine, HintLine, UserMessage } from './blocks.js';
+import { HeaderLine, HintLine, UserMessage } from './blocks.js';
 import { RunView } from './run-view.js';
 import type { RunViewHost } from './run-view.js';
 
 export interface TuiAppOptions {
   config: Config;
   sessionStore?: SessionStore;
+}
+
+/** Best-effort current git branch ('' outside a repo or on error). Shell-side
+ * I/O — the HeaderLine view just receives the string (round-7 hygiene). */
+function detectGitBranch(): string {
+  try {
+    return execSync('git branch --show-current', {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -49,7 +53,6 @@ export class TuiApp {
   private header: HeaderLine;
   private hintLine: HintLine;
   private keybindings: KeybindingsManager;
-  private metrics = new MetricsCollector();
   private running = false;
   private debugMode = false;
   private conversationHistory: AgentMessage[] = [];
@@ -60,16 +63,9 @@ export class TuiApp {
   /** Model switch requested mid-run (extension pi.setModel) — applied at run end (Gap 85-C). */
   private pendingModelSwitch: { modelId: string; provider: string } | null = null;
   private modelSelectorOpen = false;
-  // Gap 85-D: long-lived extension layer (one runner per app, not per run).
-  private extensionHost: ExtensionHostState = createExtensionHostState();
-  private extensionRunner: ExtensionRunner | undefined;
-  private extensionUI: ExtensionUIContext;
-  private extensionShortcuts = new Map<
-    Parameters<typeof matchesKey>[1],
-    { description?: string; handler: (ctx: ExtensionContext) => Promise<void> | void }
-  >();
-  private extensionsReady: Promise<unknown> = Promise.resolve();
-  private extensionDialogsOpen = 0;
+  // Gap 85-D / architecture C3: the long-lived extension layer (one runner
+  // per app, slash, shortcuts, dialogs) lives behind the ExtensionService seam.
+  private extensions: ExtensionService;
   private missionQueue: string[] = [];
   private currentModel: Model<'openai-completions'> | undefined;
   private activeHeader: (Component & { dispose?(): void }) | null = null;
@@ -86,10 +82,7 @@ export class TuiApp {
     const terminal = new ProcessTerminal();
     this.tui = new TUI(terminal);
 
-    const home = homedir();
-    const rawCwd = process.cwd();
-    const cwdDisplay = rawCwd.startsWith(home) ? '~' + rawCwd.slice(home.length) : rawCwd;
-    this.header = new HeaderLine(options.config.model.name, cwdDisplay, detectGitBranch());
+    this.header = new HeaderLine(options.config.model.name, collapseHome(process.cwd()), detectGitBranch());
     this.keybindings = createMuKeybindings();
     this.hintLine = new HintLine({
       quit: keyLabel(this.keybindings, 'app.exit'),
@@ -102,9 +95,9 @@ export class TuiApp {
     {
       const provider = options.config.model.provider;
       const modelSize = options.config.model.modelSize;
-      // Tier thresholds have one home (state-machine.ts); lowercase only at
-      // this presentation edge.
-      const tier = modelSize != null ? tierForParams(modelSize).toLowerCase() : '';
+      // Tier thresholds have one home (state-machine.ts); HeaderLine owns
+      // the lowercase presentation normalization.
+      const tier = modelSize != null ? tierForParams(modelSize) : '';
       this.header.setProviderInfo(provider, tier, 0);
     }
 
@@ -123,7 +116,7 @@ export class TuiApp {
     this.tui.addInputListener((data) => {
       // Extension dialog/overlay open → the focused component owns all keys
       // (pi-tui global listeners fire first; Esc must cancel the dialog, not abort).
-      if (this.extensionDialogsOpen > 0) return undefined;
+      if (this.extensions.dialogsOpen()) return undefined;
       if (data === '\x03' || this.keybindings.matches(data, 'app.exit')) {
         this.stop();
         return { consume: true };
@@ -156,20 +149,7 @@ export class TuiApp {
         return { consume: true };
       }
       // Extension shortcuts (Gap 85-D) — after built-ins, reserved keys already rejected at registration.
-      for (const [keyId, shortcut] of this.extensionShortcuts) {
-        if (matchesKey(data, keyId)) {
-          const runner = this.extensionRunner;
-          if (runner) {
-            void Promise.resolve(shortcut.handler(runner.createContext())).catch((err) => {
-              this.notifyLine(
-                `[extensions] shortcut ${keyId} failed: ${err instanceof Error ? err.message : String(err)}`,
-                'error',
-              );
-            });
-          }
-          return { consume: true };
-        }
-      }
+      if (this.extensions.matchShortcut(data)) return { consume: true };
       return undefined;
     });
 
@@ -177,33 +157,41 @@ export class TuiApp {
     this.tui.addChild(this.header);
     this.tui.addChild(this.hintLine);
 
-    // Gap 85-D: the extension UI context is built once against live TUI
-    // pieces; the runner it attaches to arrives in initExtensions().
-    this.extensionUI = createExtensionUI({
-      tui: this.tui,
-      editor: this.editor,
-      keybindings: this.keybindings,
-      notifyLine: (message, type) => this.notifyLine(message, type),
-      warn: (msg) => this.notifyLine(msg, 'warning'),
-      insertAboveEditor: (c) => this.insertBefore(c),
-      insertBelowEditor: (c) => {
-        const idx = this.tui.children.indexOf(this.editor);
-        this.tui.children.splice(idx + 1, 0, c);
+    // Gap 85-D / architecture C3: the extension layer is built once against
+    // live TUI pieces; the runner it loads is shared into each run.
+    this.extensions = new ExtensionService({
+      config: options.config,
+      cwd: process.cwd(),
+      host: {
+        notify: (message, level) => this.notifyLine(message, level),
+        enqueueMission: (text) => this.enqueueMission(text),
+        isBusy: () => this.currentAgent !== null,
+        switchSessionStore: (store) => this.switchSessionStore(store),
+        sessionManager: () => this.sessionStore.manager,
+        currentModel: () => this.currentModel,
+        requestModelSwitch: (modelId, provider) => this.requestModelSwitch(modelId, provider),
       },
-      removeComponent: (c) => this.tui.removeChild(c),
-      replaceHeader: (c) => this.swapZone('header', c),
-      replaceFooter: (c) => this.swapZone('footer', c),
-      getToolsExpanded: () => this.runView?.toolsExpanded ?? false,
-      setToolsExpanded: (v) => {
-        this.runView?.setToolsExpanded(v);
-        this.tui.requestRender(true);
-      },
-      dialogOpenChanged: (delta) => {
-        this.extensionDialogsOpen = Math.max(0, this.extensionDialogsOpen + delta);
+      ui: {
+        tui: this.tui,
+        editor: this.editor,
+        keybindings: this.keybindings,
+        notifyLine: (message, type) => this.notifyLine(message, type),
+        warn: (msg) => this.notifyLine(msg, 'warning'),
+        insertAboveEditor: (c) => this.insertBefore(c),
+        insertBelowEditor: (c) => {
+          const idx = this.tui.children.indexOf(this.editor);
+          this.tui.children.splice(idx + 1, 0, c);
+        },
+        removeComponent: (c) => this.tui.removeChild(c),
+        replaceHeader: (c) => this.swapZone('header', c),
+        replaceFooter: (c) => this.swapZone('footer', c),
+        getToolsExpanded: () => this.runView?.toolsExpanded ?? false,
+        setToolsExpanded: (v) => {
+          this.runView?.setToolsExpanded(v);
+          this.tui.requestRender(true);
+        },
       },
     });
-    this.extensionHost.notify = (message, level) => this.notifyLine(message, level);
-    this.extensionHost.enqueueMission = (text) => this.enqueueMission(text);
   }
 
   start(): void {
@@ -215,7 +203,7 @@ export class TuiApp {
     this.tui.start();
 
     // Gap 85-D: long-lived extension layer (slash commands/shortcuts/dialogs work idle).
-    this.extensionsReady = this.initExtensions();
+    this.extensions.start();
 
     for (const s of getLspStatuses(process.cwd())) {
       if (s.lspStatus === 'not_installed') {
@@ -242,8 +230,7 @@ export class TuiApp {
 
   /** One-line extension notification into the scrollback. */
   private notifyLine(message: string, level: 'info' | 'warning' | 'error'): void {
-    const icon = level === 'error' ? C.err('  ✗ ') : level === 'warning' ? C.dim('  ⚠ ') : C.dim('  ℹ ');
-    this.insertBefore(new Text(icon + C.dim(message), 0, 0));
+    this.insertBefore(new Text('  ' + notifyIcon(level) + ' ' + C.dim(message), 0, 0));
     this.tui.requestRender();
   }
 
@@ -262,135 +249,10 @@ export class TuiApp {
     this.tui.requestRender(true);
   }
 
-  /**
-   * Load + bind the app's ONE extension runner (Gap 85-D). Extensions load
-   * once per app lifetime; the runner is shared into each run via options.
-   */
-  private async initExtensions(): Promise<ExtensionRunner | undefined> {
-    try {
-      const runtime = await getSharedModelRuntime();
-      const registry = new ModelRegistry(runtime);
-      const { runner, errors } = await loadExtensionRunner(
-        this.options.config,
-        process.cwd(),
-        this.extensionHost,
-        () => this.currentModel,
-        registry,
-        this.sessionStore.manager,
-        {
-          registerProvider: (name, pcfg) => runtime.registerProvider(name, pcfg),
-          registerNativeProvider: (p) => runtime.registerNativeProvider(p),
-          unregisterProvider: (name) => runtime.unregisterProvider(name),
-        },
-        (modelId, provider) => this.requestModelSwitch(modelId, provider),
-      );
-      this.extensionRunner = runner;
-      for (const err of errors) this.notifyLine(`[extensions] failed to load: ${err}`, 'error');
-      if (runner) {
-        runner.setUIContext(this.extensionUI, 'tui');
-        runner.bindCommandContext(this.buildCommandContextActions());
-      }
-      this.refreshExtensionShortcuts();
-      return runner;
-    } catch (err) {
-      this.notifyLine(`[extensions] init failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
-      return undefined;
-    }
-  }
-
-  /** Command-context actions: session lifecycle for extension slash commands. */
-  private buildCommandContextActions(): ExtensionCommandContextActions {
-    const busy = (): boolean => {
-      if (this.currentAgent) {
-        this.notifyLine('[extensions] session switch/fork is unavailable mid-task', 'warning');
-        return true;
-      }
-      return false;
-    };
-    return {
-      waitForIdle: async () => {
-        while (this.currentAgent) await new Promise((r) => setTimeout(r, 50));
-      },
-      newSession: async () => {
-        if (busy()) return { cancelled: true };
-        this.switchSessionStore(SessionStore.create(process.cwd()));
-        return { cancelled: false };
-      },
-      fork: async (entryId: string) => {
-        if (busy()) return { cancelled: true };
-        const path = this.sessionStore.manager.createBranchedSession(entryId);
-        if (!path) return { cancelled: true };
-        this.switchSessionStore(SessionStore.open(path, process.cwd()));
-        return { cancelled: false };
-      },
-      navigateTree: async () => {
-        this.notifyLine('[extensions] navigateTree is not supported in mu-agent', 'warning');
-        return { cancelled: true };
-      },
-      switchSession: async (sessionPath: string) => {
-        if (busy()) return { cancelled: true };
-        this.switchSessionStore(SessionStore.open(sessionPath, process.cwd()));
-        return { cancelled: false };
-      },
-      reload: async () => {
-        await this.reloadExtensions();
-      },
-    };
-  }
-
   private switchSessionStore(store: SessionStore): void {
     this.sessionStore = store;
     this.conversationHistory = stripLegacyPrefixes(store.load());
     this.notifyLine(`  session → ${store.filePath ?? '(new)'}`, 'info');
-  }
-
-  /** Rebuild the shortcut map from the runner, rejecting keys reserved by mu-agent (Gap 85-D). */
-  private refreshExtensionShortcuts(): void {
-    this.extensionShortcuts.clear();
-    const runner = this.extensionRunner;
-    if (!runner) return;
-    const reserved = reservedKeys(this.keybindings);
-    for (const [keyId, shortcut] of runner.getShortcuts({})) {
-      if (reserved.has(keyId.toLowerCase())) {
-        this.notifyLine(`[extensions] shortcut ${keyId} rejected: reserved by mu-agent`, 'warning');
-        continue;
-      }
-      this.extensionShortcuts.set(keyId, shortcut);
-    }
-  }
-
-  /** /reload: invalidate the current runner and re-discover extensions. */
-  private async reloadExtensions(): Promise<void> {
-    this.extensionRunner?.invalidate('reload');
-    this.extensionRunner = undefined;
-    this.extensionShortcuts.clear();
-    const runner = await this.initExtensions();
-    const count = runner?.getExtensionPaths().length ?? 0;
-    this.notifyLine(`[extensions] reloaded (${count} extension${count === 1 ? '' : 's'})`, 'info');
-  }
-
-  /** Slash command routing (Gap 85-D): /reload builtin, then extension commands. */
-  private async handleSlashCommand(input: string): Promise<void> {
-    const spaceIdx = input.indexOf(' ');
-    const name = (spaceIdx === -1 ? input.slice(1) : input.slice(1, spaceIdx)).toLowerCase();
-    const args = spaceIdx === -1 ? '' : input.slice(spaceIdx + 1).trim();
-    await this.extensionsReady;
-    if (name === 'reload') {
-      await this.reloadExtensions();
-      return;
-    }
-    const runner = this.extensionRunner;
-    const cmd = runner?.getCommand(name);
-    if (!runner || !cmd) {
-      this.notifyLine(`unknown command: /${name}`, 'warning');
-      return;
-    }
-    try {
-      await cmd.handler(args, runner.createCommandContext());
-    } catch (err) {
-      this.notifyLine(`/${name} failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
-    }
-    this.tui.requestRender(true);
   }
 
   /** Idle-time delivery target for pi.sendUserMessage (Gap 85-D). */
@@ -438,7 +300,7 @@ export class TuiApp {
     }
     this.options.config.model.name = modelId;
     try {
-      saveConfig({ model: { ...this.options.config.model, name: modelId } });
+      saveConfig({ model: { ...this.options.config.model } });
     } catch (err) {
       console.error('[TuiApp] failed to persist model switch:', err);
     }
@@ -456,13 +318,7 @@ export class TuiApp {
       if (runtime.getRegisteredProviderIds().length === 0) {
         // No run has happened yet — register the configured provider so the
         // selector has a catalog (refreshModels pulls the live list).
-        await buildModels(
-          cfg.model.name,
-          cfg.model.provider,
-          cfg.model.baseUrl,
-          cfg.model.contextRatio ?? DEFAULT_CONTEXT_RATIO,
-          cfg.model.apiKey,
-        );
+        await buildModels(cfg.model);
       }
       // The component persists defaults via SettingsManager; mu-agent persists
       // through saveConfig in applyModelSwitch, so the manager is a stub
@@ -507,11 +363,11 @@ export class TuiApp {
     const ts = Date.now();
     const userMsg = { role: 'user' as const, content: input, timestamp: ts };
     this.conversationHistory.push(userMsg as AgentMessage);
-    await this.sessionStore.append({ type: 'message', ...userMsg });
+    this.sessionStore.append({ type: 'message', ...userMsg });
     if (display) {
       const assistantMsg = assistantMessageForSession(display, ts + 1);
       this.conversationHistory.push(assistantMsg as unknown as AgentMessage);
-      await this.sessionStore.append({ type: 'message', ...assistantMsg });
+      this.sessionStore.append({ type: 'message', ...assistantMsg });
     }
   }
 
@@ -521,13 +377,12 @@ export class TuiApp {
 
     // Slash commands (Gap 85-D) never reach the agent or the session history.
     if (input.startsWith('/')) {
-      await this.handleSlashCommand(input);
+      await this.extensions.handleSlash(input);
       return;
     }
 
     this.editor.disableSubmit = true;
     this.editor.addToHistory(input);
-    this.header.resetTaskStats();
     this.insertBefore(new UserMessage(input));
     this.tui.requestRender();
 
@@ -539,7 +394,9 @@ export class TuiApp {
       return;
     }
 
-    const taskId = `task-${Date.now()}`;
+    // New task starts HERE — resetting stats any earlier zeroes the in-flight
+    // run's counters when the input is a clarification answer (R8-B2).
+    this.header.resetTaskStats();
     this.header.setState('REASON');
 
     const loader = new Loader(
@@ -565,8 +422,6 @@ export class TuiApp {
       host,
       header: this.header,
       loader,
-      metrics: this.metrics,
-      taskId,
       isDebugMode: () => this.debugMode,
       onClarification: () => {
         this.pendingClarificationAgent = this.currentAgent;
@@ -577,20 +432,19 @@ export class TuiApp {
     loader.start();
     this.tui.requestRender();
 
-    this.metrics.startTask(taskId);
-
     const agent = new ReactAgent();
     this.currentAgent = agent;
     let aborted = false;
     let threw = false;
+    let succeeded = false;
     try {
-      await this.extensionsReady;
+      await this.extensions.whenReady();
       const result = await agent.run(input, this.options.config, runView.handleEvent, this.conversationHistory, {
         onModelSwitchRequest: (modelId, provider) => this.requestModelSwitch(modelId, provider),
         // Gap 85-B: extension session actions land in the SAME session the TUI persists to.
         sessionManager: this.sessionStore.manager,
         // Gap 85-D: the app's long-lived runner+host (per-run load only when absent).
-        extensions: { runner: this.extensionRunner, host: this.extensionHost },
+        extensions: this.extensions.runExtensions(),
         onModelBuilt: (model) => {
           this.currentModel = model;
         },
@@ -598,7 +452,7 @@ export class TuiApp {
       loader.stop();
       this.tui.removeChild(loader);
       runView.dispose();
-      this.metrics.finishTask(taskId, result.success);
+      succeeded = result.success;
 
       const display = formatRunResult(result.output);
       if (display) {
@@ -629,11 +483,9 @@ export class TuiApp {
       }
       if (isAbortError(err)) {
         aborted = true;
-        this.metrics.finishTask(taskId, false);
         this.insertBefore(new Text(C.dim('  ⊘  interrupted'), 0, 0));
       } else {
         threw = true;
-        this.metrics.finishTask(taskId, false);
         this.insertBefore(new Text(C.err(`  ✗  error: ${String(err)}`), 0, 0));
       }
     } finally {
@@ -641,7 +493,7 @@ export class TuiApp {
       this.runView = null;
       // run() reassigns the notify sink to its own event stream — restore the
       // TUI line path so idle-time extension notifications still render.
-      this.extensionHost.notify = (message, level) => this.notifyLine(message, level);
+      this.extensions.restoreNotify();
     }
 
     // Deferred model switch (extension pi.setModel during the run) — apply now
@@ -652,14 +504,18 @@ export class TuiApp {
       await this.applyModelSwitch(modelId, provider);
     }
 
-    const m = this.metrics.getMetrics(taskId);
-    if (m) {
-      const { status, stats } = formatTaskSummary(m);
-      if (m.success) {
-        this.insertBefore(new Text('\n' + C.successText(status) + C.dim(stats), 0, 0));
-      } else if (!aborted && !threw) {
-        this.insertBefore(new Text('\n' + C.err(status) + C.dim(stats), 0, 0));
-      }
+    // Summary from the one run-stats accumulator (HeaderLine, round-7 C8) —
+    // real usage tokens, not the deleted collector's chars÷4 underestimate.
+    const runStats = this.header.taskStats();
+    const { status, stats } = formatTaskSummary({
+      success: succeeded,
+      llmCalls: runStats.llmCalls,
+      totalTokens: runStats.totalTokens,
+    });
+    if (succeeded) {
+      this.insertBefore(new Text('\n' + C.successText(status) + C.dim(stats), 0, 0));
+    } else if (!aborted && !threw) {
+      this.insertBefore(new Text('\n' + C.err(status) + C.dim(stats), 0, 0));
     }
     this.header.setState('IDLE');
     this.editor.disableSubmit = false;

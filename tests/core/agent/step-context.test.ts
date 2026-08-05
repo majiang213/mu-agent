@@ -2,19 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { forkRunConfig, findOverlappingEdits } from '../../../src/core/agent/step-context.js';
 import { parseEditedFiles } from '../../../src/core/step-outputs.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
+import { makeRunConfig } from '../../helpers/run-config.js';
 
 function makeCfg(): RunConfig {
-  const safeModifier = { marker: 'shared-safe-modifier' };
-  const stateMachine = {
-    clone() {
-      return { marker: 'cloned-state-machine' };
-    },
-  };
-  return {
-    safeModifier,
-    stateMachine,
+  return makeRunConfig({
+    safeModifier: { marker: 'shared-safe-modifier' } as unknown as RunConfig['safeModifier'],
+    stateMachine: {
+      clone() {
+        return { marker: 'cloned-state-machine' };
+      },
+    } as unknown as RunConfig['stateMachine'],
     temperature: 0.1,
-  } as unknown as RunConfig;
+  });
 }
 
 describe('forkRunConfig', () => {

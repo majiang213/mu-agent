@@ -1,14 +1,14 @@
 import { execSync } from 'node:child_process';
-import { homedir } from 'node:os';
 import type { Agent, AgentTool } from '@earendil-works/pi-agent-core';
 import { ModelRegistry, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { ExtensionRunner } from '@earendil-works/pi-coding-agent';
 import { astLocatorTool } from '../../tool/locator.js';
-import { SafeModifier } from '../../tool/safety/index.js';
+import { SafeModifier } from '../../tool/safety/checkpoint.js';
 import { webfetchTool } from '../../tool/webfetch.js';
 import { websearchTool } from '../../tool/websearch.js';
 import type { Config } from '../../config/types.js';
 import { DEFAULT_TEMPERATURE, DEFAULT_CONTEXT_RATIO } from '../../config/defaults.js';
+import { collapseHome } from '../../config/paths.js';
 import { StateMachineAgent } from './state-machine.js';
 import { LspClient } from '../../tool/lsp.js';
 import { CodeGraphLocator } from '../graph/locator.js';
@@ -16,8 +16,9 @@ import { MemoryStore } from '../memory/index.js';
 import { createMemorySearchTool } from '../../tool/memory-search.js';
 import { buildModels, fetchOllamaParamCount, resolveApiKey } from '../../provider/model-info.js';
 import { loadContext } from './context.js';
-import { createExtensionHostState, loadExtensionRunner } from '../extensions/index.js';
-import type { ExtensionHostState } from '../extensions/index.js';
+import { createExtensionHostState } from '../extensions/host-actions.js';
+import { loadExtensionRunner } from '../extensions/loader.js';
+import type { ExtensionHostState } from '../extensions/host-actions.js';
 import type { EnvContext } from '../prompts/agent.js';
 import type { RunConfig } from './types.js';
 
@@ -78,7 +79,7 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
     config.model.provider === 'ollama'
       ? fetchOllamaParamCount(config.model.baseUrl, config.model.name)
       : Promise.resolve(config.model.modelSize != null ? config.model.modelSize * 1e9 : null),
-    buildModels(config.model.name, config.model.provider, config.model.baseUrl, contextRatio, config.model.apiKey),
+    buildModels(config.model),
   ]);
   const { model, models, runtime: modelRuntime } = built;
 
@@ -89,8 +90,7 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
     cwd,
   );
 
-  const home = homedir();
-  const cwdDisplay = cwd.startsWith(home) ? '~' + cwd.slice(home.length) : cwd;
+  const cwdDisplay = collapseHome(cwd);
   let isGitRepo: boolean;
   try {
     execSync('git rev-parse --git-dir', { stdio: 'ignore', cwd });
@@ -112,7 +112,7 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
 
   const locator = new CodeGraphLocator(cwd);
 
-  const memoryStore = MemoryStore.open(cwd, model, models);
+  const memoryStore = MemoryStore.open(cwd, { model, models });
   const pendingSummaries = memoryStore.processPendingSummaries().catch(() => {});
   const memoryIndex = memoryStore.index();
   const memorySearchTool = createMemorySearchTool(memoryStore);

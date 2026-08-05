@@ -1,10 +1,9 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { SafeModifier } from '../../tool/safety/index.js';
+import { SafeModifier } from '../../tool/safety/checkpoint.js';
 import { State } from '../types.js';
 import type { StateResult, ExecutedStep, StepDirective } from '../types.js';
-import type { ExecutionEvent, Mission, RunConfig } from './types.js';
+import type { ExecutionEvent, Mission, ReasonStepOptions, RunConfig } from './types.js';
 import { runReasonStep, executeSteps } from './step-runner.js';
-import type { ReasonStepOptions } from './step-runner.js';
 import { flattenDirectives, planFingerprint } from './directives.js';
 import { editedFilesOf, parseVerifyOutput } from '../step-outputs.js';
 import { MemoryStore } from '../memory/index.js';
@@ -70,13 +69,7 @@ function failRun(
   allStepResults: ExecutedStep[],
   memoryStore: MemoryStore | null,
 ): VerifyLoopOutcome {
-  const result: StateResult = {
-    state: State.DONE,
-    success: false,
-    output,
-    nextState: State.DONE,
-    messages: [],
-  };
+  const result: StateResult = { success: false, output };
   const failedMission = { ...mission, state: 'failed' as const };
   memoryStore?.writeEpisodeSync(failedMission, allStepResults, result);
   return { kind: 'failed', result, mission: failedMission };

@@ -1,6 +1,5 @@
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi, Markdown } from '@earendil-works/pi-tui';
 import type { Component } from '@earendil-works/pi-tui';
-import { execSync } from 'node:child_process';
 
 import { C, bold, stateColor, fillLine, markdownTheme } from './theme.js';
 import { fmtTokens, fmtToolArgs } from './presenter.js';
@@ -13,18 +12,6 @@ import type { StepDirective } from '../core/types.js';
  * (third-pass review, candidate 9). No component constructor performs I/O;
  * callers inject what the terminal/environment knows.
  */
-
-/** Best-effort current git branch ('' outside a repo or on error). */
-export function detectGitBranch(): string {
-  try {
-    return execSync('git branch --show-current', {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
-  }
-}
 
 export interface HintLabels {
   quit: string;
@@ -73,6 +60,7 @@ export class HeaderLine implements Component {
   private totalPromptTokens = 0;
   private totalResponseTokens = 0;
   private latestContextTokens = 0;
+  private llmCalls = 0;
   private contextWindow = 0;
   private provider = '';
   private tier = '';
@@ -99,20 +87,29 @@ export class HeaderLine implements Component {
     this.model = model;
   }
 
-  updateTokenStats(promptTokens: number, responseTokens: number, contextTokens: number): void {
+  updateTokenStats(promptTokens: number, responseTokens: number): void {
     this.totalPromptTokens += promptTokens;
     this.totalResponseTokens += responseTokens;
-    this.latestContextTokens = contextTokens;
+    // Latest context size = this turn's input tokens (same value the deleted
+    // contextTokens payload field carried — round-8, candidate 1).
+    this.latestContextTokens = promptTokens;
+    this.llmCalls += 1;
   }
 
   resetTaskStats(): void {
     this.totalPromptTokens = 0;
     this.totalResponseTokens = 0;
     this.latestContextTokens = 0;
+    this.llmCalls = 0;
   }
 
-  getState(): string {
-    return this.state;
+  /**
+   * The one run-stats accumulator (round-7, candidate 8 — MetricsCollector
+   * deleted): turn_end carries real usage tokens, so the summary line reads
+   * these totals, not a second chars÷4 estimate that understated 4×.
+   */
+  taskStats(): { llmCalls: number; totalTokens: number } {
+    return { llmCalls: this.llmCalls, totalTokens: this.totalPromptTokens + this.totalResponseTokens };
   }
 
   invalidate(): void {}
@@ -196,10 +193,6 @@ export class ThinkingBlock implements Component {
     this.streaming = false;
     this.expanded = false;
   }
-
-  toggle(): void {
-    this.expanded = !this.expanded;
-  }
   setExpanded(v: boolean): void {
     this.expanded = v;
   }
@@ -226,10 +219,6 @@ export class DebugBlock implements Component {
   constructor(systemPrompt: string, userPrompt: string) {
     this.systemPrompt = systemPrompt;
     this.userPrompt = userPrompt;
-  }
-
-  toggle(): void {
-    this.expanded = !this.expanded;
   }
 
   setExpanded(v: boolean): void {
@@ -331,7 +320,7 @@ export class ToolExecutionBlock implements Component {
     const resultLines = this.resultText ? this.resultText.split('\n') : [];
     const hint =
       !this.expanded && resultLines.length > 0 && this.status !== 'pending' && this.tool !== 'complete'
-        ? C.dimK(` (${resultLines.length} lines)`)
+        ? C.dim(` (${resultLines.length} lines)`)
         : '';
     const titleContent = ' ' + nameStr + argStr + hint;
     const maxTitleW = Math.max(1, width - 3);
@@ -524,10 +513,6 @@ export class SampleTurn implements Component {
     this.streaming = false;
   }
 
-  toggle(): void {
-    this.expanded = !this.expanded;
-  }
-
   setExpanded(v: boolean): void {
     this.expanded = v;
   }
@@ -584,10 +569,6 @@ export class SamplingBlock implements Component {
 
   addLine(text: string): void {
     this.extraLines.push(text);
-  }
-
-  allSampleTurns(): SampleTurn[] {
-    return this.sampleTurns;
   }
 
   invalidate(): void {}

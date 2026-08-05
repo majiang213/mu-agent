@@ -3,6 +3,7 @@ import { episodeColumns, type EpisodeRow, type SemanticFact } from './types.js';
 import { detectActionWords, extractEntitiesForQuery } from './extractor.js';
 import { fmtTime, toShortId, parseStructuredSummary } from './episode.js';
 import { readSemanticFacts } from './semantic.js';
+import { nowSeconds } from './db.js';
 
 /**
  * Read side of the memory subsystem: graph retrieval (entity + action_type +
@@ -34,7 +35,7 @@ export function graphRetrieve(userInput: string, db: Database.Database, projectR
 
   const { type, keywords } = detectActionWords(userInput);
   if (type) {
-    const thirtyDaysAgo = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
+    const thirtyDaysAgo = nowSeconds() - 30 * 24 * 3600;
     const rows = db
       .prepare(
         `

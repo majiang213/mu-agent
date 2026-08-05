@@ -39,8 +39,13 @@ export function buildExtensionActions(
   sessionManager: SessionManager,
   onModelSwitchRequest?: (modelId: string, provider: string) => boolean,
 ): ExtensionActions {
-  const unsupported = (name: string) => () =>
+  const warnedOnce = new Set<string>();
+  const unsupported = (name: string) => () => {
+    // "warn once" — the doc above says it, the set now enforces it (R8-C10).
+    if (warnedOnce.has(name)) return;
+    warnedOnce.add(name);
     warn(`[extensions] pi.${name}() is not supported yet (lands with Gap 85-D)`);
+  };
   return {
     sendMessage: unsupported('sendMessage'),
     // Gap 85-D: real delivery — mid-run steers the active step agent (pi

@@ -1,168 +1,54 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { State } from '../../../src/core/types.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
+import { makeRunConfig, makeStateMachineFake, makeStagnationFake } from '../../helpers/run-config.js';
+import { driveUntilComplete, runStepAgent } from '../../../src/core/agent/reason-runner.js';
+import { runStep } from '../../../src/core/agent/step-runner.js';
 
-// ---- module mocks (must be hoisted before any dynamic imports) ----
+// ONE leaf mock (round-8, candidate 2): no-op sleep keeps retry paths fast.
+// Everything else runs real — runStep is driven through the cfg.stepDriver
+// seam (fake buildAgent returning the test's agent; the real
+// driveUntilComplete where the exit protocol itself is under test), replacing
+// the builder / git-guard / cognitive / model-info / checkpoint / locator /
+// prompts / complete / compaction / defaults / heavy module mocks.
 
-vi.mock('../../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(),
-  subscribeStepEvents: vi.fn(),
-  // Mirror the real steer(): delegate to the agent so fake-agent steer
-  // assertions keep observing the same calls.
-  steer: vi.fn(
-    (agent: { steer: (msg: { role: string; content: string; timestamp: number }) => void }, content: string) =>
-      agent.steer({ role: 'steer', content, timestamp: Date.now() }),
-  ),
-}));
-
-vi.mock('../../../src/tool/safety/git-guard.js', () => ({
-  wrapWithGitGuard: vi.fn((t) => t),
-  gitAllowlistGuidance: vi.fn(() => 'status, log, diff'),
-}));
-
-// Keep the retry loop fast: real retryDelayMs logic, no-op sleep.
 vi.mock('../../../src/core/failure/index.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/core/failure/index.js')>();
   return { ...actual, sleep: vi.fn(async () => {}) };
 });
 
-vi.mock('../../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(function () {
-    return {
-      recordToolCall: vi.fn(),
-      recordError: vi.fn(),
-      check: vi.fn(() => ({ detected: false })),
-      reset: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/provider/model-info.js', () => ({
-  fetchContextLength: vi.fn(async () => 128000),
-}));
-
-vi.mock('../../../src/tool/safety/checkpoint.js', () => ({
-  SafeModifier: vi.fn(function () {
-    return { createCheckpoint: vi.fn(), restoreAndClearWhere: vi.fn(async () => {}) };
-  }),
-}));
-
-vi.mock('../../../src/core/graph/locator.js', () => ({
-  CodeGraphLocator: vi.fn(function () {
-    return {
-      locate: vi.fn(() => ({ tree: '', suggestedFiles: [], snippets: {} })),
-      updateFiles: vi.fn(),
-    };
-  }),
-}));
-
-vi.mock('../../../src/core/prompts/agent.js', () => ({
-  buildSystemPrompt: vi.fn(() => 'system'),
-  buildUserPrompt: vi.fn(() => 'user'),
-}));
-
-vi.mock('../../../src/tool/complete.js', () => ({
-  buildCompleteTool: vi.fn(() => ({
-    name: 'complete',
-    label: 'Complete',
-    description: '',
-    parameters: {},
-    execute: vi.fn(async () => ({ content: [{ type: 'text', text: 'ok' }] })),
-  })),
-}));
-
-vi.mock('../../../src/core/compaction/index.js', () => ({
-  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
-  compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
-}));
-
-vi.mock('../../../src/config/defaults.js', () => ({
-  DEFAULT_TEMPERATURE: 0.7,
-  MAX_TEMPERATURE: 1.0,
-  RETRY_TEMPERATURE_STEP: 0.1,
-  DEFAULT_CONTEXT_RATIO: 0.2,
-}));
-
-vi.mock('../../../src/core/heavy/sampler.js', () => ({
-  samplePlans: vi.fn(async () => []),
-  SAMPLING_BATCH_SIZE: 3,
-}));
-
-vi.mock('../../../src/core/heavy/deliberator.js', () => ({
-  deliberate: vi.fn(async () => ({ type: 'fallback' })),
-  pickShortest: vi.fn(() => ({ steps: [] })),
-}));
-
-// ---- dynamic imports after mocks ----
-
-const { buildStepAgent, subscribeStepEvents } = await import('../../../src/core/agent/builder.js');
-const { runStep } = await import('../../../src/core/agent/step-runner.js');
-const { runStepAgent } = await import('../../../src/core/agent/reason-runner.js');
-
 // ---- helpers ----
 
-function makeStagnationDetector() {
-  return {
-    recordToolCall: vi.fn(),
-    recordError: vi.fn(),
-    check: vi.fn(() => ({ detected: false })),
-    reset: vi.fn(),
-  };
+function makeCfg(overrides: Partial<RunConfig> = {}): RunConfig {
+  return makeRunConfig({
+    stateMachine: makeStateMachineFake({ extraParams: { maxFilesPerTask: 5 } }),
+    ...overrides,
+  });
 }
 
-function makeCfg(maxRetries = 3): RunConfig {
-  const stateMachine = {
-    clone: vi.fn(),
-    resetForNextTask: vi.fn(),
-    getAllowedTools: vi.fn(() => []),
-    getModelParams: vi.fn(() => ({
-      tier: 'LARGE' as const,
-      maxRetries,
-      strictPlanning: false,
-      maxFilesPerTask: 5,
-      paramCount: 0,
-    })),
-    getCurrentState: vi.fn(() => State.REASON),
-    transitionTo: vi.fn(),
-    resetFileBudget: vi.fn(),
-  };
+function makeFakeAgent(promptImpl?: ReturnType<typeof vi.fn>) {
   return {
-    model: {} as RunConfig['model'],
-    models: {} as RunConfig['models'],
-    stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: {
-      createCheckpoint: vi.fn(),
-      restoreAndClearWhere: vi.fn(async () => {}),
-    } as unknown as RunConfig['safeModifier'],
-    env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' },
-    temperature: 0,
-    contextRatio: 0.2,
-    apiKey: 'test',
-    projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
+    prompt: promptImpl ?? vi.fn(async () => {}),
+    steer: vi.fn(),
+    on: vi.fn(),
+    off: vi.fn(),
+    abort: vi.fn(),
   };
 }
 
 // ---- Bug 2: runStepAgent retry mutates shared cfg.temperature ----
 
 describe('Bug 2: cfg.temperature mutation on retry', () => {
-  beforeEach(() => {
-    vi.mocked(subscribeStepEvents).mockImplementation(() => {});
-  });
-
   it('does not cross-contaminate temperature between two parallel cfg clones when one retries', async () => {
     // Arrange: two shallow clones of the same source cfg, as executeSteps does for parallel branches.
-    const sourceCfg = makeCfg(3);
+    const sourceCfg = makeCfg();
     sourceCfg.temperature = 0;
 
     const cloneA = { ...sourceCfg, stateMachine: sourceCfg.stateMachine };
     const cloneB = { ...sourceCfg, stateMachine: sourceCfg.stateMachine };
 
-    const stagnationA = makeStagnationDetector();
-    const stagnationB = makeStagnationDetector();
+    const stagnationA = makeStagnationFake();
+    const stagnationB = makeStagnationFake();
 
     // cloneA: throws once (attempt=0) then resolves.
     const promptA = vi
@@ -172,8 +58,8 @@ describe('Bug 2: cfg.temperature mutation on retry', () => {
     // cloneB: succeeds immediately (no retry).
     const promptB = vi.fn().mockResolvedValueOnce(undefined);
 
-    const fakeAgentA = { prompt: promptA, steer: vi.fn(), on: vi.fn(), off: vi.fn(), abort: vi.fn() };
-    const fakeAgentB = { prompt: promptB, steer: vi.fn(), on: vi.fn(), off: vi.fn(), abort: vi.fn() };
+    const fakeAgentA = makeFakeAgent(promptA);
+    const fakeAgentB = makeFakeAgent(promptB);
 
     // Act: run both branches concurrently, mirroring executeSteps parallel dispatch.
     await Promise.all([
@@ -182,15 +68,13 @@ describe('Bug 2: cfg.temperature mutation on retry', () => {
     ]);
 
     // Assert: cloneA's retry should NOT have mutated cloneB's temperature.
-    // The bug: cfg.temperature = Math.min(...) on line 174 mutates the shared object.
-    // After cloneA retries, cloneB.temperature should still be 0 (unchanged).
     expect(cloneB.temperature).toBe(0);
   });
 
   it('restores original temperature after all retries complete', async () => {
-    const cfg = makeCfg(3);
+    const cfg = makeCfg();
     cfg.temperature = 0.5; // custom starting temperature
-    const stagnation = makeStagnationDetector();
+    const stagnation = makeStagnationFake();
 
     const promptMock = vi
       .fn()
@@ -198,12 +82,11 @@ describe('Bug 2: cfg.temperature mutation on retry', () => {
       .mockRejectedValueOnce(new Error('fail 2'))
       .mockResolvedValueOnce(undefined);
 
-    const fakeAgent = { prompt: promptMock, steer: vi.fn(), on: vi.fn(), off: vi.fn(), abort: vi.fn() };
+    const fakeAgent = makeFakeAgent(promptMock);
 
     await runStepAgent(fakeAgent as never, 'input', cfg, stagnation as never).catch(() => {});
 
     // After all retries, temperature must be restored to the original value.
-    // The finally block (line 188) should restore it.
     expect(cfg.temperature).toBe(0.5);
   });
 });
@@ -211,36 +94,29 @@ describe('Bug 2: cfg.temperature mutation on retry', () => {
 // ---- Bug 3: REMINDER re-prompt passes empty string ----
 
 describe('Bug 3: REMINDER re-prompt empty string', () => {
-  beforeEach(() => {
-    vi.mocked(subscribeStepEvents).mockImplementation(() => {});
-  });
-
   it('passes a non-empty string to agent.prompt on REMINDER re-prompt during step execution', async () => {
-    // Arrange: runStep is called for a LOCATE step.
-    // prompt() resolves immediately without invoking complete(), so capturedComplete stays null.
-    const cfg = makeCfg(3);
+    // The REAL exit protocol drives the fake agent: buildAgent is the only
+    // fake half of the driver, so the reminder re-drive under test is the
+    // production driveUntilComplete.
+    const cfg = makeCfg();
     const promptMock = vi.fn().mockResolvedValue(undefined);
-    const fakeAgent = {
-      prompt: promptMock,
-      steer: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      abort: vi.fn(),
+    const fakeAgent = makeFakeAgent(promptMock);
+    cfg.stepDriver = {
+      buildAgent: () => fakeAgent as never,
+      driveUntilComplete,
     };
 
-    vi.mocked(buildStepAgent).mockReturnValue(fakeAgent as never);
-
-    const mission = { id: 'test-mission', description: 'fix the bug', state: 'pending' as const };
+    const mission = { id: 'test-mission', description: 'fix the bug', state: 'running' as const };
     const step = { state: State.LOCATE, focus: 'find the bug location' };
 
-    // Act
+    // Act — prompt() resolves without a complete() call, so the capture stays
+    // empty and the driver re-prompts with the one REMINDER prompt.
     await runStep(step, 0, 1, mission, [], cfg);
 
     // Assert: prompt() should have been called at least twice.
     expect(promptMock.mock.calls.length).toBeGreaterThanOrEqual(2);
 
-    // Bug 3: the REMINDER re-prompt currently passes '' (empty string).
-    // After fix, it should pass a meaningful non-empty string.
+    // Bug 3: the REMINDER re-prompt used to pass '' (empty string).
     const reminderCallArg = promptMock.mock.calls[1]![0] as string;
     expect(reminderCallArg).not.toBe('');
     expect(reminderCallArg.length).toBeGreaterThan(0);
@@ -250,59 +126,38 @@ describe('Bug 3: REMINDER re-prompt empty string', () => {
 // ---- Bug 4: state_change event hardcodes from: State.REASON ----
 
 describe('Bug 4: state_change event from field', () => {
-  beforeEach(() => {
-    vi.mocked(subscribeStepEvents).mockImplementation(() => {});
-  });
+  function makeNoopDriverCfg(currentState: State): RunConfig {
+    const cfg = makeCfg();
+    vi.mocked(cfg.stateMachine.getCurrentState).mockReturnValue(currentState);
+    cfg.stepDriver = {
+      buildAgent: () => makeFakeAgent() as never,
+      driveUntilComplete: vi.fn(async () => {}),
+    };
+    return cfg;
+  }
 
   it('emits state_change with from=MODIFY when current state is MODIFY, not hardcoded REASON', async () => {
-    // Arrange: simulate a step where the state machine is already in MODIFY state.
-    // This happens when runStep is called for the VERIFY step after a MODIFY step.
-    const cfg = makeCfg(3);
-    vi.mocked(cfg.stateMachine.getCurrentState).mockReturnValue(State.MODIFY);
-
-    const promptMock = vi.fn().mockResolvedValue(undefined);
-    const fakeAgent = {
-      prompt: promptMock,
-      steer: vi.fn(),
-      on: vi.fn(),
-      off: vi.fn(),
-      abort: vi.fn(),
-    };
-    vi.mocked(buildStepAgent).mockReturnValue(fakeAgent as never);
-
-    const mission = { id: 'test-mission', description: 'fix the bug', state: 'pending' as const };
+    const cfg = makeNoopDriverCfg(State.MODIFY);
+    const mission = { id: 'test-mission', description: 'fix the bug', state: 'running' as const };
     const step = { state: State.VERIFY, focus: 'run tests' };
-
-    // Capture onEvent calls
     const events: Array<Record<string, unknown>> = [];
     const onEvent = (event: Record<string, unknown>) => events.push(event);
 
-    // Act
-    await runStep(step, 1, 2, mission, [], cfg, { onEvent });
+    await runStep(step, 1, 2, mission, [], cfg, { onEvent: onEvent as never });
 
-    // Assert: the state_change event should have from=MODIFY (the actual current state),
-    // not from=REASON (which is hardcoded on line 514/523 of step-runner.ts).
     const stateChangeEvent = events.find((e) => e.type === 'state_change' && e.to === State.VERIFY);
     expect(stateChangeEvent).toBeDefined();
-    // Bug 4: line 514 hardcodes from: State.REASON for all steps.
-    // After fix, from should be the actual state (MODIFY).
     expect(stateChangeEvent!.from).toBe(State.MODIFY);
   });
 
   it('emits state_change with from=LOCATE when current state is LOCATE', async () => {
-    const cfg = makeCfg(3);
-    vi.mocked(cfg.stateMachine.getCurrentState).mockReturnValue(State.LOCATE);
-
-    const promptMock = vi.fn().mockResolvedValue(undefined);
-    const fakeAgent = { prompt: promptMock, steer: vi.fn(), on: vi.fn(), off: vi.fn(), abort: vi.fn() };
-    vi.mocked(buildStepAgent).mockReturnValue(fakeAgent as never);
-
-    const mission = { id: 'm1', description: 'task', state: 'pending' as const };
+    const cfg = makeNoopDriverCfg(State.LOCATE);
+    const mission = { id: 'm1', description: 'task', state: 'running' as const };
     const step = { state: State.MODIFY, focus: 'edit code' };
     const events: Array<Record<string, unknown>> = [];
     const onEvent = (event: Record<string, unknown>) => events.push(event);
 
-    await runStep(step, 0, 1, mission, [], cfg, { onEvent });
+    await runStep(step, 0, 1, mission, [], cfg, { onEvent: onEvent as never });
 
     const stateChangeEvent = events.find((e) => e.type === 'state_change' && e.to === State.MODIFY);
     expect(stateChangeEvent).toBeDefined();

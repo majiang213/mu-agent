@@ -10,7 +10,24 @@ import type { Step, StepDirective } from '../types.js';
  * StepDirective grammar now lands here exactly once.
  */
 
-const MAX_DIRECTIVES = 6;
+/** Entry cap — enforced by the parser below AND stated to models (schema maxItems, grammar prose). */
+export const MAX_DIRECTIVES = 6;
+
+/**
+ * The model-facing statement of the StepDirective grammar (round-7, C3) —
+ * one home interpolated into every prompt that asks a model to OUTPUT steps
+ * (today: DELIBERATION_SYSTEM in heavy/deliberator.ts). The TypeBox schema
+ * (state-registry stepsArraySchema) constrains the REASON/PLAN tool call;
+ * the parser below enforces it; this prose is the third consumer. Before
+ * this home, the prose was hand-copied and the cap existed ONLY there and
+ * in the parser's slice — the copy most likely to rot.
+ */
+export const DIRECTIVE_GRAMMAR_PROSE = `Each entry is one of: a single step {"state": "...", "focus": "...", "why": "..."?}, a subplan {"subplan": {"analyzerState": "PLAN", "focus": "..."}}, or a parallel group {"parallel": [{"state": "...", "focus": "..."}, ...]}.
+- "state" must be a valid state name (e.g. LOCATE, MODIFY, VERIFY, ANSWER, RESEARCH); "focus" describes the action.
+- "analyzerState" for subplan must be "PLAN".
+- "why" is optional — include only when it adds real information.
+- Maximum ${MAX_DIRECTIVES} entries.`;
+
 const VALID_STATES = new Set<string>(Object.values(State));
 
 function isValidStep(s: unknown, invalid: string[]): s is Step {

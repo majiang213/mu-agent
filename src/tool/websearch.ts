@@ -1,6 +1,6 @@
 import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
-import type { FetchLike } from './webfetch.js';
+import { defaultFetch, MU_AGENT_UA, type FetchLike } from './webfetch.js';
 
 export interface SearchResult {
   title: string;
@@ -8,14 +8,12 @@ export interface SearchResult {
   snippet: string;
 }
 
-const defaultFetch: FetchLike = (url, init) => fetch(url, init);
-
 async function searchDuckDuckGo(fetchImpl: FetchLike, query: string, numResults: number): Promise<SearchResult[]> {
   const encoded = encodeURIComponent(query);
   const url = `https://api.duckduckgo.com/?q=${encoded}&format=json&no_redirect=1`;
 
   const response = await fetchImpl(url, {
-    headers: { 'User-Agent': 'mu-agent/1.0 (coding assistant)' },
+    headers: { 'User-Agent': MU_AGENT_UA },
     signal: AbortSignal.timeout(10000),
   });
 

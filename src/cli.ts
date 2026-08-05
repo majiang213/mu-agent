@@ -4,6 +4,7 @@ import { loadConfig, saveConfig, ConfigNotFoundError } from './config/loader.js'
 import { DEFAULT_CONFIG } from './config/defaults.js';
 import { getLspStatuses } from './tool/lsp-status.js';
 import type { Config } from './config/types.js';
+import { isProviderName, PROVIDER_NAMES } from './provider/providers.js';
 import { ReactAgent } from './core/agent/index.js';
 import { SessionStore } from './core/session/store.js';
 
@@ -11,34 +12,50 @@ const program = new Command();
 
 program.name('mu-agent').description('µagent — small-model coding agent with deterministic pipelines').version('1.0.0');
 
-const PROVIDERS = ['ollama', 'custom', 'unsloth'] as const;
-
 function parseProviderFlag(value: string): Config['model']['provider'] {
-  if (!(PROVIDERS as readonly string[]).includes(value)) {
-    console.error(`Invalid provider "${value}" — must be one of: ${PROVIDERS.join(', ')}`);
+  if (!isProviderName(value)) {
+    console.error(`Invalid provider "${value}" — must be one of: ${PROVIDER_NAMES.join(', ')}`);
     process.exit(1);
   }
-  return value as Config['model']['provider'];
+  return value;
+}
+
+/** The -m/-p/-u flag vocabulary — declared ONCE (round-7, candidate 7). */
+function addModelFlags(cmd: Command, mode: 'run' | 'save'): Command {
+  const suffix = mode === 'save' ? ' (saved to .mu-agent/config.json)' : ' (this run only)';
+  const verb = mode === 'save' ? 'Set ' : '';
+  return cmd
+    .option('-m, --model <model>', `${verb}model name${suffix}`)
+    .option('-p, --provider <provider>', `${verb}provider: ${PROVIDER_NAMES.join(' | ')}${suffix}`)
+    .option('-u, --base-url <url>', `${verb}base URL${suffix}`);
+}
+
+interface ModelFlagValues {
+  model?: string;
+  provider?: string;
+  baseUrl?: string;
+}
+
+/** One if-chain over the three flags (was twinned: merge vs persist, round-7 C7). */
+function cliModelUpdates(options: ModelFlagValues): Partial<Config['model']> {
+  const updates: Partial<Config['model']> = {};
+  if (options.model) updates.name = options.model;
+  if (options.provider) updates.provider = parseProviderFlag(options.provider);
+  if (options.baseUrl) updates.baseUrl = options.baseUrl;
+  return updates;
 }
 
 /**
  * Per-run, in-memory config overrides. NEVER persisted — `mu-agent config`
  * is the only command that writes defaults (second-pass review, candidate 9).
  */
-function mergeCliOverrides(config: Config, options: { model?: string; provider?: string; baseUrl?: string }): Config {
-  const model = { ...config.model };
-  if (options.model) model.name = options.model;
-  if (options.provider) model.provider = parseProviderFlag(options.provider);
-  if (options.baseUrl) model.baseUrl = options.baseUrl;
-  return { ...config, model };
+function mergeCliOverrides(config: Config, options: ModelFlagValues): Config {
+  return { ...config, model: { ...config.model, ...cliModelUpdates(options) } };
 }
 
 /** Persist defaults (`config` command's whole job). saveConfig validates. */
-function persistCliOverrides(options: { model?: string; provider?: string; baseUrl?: string }): void {
-  const modelUpdates: Partial<Config['model']> = {};
-  if (options.model) modelUpdates.name = options.model;
-  if (options.provider) modelUpdates.provider = parseProviderFlag(options.provider);
-  if (options.baseUrl) modelUpdates.baseUrl = options.baseUrl;
+function persistCliOverrides(options: ModelFlagValues): void {
+  const modelUpdates = cliModelUpdates(options);
   if (Object.keys(modelUpdates).length > 0) {
     // Ensure provider and baseUrl have defaults when only --model is provided
     if (!modelUpdates.provider) modelUpdates.provider = DEFAULT_CONFIG.model.provider;
@@ -47,31 +64,34 @@ function persistCliOverrides(options: { model?: string; provider?: string; baseU
   }
 }
 
-program
-  .command('run')
-  .description('Run a coding task')
+/**
+ * run/tui shared prologue (round-7, C7): load config, apply this-run flags,
+ * convert ConfigNotFoundError into a clean exit, ensure the code graph.
+ */
+async function resolveRunConfig(options: ModelFlagValues): Promise<Config> {
+  let config: Config;
+  try {
+    config = mergeCliOverrides(loadConfig(), options);
+  } catch (err) {
+    if (err instanceof ConfigNotFoundError) {
+      console.error('\n' + err.message + '\n');
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { ensureGraphBuilt } = await import('./core/graph/builder.js');
+  ensureGraphBuilt(process.cwd());
+  return config;
+}
+
+addModelFlags(program.command('run').description('Run a coding task'), 'run')
   .argument('<task>', 'Task description')
-  .option('-m, --model <model>', 'Model name (this run only)')
-  .option('-p, --provider <provider>', 'Provider: ollama | custom | unsloth (this run only)')
-  .option('-u, --base-url <url>', 'Base URL (this run only)')
   .action(async (task, options) => {
     try {
-      let config;
-      try {
-        config = mergeCliOverrides(loadConfig(), options);
-      } catch (err) {
-        if (err instanceof ConfigNotFoundError) {
-          console.error('\n' + err.message + '\n');
-          process.exit(1);
-        }
-        throw err;
-      }
+      const config = await resolveRunConfig(options);
       console.log(`🚀 Starting task: ${task}`);
       console.log(`🤖 Model: ${config.model.provider}/${config.model.name}`);
       console.log('\n📋 Executing task...\n');
-
-      const { ensureGraphBuilt } = await import('./core/graph/builder.js');
-      ensureGraphBuilt(process.cwd());
 
       const { createConsolePresenter } = await import('./tui/console-presenter.js');
       const result = await new ReactAgent().run(task, config, createConsolePresenter());
@@ -88,13 +108,8 @@ program
     }
   });
 
-program
-  .command('config')
-  .description('Show or update current configuration')
-  .option('-m, --model <model>', 'Set model name (saved to .mu-agent/config.json)')
-  .option('-p, --provider <provider>', 'Set provider: ollama | custom | unsloth (saved to .mu-agent/config.json)')
-  .option('-u, --base-url <url>', 'Set base URL (saved to .mu-agent/config.json)')
-  .action((options) => {
+addModelFlags(program.command('config').description('Show or update current configuration'), 'save').action(
+  (options) => {
     try {
       persistCliOverrides(options);
       const config = loadConfig();
@@ -108,9 +123,10 @@ program
       console.error('Config error:', err instanceof Error ? err.message : err);
       process.exit(1);
     }
-  });
+  },
+);
 
-async function pickSession(): Promise<SessionStore | null> {
+async function pickSession(themeName?: string): Promise<SessionStore | null> {
   const sessions = await SessionStore.list(process.cwd());
   if (sessions.length === 0) {
     console.error('No sessions found in .mu-agent/sessions/');
@@ -119,7 +135,9 @@ async function pickSession(): Promise<SessionStore | null> {
 
   const { ProcessTerminal, SelectList, Text, TUI } = await import('@earendil-works/pi-tui');
   const { selectTheme, C, initMuAgentTheme } = await import('./tui/theme.js');
-  await initMuAgentTheme();
+  // First theme init wins (the singleton is idempotent) — it must carry the
+  // configured name, or the later init in the tui action is a no-op (R8-B1).
+  await initMuAgentTheme(themeName);
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
 
@@ -157,25 +175,11 @@ async function pickSession(): Promise<SessionStore | null> {
   });
 }
 
-program
-  .command('tui')
-  .description('Start interactive TUI mode')
-  .option('-m, --model <model>', 'Model name (this run only)')
-  .option('-p, --provider <provider>', 'Provider: ollama | custom | unsloth (this run only)')
-  .option('-u, --base-url <url>', 'Base URL (this run only)')
+addModelFlags(program.command('tui').description('Start interactive TUI mode'), 'run')
   .option('-c, --continue', 'Continue the most recent session')
   .option('--resume', 'Interactively select a session to resume')
   .action(async (options) => {
-    let config;
-    try {
-      config = mergeCliOverrides(loadConfig(), options);
-    } catch (err) {
-      if (err instanceof ConfigNotFoundError) {
-        console.error('\n' + err.message + '\n');
-        process.exit(1);
-      }
-      throw err;
-    }
+    const config = await resolveRunConfig(options);
 
     let sessionStore: SessionStore | undefined;
 
@@ -187,15 +191,12 @@ program
         console.error('No previous session found. Starting a new session.');
       }
     } else if (options.resume) {
-      const picked = await pickSession();
+      const picked = await pickSession(config.theme);
       if (!picked) {
         process.exit(0);
       }
       sessionStore = picked;
     }
-
-    const { ensureGraphBuilt } = await import('./core/graph/builder.js');
-    ensureGraphBuilt(process.cwd());
 
     const { initMuAgentTheme } = await import('./tui/theme.js');
     await initMuAgentTheme(config.theme);

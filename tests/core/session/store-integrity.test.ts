@@ -37,8 +37,8 @@ describe('SessionStore integrity', () => {
     const sessionsDir = join(dir, '.mu-agent', 'sessions');
 
     // Persist the file (pi writes once an assistant message exists).
-    await store.append({ type: 'message', role: 'user', content: 'first', timestamp: 1 });
-    await store.append({ type: 'message', role: 'assistant', content: 'a1', timestamp: 2 });
+    store.append({ type: 'message', role: 'user', content: 'first', timestamp: 1 });
+    store.append({ type: 'message', role: 'assistant', content: 'a1', timestamp: 2 });
 
     // Make the next append fail: remove the sessions directory entirely.
     rmSync(sessionsDir, { recursive: true, force: true });
@@ -48,9 +48,7 @@ describe('SessionStore integrity', () => {
     // Recover the directory — appends work again (no poisoned write queue;
     // pi has no queue, each append is its own synchronous write).
     mkdirSync(sessionsDir, { recursive: true });
-    await expect(
-      store.append({ type: 'message', role: 'user', content: 'recovered', timestamp: 4 }),
-    ).resolves.toBeUndefined();
+    store.append({ type: 'message', role: 'user', content: 'recovered', timestamp: 4 });
 
     const msgs = store.load();
     expect(msgs.some((m) => (m as { content: string }).content === 'recovered')).toBe(true);
@@ -58,7 +56,7 @@ describe('SessionStore integrity', () => {
 
   it('concurrent appends all land in order (pi writes synchronously, no queue needed)', async () => {
     const store = SessionStore.create(dir);
-    await store.append({ type: 'message', role: 'assistant', content: 'seed', timestamp: 0 });
+    store.append({ type: 'message', role: 'assistant', content: 'seed', timestamp: 0 });
     await Promise.all(
       Array.from({ length: 10 }, (_, i) =>
         store.append({ type: 'message', role: 'user', content: `m${i}`, timestamp: i + 1 }),

@@ -42,3 +42,16 @@ describe("Bug 19: aborted/errored tasks don't persist user input", () => {
     expect(catchMatch![0]).toContain('persistTurn(input');
   });
 });
+
+describe('R8-B2: clarification answer must not wipe the in-flight run stats', () => {
+  it('resetTaskStats runs only after the clarification early-return', () => {
+    const submitMatch = source.match(/private async handleSubmit[\s\S]*?(?=\n\})/);
+    expect(submitMatch).not.toBeNull();
+    const submitBody = submitMatch![0];
+    const clarifyIdx = submitBody.indexOf('if (this.pendingClarificationAgent)');
+    const resetIdx = submitBody.indexOf('resetTaskStats()');
+    expect(clarifyIdx).toBeGreaterThan(-1);
+    expect(resetIdx).toBeGreaterThan(-1);
+    expect(resetIdx).toBeGreaterThan(clarifyIdx);
+  });
+});

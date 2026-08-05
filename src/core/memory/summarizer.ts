@@ -1,6 +1,8 @@
 import Database from 'better-sqlite3';
 import type { Model, Models } from '@earendil-works/pi-ai';
 import { buildSearchableContent, parseStructuredSummary } from './episode.js';
+import { completeText } from '../complete-text.js';
+import { metaElapsedSeconds, nowSeconds, touchMeta } from './db.js';
 
 export interface LLMSummary {
   description: string;
@@ -51,20 +53,17 @@ async function generateEpisodeSummary(
     if (s.error_summary) context += `\nError: ${s.error_summary}`;
   }
 
-  const result = await models.completeSimple(
+  const textContent = await completeText(
+    models,
     model,
     {
       systemPrompt: `You are a coding assistant. Summarize this task in one sentence (≤120 chars), then list 3-5 search keywords.\nOutput format (JSON): {"description": "...", "keywords": ["...", "..."]}`,
-      messages: [{ role: 'user', content: context, timestamp: Date.now() }],
+      user: context,
     },
     { temperature: 0.1 },
   );
 
   try {
-    const textContent = result.content
-      .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-      .map((c) => c.text)
-      .join('');
     const parsed = JSON.parse(textContent) as LLMSummary;
     return {
       description: (parsed.description ?? '').slice(0, 200),
@@ -81,12 +80,8 @@ export async function processPendingSummaries(
   model: Model<'openai-completions'>,
   projectRoot: string,
 ): Promise<void> {
-  const lastRun = db.prepare(`SELECT value FROM meta WHERE key = 'last_summary_at'`).get() as
-    { value: string } | undefined;
-  if (lastRun) {
-    const elapsed = Math.floor(Date.now() / 1000) - parseInt(lastRun.value, 10);
-    if (elapsed < 60) return;
-  }
+  const elapsed = metaElapsedSeconds(db, 'last_summary_at');
+  if (elapsed !== null && elapsed < 60) return;
 
   const pending = db
     .prepare(
@@ -101,9 +96,7 @@ export async function processPendingSummaries(
     .all(projectRoot) as Array<{ episode_id: string; user_input: string; result_summary: string }>;
 
   if (pending.length === 0) {
-    db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_summary_at', ?)`).run(
-      Math.floor(Date.now() / 1000).toString(),
-    );
+    touchMeta(db, 'last_summary_at');
     return;
   }
 
@@ -121,7 +114,5 @@ export async function processPendingSummaries(
     }
   }
 
-  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_summary_at', ?)`).run(
-    Math.floor(Date.now() / 1000).toString(),
-  );
+  db.prepare(`INSERT OR REPLACE INTO meta (key, value) VALUES ('last_summary_at', ?)`).run(nowSeconds().toString());
 }

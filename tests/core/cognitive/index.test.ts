@@ -14,8 +14,6 @@ describe('StagnationDetector', () => {
         gate.recordToolCall({
           tool: 'read',
           input: { path: 'test.ts' },
-          output: {},
-          timestamp: Date.now(),
         });
       }
 
@@ -27,14 +25,10 @@ describe('StagnationDetector', () => {
       gate.recordToolCall({
         tool: 'read',
         input: { path: 'test1.ts' },
-        output: {},
-        timestamp: Date.now(),
       });
       gate.recordToolCall({
         tool: 'read',
         input: { path: 'test2.ts' },
-        output: {},
-        timestamp: Date.now(),
       });
 
       const result = gate.check();
@@ -66,8 +60,6 @@ describe('StagnationDetector', () => {
         gate.recordToolCall({
           tool: 'read',
           input: { path: `test${i}.ts` },
-          output: {},
-          timestamp: Date.now(),
         });
       }
 
@@ -82,8 +74,6 @@ describe('StagnationDetector', () => {
         gate.recordToolCall({
           tool: 'read',
           input: { path: 'test.ts' },
-          output: {},
-          timestamp: Date.now(),
         });
       }
       expect(gate.check().detected).toBe(true);

@@ -3,14 +3,14 @@ import { deliberate, pickShortest } from '../../../src/core/heavy/deliberator.js
 import type { PlanCandidate } from '../../../src/core/heavy/types.js';
 import { State } from '../../../src/core/types.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
+import { makeRunConfig } from '../../helpers/run-config.js';
 
 // Gap 89: no module mock — deliberator calls cfg.models.completeSimple, so the
 // fake Models object carries the spy.
 const completeSimpleMock = vi.fn();
 
-function makePlan(id: string, states: State[], whys?: string[]): PlanCandidate {
+function makePlan(states: State[], whys?: string[]): PlanCandidate {
   return {
-    id,
     steps: states.map((s, i) => ({
       state: s,
       focus: `step ${i}`,
@@ -28,19 +28,13 @@ function makeModel() {
 }
 
 function makeCfg(): RunConfig {
-  return {
+  return makeRunConfig({
     model: makeModel(),
     models: { completeSimple: completeSimpleMock } as unknown as RunConfig['models'],
-    stateMachine: {} as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: {} as RunConfig['safeModifier'],
-    env: {} as RunConfig['env'],
     temperature: 0.1,
     contextRatio: 0.75,
     apiKey: 'ollama',
-    projectRoot: '/tmp',
-  };
+  });
 }
 
 function makeStepsJson(states: State[]): string {
@@ -54,30 +48,27 @@ function makeAssistantMessage(text: string) {
 
 describe('pickShortest', () => {
   it('returns the only candidate when there is one', () => {
-    const plans = [makePlan('plan-0', [State.LOCATE, State.MODIFY])];
-    expect(pickShortest(plans).id).toBe('plan-0');
+    const plans = [makePlan([State.LOCATE, State.MODIFY])];
+    expect(pickShortest(plans)).toBe(plans[0]);
   });
 
   it('returns the candidate with fewer steps', () => {
-    const plans = [makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]), makePlan('plan-1', [State.MODIFY])];
-    expect(pickShortest(plans).id).toBe('plan-1');
+    const plans = [makePlan([State.LOCATE, State.MODIFY, State.VERIFY]), makePlan([State.MODIFY])];
+    expect(pickShortest(plans)).toBe(plans[1]);
   });
 
   it('returns the first when lengths are equal', () => {
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.VERIFY]),
-    ];
-    expect(pickShortest(plans).id).toBe('plan-0');
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.VERIFY])];
+    expect(pickShortest(plans)).toBe(plans[0]);
   });
 
   it('handles three candidates', () => {
     const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]),
-      makePlan('plan-1', [State.MODIFY, State.VERIFY]),
-      makePlan('plan-2', [State.MODIFY]),
+      makePlan([State.LOCATE, State.MODIFY, State.VERIFY]),
+      makePlan([State.MODIFY, State.VERIFY]),
+      makePlan([State.MODIFY]),
     ];
-    expect(pickShortest(plans).id).toBe('plan-2');
+    expect(pickShortest(plans)).toBe(plans[2]);
   });
 
   it('returns empty plan when no candidates', () => {
@@ -92,7 +83,7 @@ describe('deliberate', () => {
   });
 
   it('returns selected when only one candidate', async () => {
-    const plans = [makePlan('plan-0', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.LOCATE, State.MODIFY])];
     const result = await deliberate(plans, { id: 't', description: 'fix bug', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
@@ -102,7 +93,7 @@ describe('deliberate', () => {
   });
 
   it('skips deliberation and picks shortest when all plans are similar', async () => {
-    const plans = [makePlan('plan-0', [State.LOCATE, State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.LOCATE, State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'fix bug', state: 'running' }, makeCfg(), (e) =>
       events.push(e.type),
@@ -116,7 +107,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(makeStepsJson([State.LOCATE, State.MODIFY, State.VERIFY])) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
-    const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY, State.VERIFY])];
+    const plans = [makePlan([State.MODIFY]), makePlan([State.LOCATE, State.MODIFY, State.VERIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
@@ -136,7 +127,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithWhy) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
-    const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.MODIFY]), makePlan([State.LOCATE, State.MODIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
@@ -159,7 +150,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithSubplan) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
-    const plans = [makePlan('plan-0', [State.LOCATE]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.LOCATE]), makePlan([State.LOCATE, State.MODIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
@@ -185,7 +176,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithParallel) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
-    const plans = [makePlan('plan-0', [State.LOCATE]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.LOCATE]), makePlan([State.LOCATE, State.MODIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
@@ -200,7 +191,6 @@ describe('deliberate', () => {
     // Two subplan candidates with different focuses are NOT similar → deliberation runs.
     // Single-candidate path also must return the subplan directive verbatim.
     const subplanPlan: PlanCandidate = {
-      id: 'plan-0',
       steps: [{ subplan: { analyzerState: State.PLAN, focus: 'plan atomic commits' } }],
     };
     const result = await deliberate([subplanPlan], { id: 't', description: 'task', state: 'running' }, makeCfg());
@@ -215,10 +205,7 @@ describe('deliberate', () => {
     completeSimpleMock.mockResolvedValue(
       makeAssistantMessage('needs_clarification: true\nquestion: Which file should be modified?') as any,
     );
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('needs_clarification');
     if (result.type === 'needs_clarification') {
@@ -230,10 +217,7 @@ describe('deliberate', () => {
     completeSimpleMock.mockResolvedValue(
       makeAssistantMessage('needs_clarification: true\nquestion: Which file?') as any,
     );
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(
       plans,
@@ -248,7 +232,7 @@ describe('deliberate', () => {
 
   it('falls back to pickShortest when parse completely fails', async () => {
     completeSimpleMock.mockResolvedValue(makeAssistantMessage('I cannot decide.') as any);
-    const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.MODIFY]), makePlan([State.LOCATE, State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
       events.push(e.type),
@@ -259,7 +243,7 @@ describe('deliberate', () => {
 
   it('falls back to pickShortest when LLM call throws', async () => {
     completeSimpleMock.mockRejectedValue(new Error('network error'));
-    const plans = [makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]), makePlan('plan-1', [State.MODIFY])];
+    const plans = [makePlan([State.LOCATE, State.MODIFY, State.VERIFY]), makePlan([State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
       events.push(e.type),
@@ -285,10 +269,7 @@ describe('deliberate', () => {
       .mockResolvedValueOnce(makeAssistantMessage('BETTER') as any)
       .mockResolvedValueOnce(makeAssistantMessage(round2Steps) as any)
       .mockResolvedValueOnce(makeAssistantMessage('WORSE') as any);
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
       events.push(e.type),
@@ -305,10 +286,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(round1Steps) as any)
       .mockResolvedValueOnce(makeAssistantMessage('SAME') as any);
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
       events.push(e.type),
@@ -322,10 +300,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
-    const plans = [
-      makePlan('plan-0', [State.LOCATE], ['likely in auth middleware']),
-      makePlan('plan-1', [State.DIAGNOSE, State.LOCATE]),
-    ];
+    const plans = [makePlan([State.LOCATE], ['likely in auth middleware']), makePlan([State.DIAGNOSE, State.LOCATE])];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     const callArg = completeSimpleMock.mock.calls[0]![1] as { messages: Array<{ content: string }> };
     const userPrompt = callArg.messages[0]!.content;
@@ -338,7 +313,7 @@ describe('deliberate', () => {
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const cfg = { ...makeCfg(), heavyThinking: { deliberationModel: 'qwen2.5:7b-instruct' } };
-    const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.MODIFY]), makePlan([State.LOCATE, State.MODIFY])];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, cfg);
     const modelArg = completeSimpleMock.mock.calls[0]![0] as { id: string };
     expect(modelArg.id).toBe('qwen2.5:7b-instruct');
@@ -352,7 +327,7 @@ describe('deliberate', () => {
     completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithBracket) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
-    const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.MODIFY]), makePlan([State.LOCATE, State.MODIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
@@ -368,10 +343,7 @@ describe('deliberate', () => {
     completeSimpleMock.mockResolvedValue(
       makeAssistantMessage('needs_clarification: true\nquestion: Which file?') as any,
     );
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
     const events: Array<{ type: string; reason?: string }> = [];
     const result = await deliberate(
       plans,
@@ -392,9 +364,9 @@ describe('deliberate', () => {
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-2', [State.DIAGNOSE, State.LOCATE, State.MODIFY, State.VERIFY]),
+      makePlan([State.LOCATE, State.MODIFY]),
+      makePlan([State.LOCATE, State.MODIFY]),
+      makePlan([State.DIAGNOSE, State.LOCATE, State.MODIFY, State.VERIFY]),
     ];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
@@ -416,10 +388,7 @@ describe('deliberate', () => {
       .mockResolvedValueOnce(makeAssistantMessage(sharedSteps) as any)
       .mockResolvedValueOnce(makeAssistantMessage(sharedSteps) as any)
       .mockResolvedValueOnce(makeAssistantMessage('BETTER') as any);
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
     const events: Array<{ type: string; reason?: string }> = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
       events.push(e as { type: string; reason?: string }),
@@ -440,9 +409,9 @@ describe('deliberate', () => {
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-      makePlan('plan-2', [State.MODIFY]),
+      makePlan([State.LOCATE, State.MODIFY]),
+      makePlan([State.DIAGNOSE, State.MODIFY]),
+      makePlan([State.MODIFY]),
     ];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     const callArg = completeSimpleMock.mock.calls[0]![1] as { messages: Array<{ content: string }> };
@@ -461,7 +430,7 @@ describe('deliberate', () => {
       .mockResolvedValueOnce(makeAssistantMessage(round1) as any)
       .mockResolvedValueOnce(makeAssistantMessage(round2) as any)
       .mockResolvedValueOnce(makeAssistantMessage('SAME') as any);
-    const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
+    const plans = [makePlan([State.MODIFY]), makePlan([State.LOCATE, State.MODIFY])];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     const allCalls = completeSimpleMock.mock.calls;
     const judgeCallIdx = allCalls.findIndex((call) => {
@@ -477,10 +446,7 @@ describe('deliberate', () => {
 
   it('LLM call failure falls back to pickShortest, not empty steps', async () => {
     completeSimpleMock.mockRejectedValueOnce(new Error('network error'));
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]),
-      makePlan('plan-1', [State.MODIFY, State.VERIFY]),
-    ];
+    const plans = [makePlan([State.LOCATE, State.MODIFY, State.VERIFY]), makePlan([State.MODIFY, State.VERIFY])];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {

@@ -4,8 +4,8 @@ import { State } from '../../src/core/types.js';
 import type { ModelParams } from '../../src/core/types.js';
 import { STATE_REGISTRY } from '../../src/core/state-registry.js';
 
-const SMALL: ModelParams = { tier: 'SMALL', paramCount: 7, maxRetries: 1, strictPlanning: true };
-const LARGE: ModelParams = { tier: 'LARGE', paramCount: 70, maxRetries: 3, strictPlanning: false };
+const SMALL: ModelParams = { tier: 'SMALL' };
+const LARGE: ModelParams = { tier: 'LARGE' };
 
 function prompt(state: State, params: ModelParams = SMALL) {
   return buildSystemPrompt({ state, task: 'test task', modelParams: params });

@@ -1,18 +1,22 @@
-import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
+import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { State } from '../types.js';
 import type { StepDirective } from '../types.js';
-import type { ExecutionEvent, Mission, RunConfig } from '../agent/types.js';
+import type { ExecutionEvent, Mission, ReasonStepOptions, RunConfig } from '../agent/types.js';
 import { runReasonAttempt } from '../agent/reason-runner.js';
 import { flattenDirectives } from '../agent/directives.js';
-import { samplePlans, SAMPLING_BATCH_SIZE } from './sampler.js';
+import { samplePlans } from './sampler.js';
 import { deliberate, pickShortest } from './deliberator.js';
 import type { PlanCandidate } from './types.js';
 
-export interface HeavyPlanOptions {
-  onEvent?: (event: ExecutionEvent) => void;
-  onNeedsClarify?: (questions: string[]) => Promise<string>;
-  memoryIndex?: string;
-  memorySearchTool?: AgentTool;
+export interface HeavyPlanOptions extends ReasonStepOptions {
+  /**
+   * Test seams (round-7, candidate 2): replace the phase-0/fallback attempt,
+   * the sampler, and deliberation through config — planner tests stop
+   * mocking the module graph (same discipline as the StepAgentDriver seam).
+   */
+  runAttempt?: typeof runReasonAttempt;
+  sample?: typeof samplePlans;
+  deliberate?: typeof deliberate;
 }
 
 /**
@@ -29,6 +33,9 @@ export async function planWithHeavyThinking(
   options: HeavyPlanOptions = {},
 ): Promise<{ steps: StepDirective[] }> {
   const { onEvent, onNeedsClarify, memoryIndex, memorySearchTool } = options;
+  const attempt = options.runAttempt ?? runReasonAttempt;
+  const sample = options.sample ?? samplePlans;
+  const deliber = options.deliberate ?? deliberate;
   const htCfg = cfg.heavyThinking;
 
   onEvent?.({ type: 'state_change', from: 'IDLE', to: State.REASON });
@@ -42,7 +49,7 @@ export async function planWithHeavyThinking(
 
   let phase0Candidate: PlanCandidate | null = null;
   try {
-    const phase0Result = await runReasonAttempt(mission, cfg, conversationHistory, {
+    const phase0Result = await attempt(mission, cfg, conversationHistory, {
       onEvent: phase0OnEvent,
       fromState: 'IDLE',
       memoryIndex,
@@ -53,26 +60,25 @@ export async function planWithHeavyThinking(
       return phase0Result;
     }
     onEvent?.({ type: 'state_change', from: State.REASON, to: 'SAMPLING' });
-    onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE + 1 });
+    onEvent?.({ type: 'deliberation_start' });
     // No fake sample events here — the sampler emits them for seed
     // candidates (round-5, candidate 8).
-    phase0Candidate = { id: 'plan-phase0', steps: phase0Result.steps };
+    phase0Candidate = { steps: phase0Result.steps };
   } catch (_) {
     void _;
     onEvent?.({ type: 'state_change', from: State.REASON, to: 'SAMPLING' });
-    onEvent?.({ type: 'deliberation_start', candidateCount: SAMPLING_BATCH_SIZE });
+    onEvent?.({ type: 'deliberation_start' });
     onEvent?.({ type: 'sample_failed', index: 0 });
   }
 
   let currentMission = mission;
-  let candidates = await samplePlans(
+  let candidates = await sample(
     currentMission,
     cfg,
     conversationHistory,
     { samplingTemperature: htCfg?.samplingTemperature, memoryIndex, memorySearchTool },
     onEvent,
     phase0Candidate ? [phase0Candidate] : [],
-    1,
   );
 
   if (candidates.length === 0) {
@@ -80,7 +86,7 @@ export async function planWithHeavyThinking(
       type: 'deliberation_fallback',
       reason: 'all samples failed, falling back to a single planning attempt',
     });
-    return runReasonAttempt(mission, cfg, conversationHistory, {
+    return attempt(mission, cfg, conversationHistory, {
       onEvent,
       onNeedsClarify,
       fromState: 'IDLE',
@@ -89,7 +95,7 @@ export async function planWithHeavyThinking(
     });
   }
 
-  let outcome = await deliberate(candidates, currentMission, cfg, onEvent);
+  let outcome = await deliber(candidates, currentMission, cfg, onEvent);
 
   if (outcome.type === 'needs_clarification') {
     onEvent?.({ type: 'deliberation_clarification', question: outcome.question });
@@ -103,7 +109,7 @@ export async function planWithHeavyThinking(
       ...mission,
       description: `${mission.description}\n\nAdditional context: ${answer}`,
     };
-    candidates = await samplePlans(currentMission, cfg, conversationHistory, {
+    candidates = await sample(currentMission, cfg, conversationHistory, {
       samplingTemperature: htCfg?.samplingTemperature,
       memoryIndex,
       memorySearchTool,
@@ -113,7 +119,7 @@ export async function planWithHeavyThinking(
         type: 'deliberation_fallback',
         reason: 'all samples failed after clarification, falling back to single attempt',
       });
-      return runReasonAttempt(currentMission, cfg, conversationHistory, {
+      return attempt(currentMission, cfg, conversationHistory, {
         onEvent,
         fromState: State.REASON,
         memoryIndex,
@@ -121,7 +127,7 @@ export async function planWithHeavyThinking(
       });
     }
 
-    outcome = await deliberate(candidates, currentMission, cfg, onEvent, false);
+    outcome = await deliber(candidates, currentMission, cfg, onEvent, false);
   }
 
   if (outcome.type === 'selected') {

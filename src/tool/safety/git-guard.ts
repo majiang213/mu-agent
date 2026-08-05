@@ -30,10 +30,11 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
  *      update-ref, symbolic-ref, reflog expire, reset, rebase, clean, gc,
  *      ...) is REJECTED by default-deny.
  *
- * `GIT_HARD_DENY` is exported (kept for tests / introspection). Despite the
- * legacy name it now carries the ALLOWLIST spec: `{ summary, isForbidden }`
- * where `isForbidden` returns a reason string when the command is NOT
- * allowlisted (i.e. forbidden), or null when allowed.
+ * `GIT_GUARD_SPEC` is the exported spec (tests / introspection):
+ * `{ summary, isForbidden }` where `isForbidden` returns a reason string
+ * when the command is NOT allowlisted (i.e. forbidden), or null when
+ * allowed. (Renamed from GIT_HARD_DENY — allowlist since Gap 84; the name
+ * finally says so, round-9 candidate 3.)
  *
  * Lives in tool/safety/ next to SafeModifier — it is safety policy, not
  * agent-construction machinery (third-pass review, candidate 8).
@@ -483,7 +484,7 @@ function checkGitCommand(command: string): string | null {
   return inspectGitInvocation(tokens);
 }
 
-export const GIT_HARD_DENY: GitGuardSpec = {
+export const GIT_GUARD_SPEC: GitGuardSpec = {
   summary: GIT_GUARD_SUMMARY,
   isForbidden: checkGitCommand,
 };
@@ -508,13 +509,13 @@ export function wrapWithGitGuard(bashTool: AgentTool): AgentTool {
         typeof (params as Record<string, unknown>)?.['command'] === 'string'
           ? ((params as Record<string, unknown>)['command'] as string)
           : '';
-      const reason = GIT_HARD_DENY.isForbidden(cmd);
+      const reason = GIT_GUARD_SPEC.isForbidden(cmd);
       if (reason !== null) {
         return {
           content: [
             {
               type: 'text' as const,
-              text: `[GIT GUARD] Blocked: command not on git allowlist (${reason}).\n${GIT_HARD_DENY.summary}`,
+              text: `[GIT GUARD] Blocked: command not on git allowlist (${reason}).\n${GIT_GUARD_SPEC.summary}`,
             },
           ],
           // Structured abort signal for the harness (afterToolCall in

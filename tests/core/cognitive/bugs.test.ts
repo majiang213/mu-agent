@@ -17,10 +17,10 @@ describe('Bug 19: cognitive cycle detection window too large', () => {
 
     // Simulate a 2-step cycle: read→edit→read→edit (4 records)
     const calls: ToolCall[] = [
-      { tool: 'read', input: { path: 'a.ts' }, output: null, timestamp: 1 },
-      { tool: 'edit', input: { path: 'a.ts', content: 'x' }, output: null, timestamp: 2 },
-      { tool: 'read', input: { path: 'a.ts' }, output: null, timestamp: 3 },
-      { tool: 'edit', input: { path: 'a.ts', content: 'x' }, output: null, timestamp: 4 },
+      { tool: 'read', input: { path: 'a.ts' } },
+      { tool: 'edit', input: { path: 'a.ts', content: 'x' } },
+      { tool: 'read', input: { path: 'a.ts' } },
+      { tool: 'edit', input: { path: 'a.ts', content: 'x' } },
     ];
 
     for (const call of calls) {
@@ -54,8 +54,6 @@ describe('Bug 19: detectNoProgress false positive in read-heavy states', () => {
       detector.recordToolCall({
         tool: 'read',
         input: { path: `file${i}.ts` },
-        output: null,
-        timestamp: i,
       });
     }
 
@@ -72,11 +70,11 @@ describe('Bug 19: detectNoProgress false positive in read-heavy states', () => {
   it('does not trigger no-progress when tool calls include non-read tools', () => {
     const detector = new StagnationDetector({ checkNoProgress: true });
 
-    detector.recordToolCall({ tool: 'read', input: { path: 'a.ts' }, output: null, timestamp: 1 });
-    detector.recordToolCall({ tool: 'read', input: { path: 'b.ts' }, output: null, timestamp: 2 });
-    detector.recordToolCall({ tool: 'grep', input: { query: 'foo' }, output: null, timestamp: 3 });
-    detector.recordToolCall({ tool: 'read', input: { path: 'c.ts' }, output: null, timestamp: 4 });
-    detector.recordToolCall({ tool: 'read', input: { path: 'd.ts' }, output: null, timestamp: 5 });
+    detector.recordToolCall({ tool: 'read', input: { path: 'a.ts' } });
+    detector.recordToolCall({ tool: 'read', input: { path: 'b.ts' } });
+    detector.recordToolCall({ tool: 'grep', input: { query: 'foo' } });
+    detector.recordToolCall({ tool: 'read', input: { path: 'c.ts' } });
+    detector.recordToolCall({ tool: 'read', input: { path: 'd.ts' } });
 
     const result = detector.check();
 

@@ -126,9 +126,17 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   return lines.filter(Boolean).join('\n\n').trim();
 }
 
+/** Prior-step output truncation budget (600 chars — AGENTS.md principle 9). */
+const trunc = (s: string): string => (s.length > 600 ? s.slice(0, 600) + '…' : s);
+
+/** `[STATE] focus\noutput` — the one prior-step line format (was ×3;
+ *  drift in a file whose point is that prose can't drift from the registry). */
+function fmtStepLine(r: ExecutedStep): string {
+  return `[${r.state}] ${r.focus}\n${trunc(r.output)}`;
+}
+
 function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   if (previousResults.length === 0) return '';
-  const trunc = (s: string) => (s.length > 600 ? s.slice(0, 600) + '…' : s);
 
   // VERIFY: special handling for Gap 41 (path audit) + Gap 43 (multi-MODIFY
   // merge). The state list is the registry's contextNeeds fact; only the
@@ -146,14 +154,14 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
     const locateDiag = previousResults.filter((r) => r.state !== State.MODIFY && verifyNeeds.includes(r.state));
     const lines: string[] = [];
     if (lastModify) {
-      lines.push(`[MODIFY] ${lastModify.focus}\n${trunc(lastModify.output)}`);
+      lines.push(fmtStepLine(lastModify));
     }
     const uniqueEdited = [...new Set(allEdited)];
     if (uniqueEdited.length > 1) {
       lines.push(`[MODIFY] all edited files: ${uniqueEdited.join(', ')}`);
     }
     for (const r of locateDiag) {
-      lines.push(`[${r.state}] ${r.focus}\n${trunc(r.output)}`);
+      lines.push(fmtStepLine(r));
     }
     if (lines.length === 0) return '';
     return `\n\n<previous_step_results>\n${lines.join('\n\n')}\n</previous_step_results>`;
@@ -165,9 +173,7 @@ function fmtPreStepCtx(state: State, previousResults: ExecutedStep[]): string {
   const relevant = previousResults.filter((r) => needs.includes(r.state));
   if (relevant.length === 0) return '';
 
-  const allLines = relevant.map((r) => {
-    return `[${r.state}] ${r.focus}\n${trunc(r.output)}`;
-  });
+  const allLines = relevant.map((r) => fmtStepLine(r));
 
   const BUDGET = 8000;
   const kept: string[] = [];

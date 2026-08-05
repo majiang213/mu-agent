@@ -45,13 +45,7 @@ function writeTestEpisode(): string {
     { state: State.RESEARCH, focus: 'inspect', output: JSON.stringify({ summary: 'uniquefindingtoken root cause' }) },
     { state: State.MODIFY, focus: 'fix', output: JSON.stringify({ edited: ['uniquefiletoken.ts'], linesChanged: 3 }) },
   ];
-  const finalResult: StateResult = {
-    state: State.DONE,
-    success: true,
-    output: 'done',
-    nextState: State.DONE,
-    messages: [],
-  };
+  const finalResult: StateResult = { success: true, output: 'done' };
   return writeEpisodeSync(db, mission, steps, finalResult, dir);
 }
 

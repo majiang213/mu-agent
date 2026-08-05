@@ -1,5 +1,6 @@
 import { Type } from 'typebox';
 import { State } from './types.js';
+import { MAX_DIRECTIVES } from './agent/directives.js';
 import { gitAllowlistGuidance } from '../tool/safety/git-guard.js';
 
 /**
@@ -76,7 +77,12 @@ function stepsArraySchema(options: { allowSubplan: boolean; minItems?: number })
     }),
   });
   const union = options.allowSubplan ? Type.Union([step, parallel, subplan]) : Type.Union([step, parallel]);
-  return Type.Array(union, options.minItems !== undefined ? { minItems: options.minItems } : {});
+  // maxItems from the parser's home (directives.ts) — the cap is stated to
+  // the model AND enforced from one constant (round-7, C3).
+  return Type.Array(union, {
+    maxItems: MAX_DIRECTIVES,
+    ...(options.minItems !== undefined ? { minItems: options.minItems } : {}),
+  });
 }
 
 export const STATE_REGISTRY: Record<State, StateDefinition> = {

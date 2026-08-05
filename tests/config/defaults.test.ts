@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getDefaultConfig, mergeWithDefaults } from '../../src/config/defaults.js';
+import { getDefaultConfig, mergeWithDefaults, escalatedTemperature } from '../../src/config/defaults.js';
 
 describe('getDefaultConfig', () => {
   it('returns a valid config with required fields', () => {
@@ -39,5 +39,14 @@ describe('mergeWithDefaults', () => {
     });
     expect(config.safety?.enableCheckpoint).toBe(true);
     expect(config.safety?.maxFilesPerTask).toBe(5);
+  });
+});
+
+describe('escalatedTemperature (round-6, C4 — the one formula)', () => {
+  it('ramps by attempt and caps at MAX_TEMPERATURE', () => {
+    expect(escalatedTemperature(0)).toBe(0.1);
+    expect(escalatedTemperature(1)).toBeCloseTo(0.3);
+    expect(escalatedTemperature(2)).toBeCloseTo(0.5);
+    expect(escalatedTemperature(5)).toBe(0.5); // capped
   });
 });

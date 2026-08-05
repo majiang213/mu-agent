@@ -2,7 +2,7 @@
 
 Domain language for this codebase. Use these terms in code, docs, and reviews.
 Architecture vocabulary (module, interface, depth, seam, adapter, leverage,
-locality) comes from the codebase-design skill; this file covers the *domain*.
+locality) comes from the codebase-design skill; this file covers the _domain_.
 
 ## Core loop
 
@@ -22,7 +22,7 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
   verbPrefix. complete() args are validated against the same completeSchema
   the model sees (TypeBox Value.Check + reminderFields message). The REASON /
   PLAN `steps` unions come from one file-local `stepsArraySchema({
-  allowSubplan, minItems })` factory — the model-facing schema of the
+allowSubplan, minItems })` factory — the model-facing schema of the
   StepDirective shape has one home beside its type (types.ts) and parser
   (directives.ts) homes.
 - **step-outputs** (`src/core/step-outputs.ts`) — the read side of those
@@ -43,14 +43,14 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
 - **ExecutionEvent** — the event union streamed from core to the TUI. The TUI's
   handler chain ends in an exhaustiveness check (unhandled variant = compile
   error). `state_change` phases are typed `RunPhase = State | 'IDLE' |
-  'SAMPLING'` — pseudo-states are declared, not smuggled; rollback reports via
+'SAMPLING'` — pseudo-states are declared, not smuggled; rollback reports via
   `rollback_performed`, never a fabricated tool call.
 - **SafeModifier** — file checkpoints before edit/write; rollback restores them.
   The checkpoint store is SHARED across parallel branches (never forked).
 - **directives module** (`src/core/agent/directives.ts`) — one home for
   StepDirective: parse / flatten / fingerprint / format. Dedup, Jaccard
   similarity, and retry-loop detection all read one canonical fingerprint.
-- **runReasonAttempt** (`step-runner.ts`) — the single REASON planning
+- **runReasonAttempt** (`src/core/agent/reason-runner.ts`) — the single REASON planning
   implementation; Heavy Thinking samples run it with a cloned state machine
   and throwOnFailure, so samples plan with the same memory injection and
   REMINDER retries as the real REASON step.
@@ -88,7 +88,7 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
   conversation, not capture protocol.
 - **StepAgentDriver** (`src/core/agent/types.ts`) — the single collaborator
   behind EVERY step agent, REASON included: `{ buildAgent,
-  driveUntilComplete }`. Production uses `defaultStepDriver`
+driveUntilComplete }`. Production uses `defaultStepDriver`
   (reason-runner.ts, composing builder.ts); tests inject `cfg.stepDriver`
   and fake the seam instead of mocking the module graph.
 - **RunSetupFactory** (`src/core/agent/setup.ts`) — the assembly seam one
@@ -106,7 +106,7 @@ locality) comes from the codebase-design skill; this file covers the *domain*.
   a step-local copy. File budget has one source: safety config
   (DEFAULT_MAX_FILES_PER_TASK); the ModelParams tier table was dead code.
 - **git guard** (`src/tool/safety/git-guard.ts`) — the default-deny git
-  allowlist (GIT_HARD_DENY + wrapWithGitGuard), wired onto every state's bash
+  allowlist (GIT_GUARD_SPEC + wrapWithGitGuard), wired onto every state's bash
   tool by applyStateToolPolicy. Lives in tool/safety/ beside SafeModifier (C8).
   `GIT_ALLOWLIST_ENTRIES` is the one enumeration of allowed subcommands: the
   block-time summary and the GIT instruction in STATE_REGISTRY both derive

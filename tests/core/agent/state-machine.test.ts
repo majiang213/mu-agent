@@ -34,14 +34,6 @@ describe('StateMachineAgent', () => {
     it('null param count (unknown/custom) → LARGE tier', () => {
       expect(new StateMachineAgent('model', [], null).getModelParams().tier).toBe('LARGE');
     });
-
-    it('SMALL tier has strictPlanning=true', () => {
-      expect(new StateMachineAgent('model', [], 7e9).getModelParams().strictPlanning).toBe(true);
-    });
-
-    it('LARGE tier has strictPlanning=false', () => {
-      expect(new StateMachineAgent('model', [], 70e9).getModelParams().strictPlanning).toBe(false);
-    });
   });
 
   describe('state transitions', () => {

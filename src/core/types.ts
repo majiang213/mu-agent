@@ -1,9 +1,8 @@
 /**
- * State machine types for mu-agent
- * Based on architecture design: deterministic pipeline + constrained LLM
+ * State machine types for mu-agent — interfaces are kept at their read
+ * surface (round-8, candidate 1: members with zero readers are deleted,
+ * not documented).
  */
-
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 export interface SteerMessage {
   role: 'steer';
@@ -46,29 +45,23 @@ export interface SubplanSpec {
 /** Model capability tiers */
 export type ModelTier = 'SMALL' | 'MEDIUM' | 'LARGE';
 
-/** Model parameters for adaptive constraints */
+/** Model parameters for adaptive constraints — tier is the only living
+ *  dimension (retry budget is a constant at its one read site; strictPlanning
+ *  and paramCount had zero readers — round-8, candidate 1). */
 export interface ModelParams {
   tier: ModelTier;
-  paramCount: number;
-  maxRetries: number;
-  strictPlanning: boolean;
 }
 
-/** Result from state execution */
+/** Result of a full run — exactly what cli/tui/memory consume. */
 export interface StateResult {
-  state: State;
   success: boolean;
   output: string;
-  nextState: State;
-  messages?: AgentMessage[];
 }
 
-/** Tool call record */
+/** Tool call record — the stagnation detector compares tool+input only. */
 export interface ToolCall {
   tool: string;
   input: unknown;
-  output: unknown;
-  timestamp: number;
 }
 
 /** State machine configuration */

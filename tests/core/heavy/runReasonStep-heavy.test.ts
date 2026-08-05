@@ -1,133 +1,62 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { State } from '../../../src/core/types.js';
-import type { RunConfig, ExecutionEvent } from '../../../src/core/agent/types.js';
-import type { PlanCandidate } from '../../../src/core/heavy/types.js';
-
-vi.mock('../../../src/core/heavy/sampler.js', () => ({
-  samplePlans: vi.fn(),
-  SAMPLING_BATCH_SIZE: 2,
-}));
-
-vi.mock('../../../src/core/heavy/deliberator.js', () => ({
-  deliberate: vi.fn(),
-  pickShortest: (candidates: PlanCandidate[]) =>
-    candidates.reduce((a: PlanCandidate, b: PlanCandidate) => (a.steps.length <= b.steps.length ? a : b)),
-}));
-
-vi.mock('../../../src/core/agent/builder.js', () => ({
-  buildStepAgent: vi.fn(() => {
-    throw new Error('phase0 mocked failure');
-  }),
-  subscribeStepEvents: vi.fn(),
-}));
-
-vi.mock('../../../src/tool/safety/git-guard.js', () => ({
-  wrapWithGitGuard: vi.fn((t) => t),
-  gitAllowlistGuidance: vi.fn(() => 'status, log, diff'),
-}));
-
-vi.mock('../../../src/core/cognitive/index.js', () => ({
-  StagnationDetector: vi.fn(() => ({
-    recordToolCall: vi.fn(),
-    recordError: vi.fn(),
-    check: vi.fn(() => ({ detected: false })),
-    reset: vi.fn(),
-  })),
-}));
-
-vi.mock('../../../src/core/compaction/index.js', () => ({
-  compressConversationHistoryWithLLM: vi.fn(async (msgs: unknown[]) => msgs),
-  compactLoopMessages: vi.fn((msgs: unknown[]) => msgs),
-}));
-
-vi.mock('../../../src/tool/complete.js', () => ({
-  buildCompleteTool: vi.fn(() => ({ name: 'complete', execute: vi.fn() })),
-}));
-
-vi.mock('../../../src/core/prompts/agent.js', () => ({
-  buildSystemPrompt: vi.fn(() => 'mocked system prompt'),
-  buildUserPrompt: vi.fn(() => 'mocked user prompt'),
-}));
-
-vi.mock('../../../src/tool/safety/index.js', () => ({
-  syntaxCheckHook: vi.fn(),
-  damageCheckHook: vi.fn(),
-  SafeModifier: vi.fn(() => ({ restoreAndClearWhere: vi.fn(async () => {}) })),
-}));
-
-vi.mock('../../../src/core/graph/locator.js', () => ({
-  CodeGraphLocator: vi.fn(),
-}));
-
-vi.mock('../../../src/tool/lsp.js', () => ({
-  LspClient: vi.fn(() => ({ init: vi.fn(), dispose: vi.fn() })),
-}));
-
-vi.mock('../../../src/core/agent/reason-runner.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/core/agent/reason-runner.js')>();
-  return { ...actual, runStepAgent: vi.fn(async () => {}) };
-});
-
-import { samplePlans } from '../../../src/core/heavy/sampler.js';
-import { deliberate } from '../../../src/core/heavy/deliberator.js';
+import type { RunConfig, ExecutionEvent, Mission } from '../../../src/core/agent/types.js';
+import type { PlanCandidate, DeliberateOutcome } from '../../../src/core/heavy/types.js';
+import { makeRunConfig, makeStateMachineFake } from '../../helpers/run-config.js';
 import { runReasonStep } from '../../../src/core/agent/step-runner.js';
+import type { HeavyPlanOptions } from '../../../src/core/heavy/planner.js';
 
-function makePlan(id: string, states: State[]): PlanCandidate {
-  return { id, steps: states.map((s, i) => ({ state: s, focus: `focus ${i}` })) };
+/**
+ * runReasonStep heavy-path tests drive the planner through its config slots
+ * (round-7, candidate 2): runAttempt / sample / deliberate fakes — zero
+ * module-graph mocks. Phase-0 "failure" is just a runAttempt that throws.
+ */
+
+function makePlan(states: State[]): PlanCandidate {
+  return { steps: states.map((s, i) => ({ state: s, focus: `focus ${i}` })) };
 }
 
 function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {
-  return {
+  return makeRunConfig({
     model: { id: 'test-model', provider: 'ollama', baseUrl: 'http://localhost/v1' } as RunConfig['model'],
-    models: {} as RunConfig['models'],
-    stateMachine: {
-      transitionTo: vi.fn(),
-      getModelParams: vi.fn(() => ({
-        tier: 'SMALL',
-        paramCount: 7,
-        maxFilesPerTask: 2,
-        maxRetries: 1,
-        strictPlanning: true,
-      })),
-      getCurrentState: vi.fn(() => State.REASON),
-      resetFileBudget: vi.fn(),
-      getStateConfig: vi.fn(() => ({ allowedTools: [], prompt: '' })),
-    } as unknown as RunConfig['stateMachine'],
-    safetyConfig: {},
-    locator: null,
-    safeModifier: { restoreAndClearWhere: vi.fn(async () => {}) } as unknown as RunConfig['safeModifier'],
-    env: { cwd: '/tmp', platform: 'linux', isGitRepo: false, date: '2026-01-01' } as RunConfig['env'],
+    stateMachine: makeStateMachineFake({ tier: 'SMALL', extraParams: { maxFilesPerTask: 2 } }),
     temperature: 0.1,
     contextRatio: 0.75,
     apiKey: 'ollama',
-    projectRoot: '/tmp',
-    registerAgent: vi.fn(),
-    unregisterAgent: vi.fn(),
-    heavyThinking,
-  };
+    ...(heavyThinking !== undefined ? { heavyThinking } : {}),
+  });
 }
 
-function makeSelectedOutcome(
-  plan: PlanCandidate,
-): Extract<Awaited<ReturnType<typeof deliberate>>, { type: 'selected' }> {
+function makeSelectedOutcome(plan: PlanCandidate): Extract<DeliberateOutcome, { type: 'selected' }> {
   return {
     type: 'selected',
     result: { synthesizedSteps: plan.steps, deliberationSummary: 'synthesized' },
   };
 }
 
+const MISSION = { id: 't', description: 'fix bug', state: 'running' as const };
+
+/** Slots with the phase-0 attempt failing — the canonical heavy-path entry. */
+function heavySlots(overrides: Partial<HeavyPlanOptions> = {}): HeavyPlanOptions {
+  return {
+    runAttempt: vi.fn(async () => {
+      throw new Error('phase0 mocked failure');
+    }),
+    sample: vi.fn(async () => [makePlan([State.MODIFY])]),
+    deliberate: vi.fn(async () => makeSelectedOutcome(makePlan([State.MODIFY]))),
+    ...overrides,
+  };
+}
+
 describe('runReasonStep — heavy path', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    // fakes are per-test through config slots — nothing module-global to clear
   });
 
-  it('fires deliberation_start with correct candidateCount', async () => {
-    const cfg = makeCfg();
-    const plan = makePlan('plan-0', [State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
+  it('fires deliberation_start before sampling begins', async () => {
     const events: ExecutionEvent[] = [];
-    await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], {
+    await runReasonStep(MISSION, makeCfg(), [], {
+      ...heavySlots(),
       onEvent: (e) => events.push(e),
     });
     const startEvent = events.find(
@@ -137,23 +66,22 @@ describe('runReasonStep — heavy path', () => {
   });
 
   it('calls deliberate once when sampling succeeds', async () => {
-    const cfg = makeCfg();
-    const plan = makePlan('plan-0', [State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
-    await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, []);
-    expect(deliberate).toHaveBeenCalledTimes(1);
+    const slots = heavySlots();
+    await runReasonStep(MISSION, makeCfg(), [], slots);
+    expect(slots.deliberate).toHaveBeenCalledTimes(1);
   });
 
   it('returns synthesized steps', async () => {
-    const cfg = makeCfg();
-    const plan0 = makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    const plan1 = makePlan('plan-1', [State.MODIFY, State.VERIFY]);
-    const synthesized = makePlan('synthesized', [State.DIAGNOSE, State.LOCATE, State.MODIFY, State.VERIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
-    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(synthesized));
+    const synthesized = makePlan([State.DIAGNOSE, State.LOCATE, State.MODIFY, State.VERIFY]);
     const events: ExecutionEvent[] = [];
-    const result = await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], {
+    const result = await runReasonStep(MISSION, makeCfg(), [], {
+      ...heavySlots({
+        sample: vi.fn(async () => [
+          makePlan([State.LOCATE, State.MODIFY, State.VERIFY]),
+          makePlan([State.MODIFY, State.VERIFY]),
+        ]),
+        deliberate: vi.fn(async () => makeSelectedOutcome(synthesized)),
+      }),
       onEvent: (e) => events.push(e),
     });
     expect(result.steps).toEqual(synthesized.steps);
@@ -161,52 +89,45 @@ describe('runReasonStep — heavy path', () => {
   });
 
   it('re-samples after clarification answer', async () => {
-    const cfg = makeCfg();
-    const plan0 = makePlan('plan-0', [State.LOCATE, State.MODIFY]);
-    const plan1 = makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan0, plan1]);
-    vi.mocked(deliberate)
+    const plan0 = makePlan([State.LOCATE, State.MODIFY]);
+    const plan1 = makePlan([State.DIAGNOSE, State.MODIFY]);
+    const sample = vi.fn(async (_mission: Mission) => [plan0, plan1]);
+    const deliberate = vi
+      .fn()
       .mockResolvedValueOnce({ type: 'needs_clarification', question: 'Which file?' })
       .mockResolvedValueOnce(makeSelectedOutcome(plan0));
     const events: ExecutionEvent[] = [];
-    const result = await runReasonStep({ id: 't', description: 'fix bug', state: 'running' }, cfg, [], {
+    const result = await runReasonStep(MISSION, makeCfg(), [], {
+      ...heavySlots({ sample, deliberate }),
       onEvent: (e) => events.push(e),
       onNeedsClarify: async () => 'src/auth.ts',
     });
-    expect(samplePlans).toHaveBeenCalledTimes(2);
+    expect(sample).toHaveBeenCalledTimes(2);
     expect(deliberate).toHaveBeenCalledTimes(2);
     expect(events.some((e) => e.type === 'deliberation_clarification')).toBe(true);
     expect(result.steps).toEqual(plan0.steps);
-    const secondMissionDesc = vi.mocked(samplePlans).mock.calls[1]![0].description;
+    const secondMissionDesc = vi.mocked(sample).mock.calls[1]![0].description;
     expect(secondMissionDesc).toContain('src/auth.ts');
   });
 
   it('second deliberate uses allowClarification=false', async () => {
-    const cfg = makeCfg();
-    const plans = [
-      makePlan('plan-0', [State.LOCATE, State.MODIFY]),
-      makePlan('plan-1', [State.DIAGNOSE, State.MODIFY]),
-    ];
-    vi.mocked(samplePlans).mockResolvedValue(plans);
-    vi.mocked(deliberate)
+    const plans = [makePlan([State.LOCATE, State.MODIFY]), makePlan([State.DIAGNOSE, State.MODIFY])];
+    const deliberate = vi
+      .fn()
       .mockResolvedValueOnce({ type: 'needs_clarification', question: 'Which file?' })
       .mockResolvedValueOnce(makeSelectedOutcome(plans[0]!));
-    await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], {
+    await runReasonStep(MISSION, makeCfg(), [], {
+      ...heavySlots({ sample: vi.fn(async () => plans), deliberate }),
       onNeedsClarify: async () => 'answer',
     });
     expect(vi.mocked(deliberate).mock.calls[1]![4]).toBe(false);
   });
 
   it('fires deliberation_start and deliberation_fallback when samples array is empty', async () => {
-    const cfg = makeCfg();
-    vi.mocked(samplePlans).mockResolvedValue([]);
-    vi.mocked(deliberate).mockResolvedValue({
-      type: 'selected',
-      result: { synthesizedSteps: [], deliberationSummary: '' },
-    });
     const events: ExecutionEvent[] = [];
     try {
-      await runReasonStep({ id: 't', description: 'fix', state: 'running' }, cfg, [], {
+      await runReasonStep(MISSION, makeCfg(), [], {
+        ...heavySlots({ sample: vi.fn(async () => []) }),
         onEvent: (e) => events.push(e),
       });
     } catch {
@@ -217,15 +138,17 @@ describe('runReasonStep — heavy path', () => {
   });
 
   it('enters heavy thinking when phase0 fails (fallback path)', async () => {
-    const cfg = makeCfg();
-    const plan = makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]);
-    vi.mocked(samplePlans).mockResolvedValue([plan]);
-    vi.mocked(deliberate).mockResolvedValue(makeSelectedOutcome(plan));
+    const plan = makePlan([State.LOCATE, State.MODIFY, State.VERIFY]);
     const events: ExecutionEvent[] = [];
-    await runReasonStep({ id: 't', description: 'fix bug in calc.js', state: 'running' }, cfg, [], {
+    const slots = heavySlots({
+      sample: vi.fn(async () => [plan]),
+      deliberate: vi.fn(async () => makeSelectedOutcome(plan)),
+    });
+    await runReasonStep({ id: 't', description: 'fix bug in calc.js', state: 'running' }, makeCfg(), [], {
+      ...slots,
       onEvent: (e) => events.push(e),
     });
     expect(events.some((e) => e.type === 'state_change' && e.to === 'SAMPLING')).toBe(true);
-    expect(samplePlans).toHaveBeenCalledTimes(1);
+    expect(slots.sample).toHaveBeenCalledTimes(1);
   });
 });

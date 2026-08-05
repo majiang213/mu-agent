@@ -51,7 +51,7 @@ function makeMinimalCfg(projectRoot: string): RunConfig {
     },
     models: { streamSimple: vi.fn(async () => ({ content: [] })) },
     stateMachine: {
-      getModelParams: vi.fn(() => ({ tier: 'LARGE', maxRetries: 3, strictPlanning: false, maxFilesPerTask: 5 })),
+      getModelParams: vi.fn(() => ({ tier: 'LARGE' })),
       transitionTo: vi.fn(),
       recordToolCall: vi.fn(),
       canModifyMoreFiles: vi.fn(() => true),

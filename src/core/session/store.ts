@@ -78,8 +78,8 @@ export class SessionStore {
     }));
   }
 
-  /** Append a user/assistant message as child of the current leaf (sync write, async signature kept for call sites). */
-  append(msg: SessionMessage): Promise<void> {
+  /** Append a user/assistant message as child of the current leaf (sync write). */
+  append(msg: SessionMessage): void {
     // Single-point cast: mu-agent persists duck-typed {role, content, timestamp}
     // messages (presenter.assistantMessageForSession), which pi stores verbatim
     // and returns untouched on load — the roundtrip is exact.
@@ -87,7 +87,6 @@ export class SessionStore {
       SessionManager['appendMessage']
     >[0];
     this.manager.appendMessage(message);
-    return Promise.resolve();
   }
 
   /** Messages on the active branch, root → leaf. */

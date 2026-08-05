@@ -1,8 +1,8 @@
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import { StagnationDetector } from '../cognitive/index.js';
 import { retryDelayMs, sleep } from '../failure/index.js';
-import { DEFAULT_TEMPERATURE, MAX_TEMPERATURE, RETRY_TEMPERATURE_STEP } from '../../config/defaults.js';
-import { buildCompleteTool } from '../../tool/complete.js';
+import { escalatedTemperature } from '../../config/defaults.js';
+import { CompleteCapture } from '../../tool/complete.js';
 import { buildSystemPrompt } from '../prompts/agent.js';
 import { buildStepAgent, steer, subscribeStepEvents } from './builder.js';
 import { parseDirectives } from './directives.js';
@@ -32,7 +32,9 @@ export async function runStepAgent(
   cfg: RunConfig,
   stagnationDetector: StagnationDetector,
 ): Promise<void> {
-  const maxRetries = Math.max(cfg.stateMachine.getModelParams().maxRetries, 3);
+  // The one statement of the retry budget (the old tier-differentiated
+  // ModelParams.maxRetries was clamped to exactly this — round-8, candidate 1).
+  const maxRetries = 3;
   const baseTemperature = cfg.temperature;
   let attempt = 0;
   let lastError: Error | undefined;
@@ -54,7 +56,7 @@ export async function runStepAgent(
         // is never mutated; buildStepAgent's streamFn closure reads
         // temperature lazily at call time, so the escalation reaches the
         // model without an agent rebuild. Restored in finally as hygiene.
-        cfg.temperature = Math.min(DEFAULT_TEMPERATURE + attempt * RETRY_TEMPERATURE_STEP, MAX_TEMPERATURE);
+        cfg.temperature = escalatedTemperature(attempt);
         stagnationDetector.reset();
         cfg.stateMachine.resetFileBudget();
         // Restore + clear only THIS step's checkpoints (owner = this step's
@@ -78,7 +80,7 @@ const REMINDER_PROMPT = '[REMINDER] Call complete() now.';
  * REMINDER prompt. The public re-drive for custom branches (clarification
  * answers, invalid-plan errors) that driveUntilComplete does not own.
  */
-export async function redrive(
+async function redrive(
   agent: Agent,
   steerContent: string,
   cfg: RunConfig,
@@ -97,7 +99,7 @@ export async function redrive(
  * nowhere else (previously runReasonAttempt hand-rolled two near-identical
  * copies with an A/B repair-chance asymmetry).
  */
-export async function captureRounds(
+async function captureRounds(
   agent: Agent,
   cfg: RunConfig,
   stagnationDetector: StagnationDetector,
@@ -201,10 +203,7 @@ export async function runReasonAttempt(
   });
 
   const stagnationDetector = new StagnationDetector();
-  let capturedComplete: Record<string, unknown> | null = null;
-  const completeTool = buildCompleteTool(State.REASON, (args) => {
-    capturedComplete = args;
-  });
+  const capture = new CompleteCapture(State.REASON);
 
   const extraTools: AgentTool[] = memorySearchTool ? [memorySearchTool] : [];
   // REASON builds and drives through the same StepAgentDriver seam as every
@@ -216,7 +215,7 @@ export async function runReasonAttempt(
     initialMessages: conversationHistory,
     state: State.REASON,
     cfg: stepCfg,
-    tools: [completeTool, ...extraTools],
+    tools: [capture.tool, ...extraTools],
     stagnationDetector,
     onEvent,
   });
@@ -227,15 +226,16 @@ export async function runReasonAttempt(
       onEvent?.({ type: 'state_change', from: fromState, to: State.REASON });
     }
     await driver.driveUntilComplete(agent, mission.description, stepCfg, stagnationDetector, {
-      hasCaptured: () => capturedComplete !== null,
+      hasCaptured: () => capture.captured(),
       reminderSteer: '[REMINDER] You must call complete() to submit your execution plan.',
     });
 
     // Clarification is conversation, not capture protocol — stays here.
-    if (capturedComplete !== null && capturedComplete['needsClarify'] === true && onNeedsClarify) {
-      const questions = Array.isArray(capturedComplete['questions']) ? (capturedComplete['questions'] as string[]) : [];
+    const firstCapture = capture.peek();
+    if (firstCapture !== null && firstCapture['needsClarify'] === true && onNeedsClarify) {
+      const questions = Array.isArray(firstCapture['questions']) ? (firstCapture['questions'] as string[]) : [];
       const answer = await onNeedsClarify(questions);
-      capturedComplete = null;
+      capture.reset();
       await redrive(
         agent,
         `User answered: "${answer}". Now call complete(steps=[...]) with your updated execution plan. steps can be [] for direct Q&A.`,
@@ -249,14 +249,15 @@ export async function runReasonAttempt(
     // A/B aligned (round-5): a plan captured on the error round now earns the
     // same single repair chance as one captured on the first drive.
     await captureRounds(agent, stepCfg, stagnationDetector, {
-      hasCaptured: () => capturedComplete !== null,
+      hasCaptured: () => capture.captured(),
       reminderSteer:
         '[ERROR] You did not call complete(). You MUST call complete(steps=[...]) now to submit your plan.',
       validate: () => {
-        if (capturedComplete === null || capturedComplete['needsClarify'] === true) return null;
-        const { error } = parseDirectives(capturedComplete);
+        const c = capture.peek();
+        if (c === null || c['needsClarify'] === true) return null;
+        const { error } = parseDirectives(c);
         if (!error) return null;
-        capturedComplete = null; // fresh attempt
+        capture.reset(); // fresh attempt
         return `[ERROR] complete() was called but the plan is invalid. ${error} Fix and call complete() again with valid steps.`;
       },
       maxRounds: 2,
@@ -264,12 +265,12 @@ export async function runReasonAttempt(
 
     // Final parse after the rounds.
     let lastParseError: string | null = null;
-    if (capturedComplete !== null) {
-      const c = capturedComplete;
-      if (c['needsClarify'] === true) {
+    const finalCapture = capture.peek();
+    if (finalCapture !== null) {
+      if (finalCapture['needsClarify'] === true) {
         return { steps: [] };
       }
-      const { steps, error } = parseDirectives(c);
+      const { steps, error } = parseDirectives(finalCapture);
       if (!error) {
         return { steps };
       }

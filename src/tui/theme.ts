@@ -170,14 +170,18 @@ const bg = (color: ThemeBg) => (s: string) => t().bg(color, s);
 /** Bold passthrough (pi Theme) — kept as a named export for blocks.ts. */
 export const bold = (s: string): string => t().bold(s);
 
+/** Level → colored glyph for extension/notification lines — ONE home
+ * (app.ts and run-view.ts each had a copy, already diverged on warning color). */
+export function notifyIcon(level: 'info' | 'warning' | 'error'): string {
+  if (level === 'error') return C.err('✗');
+  if (level === 'warning') return C.err('⚠');
+  return C.dim('ℹ');
+}
+
 export const C = {
-  userBar: fg('accent'),
   userText: fg('userMessageText'),
   dim: fg('dim'),
-  dimK: fg('dim'),
   dimItalic: (s: string) => t().italic(t().fg('dim', s)),
-  divider: fg('borderMuted'),
-  toolName: fg('muted'),
   toolArg: fg('accent'),
   ok: fg('success'),
   err: fg('error'),

@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { ReactAgent } from '../../src/core/agent/index.js';
 import { StateMachineAgent } from '../../src/core/session/index.js';
-import { MetricsCollector } from '../../src/tui/metrics.js';
 import { State, type Step } from '../../src/core/types.js';
 import { loadConfig, ConfigNotFoundError } from '../../src/config/loader.js';
 import type { Config } from '../../src/config/types.js';
@@ -28,7 +27,7 @@ async function isOllamaRunning(): Promise<boolean> {
 }
 
 // Tests that do NOT require config or Ollama
-describe('StateMachine + Metrics (no Ollama required)', () => {
+describe('StateMachine + run stats (no Ollama required)', () => {
   it('StateMachineAgent.getAllowedTools() 按状态限制工具', () => {
     // Note: 'complete' is a runtime-injected tool (buildCompleteTool), not in the static allTools list.
     // getAllowedTools() only returns static tools filtered by allowedTools config.
@@ -46,31 +45,24 @@ describe('StateMachine + Metrics (no Ollama required)', () => {
     expect(modifyTools).not.toContain('bash');
   });
 
-  it('MetricsCollector: 追踪多步骤任务生命周期', () => {
-    const metrics = new MetricsCollector();
+  it('Run stats: 多步骤任务计数（MetricsCollector 已删，R7-C8 — HeaderLine 是唯一累加器）', () => {
     const steps: Step[] = [
       { state: State.LOCATE, focus: '定位登录 bug' },
       { state: State.MODIFY, focus: '修复 bug' },
     ];
-
+    let llmCalls = 0;
+    let totalTokens = 0;
     for (let i = 0; i < steps.length; i++) {
-      const taskId = `step-${i}`;
-      metrics.startTask(taskId);
-      metrics.recordLLMCall(taskId, 400, 150);
-      metrics.finishTask(taskId, true);
+      llmCalls += 1;
+      totalTokens += 400 + 150;
     }
-
-    const m0 = metrics.getMetrics('step-0')!;
-    const m1 = metrics.getMetrics('step-1')!;
-    console.log(`[Metrics] step-0 llmCalls=${m0.llmCalls} step-1 llmCalls=${m1.llmCalls}`);
-
-    expect(m0.success).toBe(true);
-    expect(m1.success).toBe(true);
-    expect(m0.estimatedTokens).toBeGreaterThan(0);
+    console.log(`[Stats] steps=${steps.length} llmCalls=${llmCalls} tokens=${totalTokens}`);
+    expect(llmCalls).toBe(2);
+    expect(totalTokens).toBeGreaterThan(0);
   });
 
-  it('完整流程: 动态步骤 → 状态机 → Metrics 汇总', () => {
-    const metrics = new MetricsCollector();
+  it('完整流程: 动态步骤 → 状态机 → 调用计数', () => {
+    let llmCalls = 0;
     const agent = new StateMachineAgent(MODEL);
 
     const steps: Step[] = [
@@ -86,16 +78,13 @@ describe('StateMachine + Metrics (no Ollama required)', () => {
       agent.transitionTo(step.state);
       const prompt = agent.generatePrompt(step.focus);
 
-      metrics.startTask(taskId);
-      metrics.recordLLMCall(taskId, prompt.length, 200);
-      metrics.finishTask(taskId, true);
+      llmCalls += 1;
+      void taskId;
 
       console.log(`[E2E] step="${step.focus}" state=${step.state} promptLen=${prompt.length}`);
     }
 
-    const last = metrics.getMetrics(`e2e-step-${steps.length - 1}`)!;
-    expect(last.success).toBe(true);
-    expect(last.estimatedTokens).toBeGreaterThan(0);
+    expect(llmCalls).toBe(steps.length);
   });
 });
 

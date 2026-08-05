@@ -1,14 +1,14 @@
 import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@earendil-works/pi-tui';
 import type { SelectItem } from '@earendil-works/pi-tui';
-import { existsSync, readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 
-import { saveConfig, configPaths } from '../config/loader.js';
+import { saveConfig, readExistingDefaults } from '../config/loader.js';
 import { graphExists } from '../core/graph/constants.js';
 import { getLspStatuses } from '../tool/lsp-status.js';
 import { fetchOllamaModels, fetchOpenAICompatModels } from '../provider/model-info.js';
-import type { Config } from '../config/types.js';
+import { defaultBaseUrl } from '../provider/providers.js';
+import type { ProviderName } from '../provider/providers.js';
+import { parseModelSizeInput, providerNeedsModelSize, providerSelectItems } from './setup-logic.js';
 import { C, selectTheme, initMuAgentTheme, listThemes, setMuAgentTheme } from './theme.js';
 
 // ─── SetupWizard ─────────────────────────────────────────────────────────────
@@ -70,63 +70,40 @@ export class SetupWizard {
 
   // ─── Step 1: Model config ──────────────────────────────────────────────────
 
-  private async loadExistingModel(): Promise<Partial<Config['model']>> {
-    // Shared path knowledge (configPaths): project first, then global. The
-    // wizard reads first-existing-wins as defaults; loadConfig() merges —
-    // close enough for defaults, and the paths can no longer drift.
-    for (const p of configPaths()) {
-      if (existsSync(p)) {
-        try {
-          const parsed = JSON.parse(await readFile(p, 'utf-8')) as Partial<Config>;
-          if (parsed.model) return parsed.model;
-        } catch {
-          // ignore malformed file
-        }
-      }
-    }
-    return {};
-  }
-
   private async stepModel(): Promise<void> {
     this.step = 1;
     this.renderHeader();
 
-    const existing = await this.loadExistingModel();
+    // Wizard defaults from the loader's one reader (round-7, C5) — no
+    // homegrown config parsing here.
+    const existing = readExistingDefaults().model ?? {};
 
     this.addStepText('\n  ' + C.ok('Model config'));
     this.addStepText('\n  Provider');
 
-    let provider: string = existing.provider ?? 'ollama';
-    const providerItems: SelectItem[] = [
-      { value: 'ollama', label: 'ollama', description: 'Local Ollama server' },
-      { value: 'unsloth', label: 'unsloth', description: 'Unsloth Studio (default: localhost:8888)' },
-      { value: 'custom', label: 'custom', description: 'OpenAI-compatible API' },
-    ];
+    let provider: ProviderName = (existing.provider as ProviderName | undefined) ?? 'ollama';
+    const providerItems = providerSelectItems();
     const defaultProviderIdx = providerItems.findIndex((i) => i.value === provider);
     const selectedProvider = await this.waitForSelect(providerItems, defaultProviderIdx < 0 ? 0 : defaultProviderIdx);
-    if (selectedProvider) provider = selectedProvider.value;
+    if (selectedProvider) provider = selectedProvider.value as ProviderName;
 
-    const baseUrlDefault =
-      provider === 'ollama' ? 'http://localhost:11434' : provider === 'unsloth' ? 'http://localhost:8888' : '';
     this.addStepText(`\n  Provider: ${C.ok(provider)}\n  Base URL:`);
-    const baseUrl = await this.waitForInput(existing.baseUrl ?? baseUrlDefault);
+    const baseUrl = await this.waitForInput(existing.baseUrl ?? defaultBaseUrl(provider));
 
     const modelName = await this.pickModel(provider, baseUrl, existing.name);
 
     let modelSize: number | undefined;
-    if (provider === 'custom' || provider === 'unsloth') {
+    if (providerNeedsModelSize(provider)) {
       this.addStepText(
         `\n  Model size (unit: B, e.g. 7 means 7B; affects Heavy Thinking and constraint strength)\n  Leave blank to skip (treated as large model):\n  Model size (B):`,
       );
       const raw = await this.waitForInput(existing.modelSize != null ? String(existing.modelSize) : '');
-      const trimmed = raw.trim();
-      const parsed = trimmed === '' ? NaN : Number(trimmed);
-      if (Number.isFinite(parsed) && parsed > 0) modelSize = parsed;
+      modelSize = parseModelSizeInput(raw);
     }
 
     saveConfig({
       model: {
-        provider: provider as 'ollama' | 'custom' | 'unsloth',
+        provider,
         name: modelName,
         baseUrl,
         ...(modelSize != null ? { modelSize } : {}),
@@ -283,7 +260,7 @@ export class SetupWizard {
 
     this.addStepText('\n  ' + C.ok('Theme'));
 
-    const existing = this.loadExistingTheme();
+    const existing = readExistingDefaults().theme;
     const themes = await listThemes();
     const items: SelectItem[] = [
       { value: '', label: 'auto', description: 'Detect from terminal background' },
@@ -304,19 +281,6 @@ export class SetupWizard {
         this.addStepText(`\n  ${C.err('✗')} Theme failed: ${result.error ?? 'unknown'}`);
       }
     }
-  }
-
-  private loadExistingTheme(): string | undefined {
-    for (const p of configPaths()) {
-      if (!existsSync(p)) continue;
-      try {
-        const parsed = JSON.parse(readFileSync(p, 'utf-8')) as Partial<Config>;
-        if (typeof parsed.theme === 'string') return parsed.theme;
-      } catch {
-        // ignore malformed file
-      }
-    }
-    return undefined;
   }
 
   // ─── Step 5: Done ──────────────────────────────────────────────────────────

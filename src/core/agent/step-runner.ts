@@ -1,35 +1,27 @@
 import type { AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
 import { StagnationDetector } from '../cognitive/index.js';
-import { buildCompleteTool } from '../../tool/complete.js';
+import { CompleteCapture, completeReminder } from '../../tool/complete.js';
 import { resolveProjectPath } from '../../tool/safety/paths.js';
 import { buildSystemPrompt, buildUserPrompt } from '../prompts/agent.js';
 import { defaultStepDriver, runReasonAttempt } from './reason-runner.js';
 import { planWithHeavyThinking } from '../heavy/planner.js';
+import type { HeavyPlanOptions } from '../heavy/planner.js';
 import { State } from '../types.js';
-import type { ExecutionEvent, Mission, RunConfig } from './types.js';
+import type { ExecutionEvent, Mission, RunConfig, StepRunOptions } from './types.js';
 import type { Step, ExecutedStep, StepDirective } from '../types.js';
 import { STATE_REGISTRY } from '../state-registry.js';
 import { parseDirectives } from './directives.js';
 import { forkRunConfig, findOverlappingEdits, applyStateToolPolicy } from './step-context.js';
 import { editedFilesFromArgs, parseEditedFiles } from '../step-outputs.js';
-import { extensionToolsForState } from '../extensions/index.js';
-
-/** Options threaded through step execution (4c — replaces 7-9 positional params). */
-export interface StepRunOptions {
-  onEvent?: (event: ExecutionEvent) => void;
-  memoryIndex?: string;
-  memorySearchTool?: AgentTool;
-}
-
-export interface ReasonStepOptions extends StepRunOptions {
-  onNeedsClarify?: (questions: string[]) => Promise<string>;
-}
+import { extensionToolsForState } from '../extensions/loader.js';
 
 export async function runReasonStep(
   mission: Mission,
   cfg: RunConfig,
   conversationHistory: AgentMessage[],
-  options: ReasonStepOptions = {},
+  // HeavyPlanOptions extends ReasonStepOptions + the heavy-path test slots
+  // (round-8, candidate 3 — the relation is a type now, not a comment).
+  options: HeavyPlanOptions = {},
 ): Promise<{ steps: StepDirective[] }> {
   const { onEvent, onNeedsClarify, memoryIndex, memorySearchTool } = options;
   const tier = cfg.stateMachine.getModelParams().tier;
@@ -99,11 +91,9 @@ export async function runStep(
     checkNoProgress: STATE_REGISTRY[step.state]?.readOnly !== true,
   });
   let llmText = '';
-  let capturedComplete: Record<string, unknown> | null = null;
-
-  const completeTool = buildCompleteTool(step.state, (args) => {
-    capturedComplete = args;
-  });
+  // The complete() capture protocol lives in CompleteCapture (one home) —
+  // no per-site slot/closure/predicate re-invention.
+  const capture = new CompleteCapture(step.state);
   const readFiles = new Set<string>();
   const memoryTools: AgentTool[] =
     memorySearchTool && STATE_REGISTRY[step.state]?.memorySearchTool === true ? [memorySearchTool] : [];
@@ -120,7 +110,7 @@ export async function runStep(
     initialMessages: [],
     state: step.state,
     cfg: stepCfg,
-    tools: [...allowedTools, completeTool, ...memoryTools, ...extTools],
+    tools: [...allowedTools, capture.tool, ...memoryTools, ...extTools],
     readFiles,
     stagnationDetector,
     onLlmText: (text) => {
@@ -128,7 +118,7 @@ export async function runStep(
     },
     onEvent,
     onTurnEndComplete: () => {
-      if (capturedComplete !== null) {
+      if (capture.captured()) {
         cfg.stateMachine.transitionTo(State.DONE);
         onEvent?.({ type: 'state_change', from: step.state, to: State.DONE });
       }
@@ -142,8 +132,8 @@ export async function runStep(
   cfg.registerAgent?.(agent);
   try {
     await driver.driveUntilComplete(agent, input, stepCfg, stagnationDetector, {
-      hasCaptured: () => capturedComplete !== null,
-      reminderSteer: `[REMINDER] You must call complete() now. Do NOT output any text — call complete() directly as your only action. Required fields: ${STATE_REGISTRY[step.state]?.reminderFields ?? 'see system prompt'}.`,
+      hasCaptured: () => capture.captured(),
+      reminderSteer: completeReminder(step.state),
     });
   } finally {
     cfg.unregisterAgent?.(agent);
@@ -151,9 +141,10 @@ export async function runStep(
 
   onEvent?.({ type: 'task_end', taskIndex: stepIndex, taskTotal: stepTotal });
 
-  if (step.state === State.MODIFY && capturedComplete !== null) {
+  const captured = capture.peek();
+  if (step.state === State.MODIFY && captured !== null) {
     try {
-      const edited = editedFilesFromArgs(capturedComplete);
+      const edited = editedFilesFromArgs(captured);
       if (edited.length > 0) {
         // THE containment check (tool/safety/paths.ts) — same normalized
         // resolution the checkpoint path uses.
@@ -170,7 +161,7 @@ export async function runStep(
     }
   }
 
-  const output = capturedComplete !== null ? JSON.stringify(capturedComplete) : llmText;
+  const output = captured !== null ? JSON.stringify(captured) : llmText;
   return { state: step.state, focus: step.focus, output };
 }
 

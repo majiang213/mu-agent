@@ -47,10 +47,10 @@ describe('SessionStore', () => {
   describe('append', () => {
     it('persists the file once an assistant message arrives (pi defers user-only sessions)', async () => {
       const store = SessionStore.create(dir);
-      await store.append({ type: 'message', role: 'user', content: 'hello', timestamp: Date.now() });
+      store.append({ type: 'message', role: 'user', content: 'hello', timestamp: Date.now() });
       // pi design: user-only sessions never hit disk (abandoned prompts stay ephemeral)
       expect(existsSync(store.filePath!)).toBe(false);
-      await store.append({ type: 'message', role: 'assistant', content: 'hi', timestamp: Date.now() });
+      store.append({ type: 'message', role: 'assistant', content: 'hi', timestamp: Date.now() });
       const lines = readFileSync(store.filePath!, 'utf-8').trim().split('\n');
       const header = JSON.parse(lines[0]!);
       expect(header.type).toBe('session');
@@ -60,15 +60,15 @@ describe('SessionStore', () => {
     it('isEmpty becomes false after first append', async () => {
       const store = SessionStore.create(dir);
       expect(store.isEmpty).toBe(true);
-      await store.append({ type: 'message', role: 'user', content: 'x', timestamp: Date.now() });
+      store.append({ type: 'message', role: 'user', content: 'x', timestamp: Date.now() });
       expect(store.isEmpty).toBe(false);
     });
 
     it('appends multiple messages in order', async () => {
       const store = SessionStore.create(dir);
-      await store.append({ type: 'message', role: 'user', content: 'msg1', timestamp: 1 });
-      await store.append({ type: 'message', role: 'user', content: 'msg2', timestamp: 2 });
-      await store.append({ type: 'message', role: 'user', content: 'msg3', timestamp: 3 });
+      store.append({ type: 'message', role: 'user', content: 'msg1', timestamp: 1 });
+      store.append({ type: 'message', role: 'user', content: 'msg2', timestamp: 2 });
+      store.append({ type: 'message', role: 'user', content: 'msg3', timestamp: 3 });
       const msgs = store.load();
       expect(msgs.map((m) => (m as { content: string }).content)).toEqual(['msg1', 'msg2', 'msg3']);
     });
@@ -82,8 +82,8 @@ describe('SessionStore', () => {
 
     it('roundtrips user + assistant messages with roles and content', async () => {
       const store = SessionStore.create(dir);
-      await store.append({ type: 'message', role: 'user', content: 'hello', timestamp: 123 });
-      await store.append({ type: 'message', role: 'assistant', content: 'world', timestamp: 456 });
+      store.append({ type: 'message', role: 'user', content: 'hello', timestamp: 123 });
+      store.append({ type: 'message', role: 'assistant', content: 'world', timestamp: 456 });
       const msgs = store.load();
       expect(msgs).toHaveLength(2);
       expect(msgs[0]!.role).toBe('user');
@@ -105,12 +105,12 @@ describe('SessionStore', () => {
 
     it('opens the most recent session', async () => {
       const older = SessionStore.create(dir);
-      await older.append({ type: 'message', role: 'user', content: 'first', timestamp: 1 });
-      await older.append({ type: 'message', role: 'assistant', content: 'reply1', timestamp: 2 });
+      older.append({ type: 'message', role: 'user', content: 'first', timestamp: 1 });
+      older.append({ type: 'message', role: 'assistant', content: 'reply1', timestamp: 2 });
       await new Promise((r) => setTimeout(r, 20));
       const newer = SessionStore.create(dir);
-      await newer.append({ type: 'message', role: 'user', content: 'second', timestamp: 3 });
-      await newer.append({ type: 'message', role: 'assistant', content: 'reply2', timestamp: 4 });
+      newer.append({ type: 'message', role: 'user', content: 'second', timestamp: 3 });
+      newer.append({ type: 'message', role: 'assistant', content: 'reply2', timestamp: 4 });
 
       const latest = SessionStore.openLatest(dir);
       expect(latest).not.toBeNull();
@@ -120,8 +120,8 @@ describe('SessionStore', () => {
 
     it('opened store has isEmpty=false', async () => {
       const s = SessionStore.create(dir);
-      await s.append({ type: 'message', role: 'user', content: 'x', timestamp: 1 });
-      await s.append({ type: 'message', role: 'assistant', content: 'y', timestamp: 2 });
+      s.append({ type: 'message', role: 'user', content: 'x', timestamp: 1 });
+      s.append({ type: 'message', role: 'assistant', content: 'y', timestamp: 2 });
       const opened = SessionStore.openLatest(dir);
       expect(opened?.isEmpty).toBe(false);
     });
@@ -130,8 +130,8 @@ describe('SessionStore', () => {
   describe('open', () => {
     it('opens a specific session by filePath', async () => {
       const s = SessionStore.create(dir);
-      await s.append({ type: 'message', role: 'user', content: 'specific', timestamp: 1 });
-      await s.append({ type: 'message', role: 'assistant', content: 'answer', timestamp: 2 });
+      s.append({ type: 'message', role: 'user', content: 'specific', timestamp: 1 });
+      s.append({ type: 'message', role: 'assistant', content: 'answer', timestamp: 2 });
       const opened = SessionStore.open(s.filePath!, dir);
       const msgs = opened.load();
       expect((msgs[0] as { content: string }).content).toBe('specific');
@@ -145,12 +145,12 @@ describe('SessionStore', () => {
 
     it('returns session infos newest first', async () => {
       const older = SessionStore.create(dir);
-      await older.append({ type: 'message', role: 'user', content: 'old session', timestamp: 1 });
-      await older.append({ type: 'message', role: 'assistant', content: 'r1', timestamp: 2 });
+      older.append({ type: 'message', role: 'user', content: 'old session', timestamp: 1 });
+      older.append({ type: 'message', role: 'assistant', content: 'r1', timestamp: 2 });
       await new Promise((r) => setTimeout(r, 20));
       const newer = SessionStore.create(dir);
-      await newer.append({ type: 'message', role: 'user', content: 'new session', timestamp: 3 });
-      await newer.append({ type: 'message', role: 'assistant', content: 'r2', timestamp: 4 });
+      newer.append({ type: 'message', role: 'user', content: 'new session', timestamp: 3 });
+      newer.append({ type: 'message', role: 'assistant', content: 'r2', timestamp: 4 });
 
       const list = await SessionStore.list(dir);
       expect(list.length).toBe(2);
@@ -159,17 +159,17 @@ describe('SessionStore', () => {
 
     it('preview is the first USER message (assistant messages skipped)', async () => {
       const s = SessionStore.create(dir);
-      await s.append({ type: 'message', role: 'assistant', content: 'unprefixed assistant text', timestamp: 1 });
-      await s.append({ type: 'message', role: 'user', content: 'real user msg', timestamp: 2 });
-      await s.append({ type: 'message', role: 'assistant', content: 'more', timestamp: 3 });
+      s.append({ type: 'message', role: 'assistant', content: 'unprefixed assistant text', timestamp: 1 });
+      s.append({ type: 'message', role: 'user', content: 'real user msg', timestamp: 2 });
+      s.append({ type: 'message', role: 'assistant', content: 'more', timestamp: 3 });
       const list = await SessionStore.list(dir);
       expect(list[0]!.preview).toBe('real user msg');
     });
 
     it('each info has filePath, created, preview fields', async () => {
       const s = SessionStore.create(dir);
-      await s.append({ type: 'message', role: 'user', content: 'hello', timestamp: 1 });
-      await s.append({ type: 'message', role: 'assistant', content: 'hi', timestamp: 2 });
+      s.append({ type: 'message', role: 'user', content: 'hello', timestamp: 1 });
+      s.append({ type: 'message', role: 'assistant', content: 'hi', timestamp: 2 });
       const list = await SessionStore.list(dir);
       expect(typeof list[0]!.filePath).toBe('string');
       expect(typeof list[0]!.created).toBe('number');
