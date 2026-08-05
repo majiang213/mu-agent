@@ -46,6 +46,7 @@ function makeCfg(hooks: AgentRegistryHooks): RunConfig {
   };
   return {
     model: {} as RunConfig['model'],
+    models: {} as RunConfig['models'],
     stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
     locator: null,
@@ -82,6 +83,7 @@ function makeFakeSetup(): FakeSetup {
     memoryIndex: '',
     memorySearchTool: {} as RunSetup['memorySearchTool'],
     pendingSummaries: Promise.resolve(),
+    extensionErrors: [],
     close: vi.fn(),
   };
   const factory: RunSetupFactory = async (_config, _cwd, hooks) => {

@@ -142,8 +142,8 @@ describe('stepDone graphOk logic', () => {
 
       const textContents: string[] = [];
       const { Text } = await import('@earendil-works/pi-tui');
-      vi.mocked(Text).mockImplementation(function (text: string) {
-        textContents.push(text);
+      vi.mocked(Text).mockImplementation(function (text?: string) {
+        textContents.push(text ?? '');
         return { text, invalidate: vi.fn(), render: vi.fn() } as unknown as InstanceType<typeof Text>;
       });
 
@@ -173,8 +173,8 @@ describe('stepDone graphOk logic', () => {
 
       const textContents: string[] = [];
       const { Text } = await import('@earendil-works/pi-tui');
-      vi.mocked(Text).mockImplementation(function (text: string) {
-        textContents.push(text);
+      vi.mocked(Text).mockImplementation(function (text?: string) {
+        textContents.push(text ?? '');
         return { text, invalidate: vi.fn(), render: vi.fn() } as unknown as InstanceType<typeof Text>;
       });
 
@@ -204,8 +204,8 @@ describe('stepDone graphOk logic', () => {
 
       const textContents: string[] = [];
       const { Text } = await import('@earendil-works/pi-tui');
-      vi.mocked(Text).mockImplementation(function (text: string) {
-        textContents.push(text);
+      vi.mocked(Text).mockImplementation(function (text?: string) {
+        textContents.push(text ?? '');
         return { text, invalidate: vi.fn(), render: vi.fn() } as unknown as InstanceType<typeof Text>;
       });
 

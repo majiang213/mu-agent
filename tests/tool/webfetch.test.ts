@@ -25,10 +25,10 @@ function fakeResponse(init: {
 }
 
 async function toolText(
-  tool: { execute: (id: string, params: unknown) => Promise<{ content: Array<{ type: string; text?: string }> }> },
+  tool: { execute: (id: string, params: never) => Promise<{ content: Array<{ type: string; text?: string }> }> },
   params: unknown,
 ): Promise<string> {
-  const r = await tool.execute('id', params);
+  const r = await tool.execute('id', params as never);
   return r.content.flatMap((c) => (c.type === 'text' && c.text ? [c.text] : [])).join('');
 }
 

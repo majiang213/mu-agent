@@ -70,6 +70,7 @@ function makeCfg(driver: RunConfig['stepDriver']): RunConfig {
   };
   return {
     model: {} as RunConfig['model'],
+    models: {} as RunConfig['models'],
     stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
     locator: null,

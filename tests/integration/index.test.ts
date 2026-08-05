@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { State } from '../../src/core/types.js';
 import { StateMachineAgent } from '../../src/core/agent/state-machine.js';
 import { ReactAgent } from '../../src/core/agent/index.js';
 import { StagnationDetector } from '../../src/core/cognitive/index.js';
@@ -34,16 +35,16 @@ describe('Integration Tests', () => {
       expect(stateMachine.getCurrentState()).toBe('REASON');
 
       // Simulate state transitions
-      stateMachine.transitionTo('LOCATE');
+      stateMachine.transitionTo(State.LOCATE);
       expect(stateMachine.getCurrentState()).toBe('LOCATE');
 
-      stateMachine.transitionTo('MODIFY');
+      stateMachine.transitionTo(State.MODIFY);
       expect(stateMachine.getCurrentState()).toBe('MODIFY');
 
-      stateMachine.transitionTo('VERIFY');
+      stateMachine.transitionTo(State.VERIFY);
       expect(stateMachine.getCurrentState()).toBe('VERIFY');
 
-      stateMachine.transitionTo('DONE');
+      stateMachine.transitionTo(State.DONE);
       expect(stateMachine.getCurrentState()).toBe('DONE');
     });
 
@@ -71,7 +72,9 @@ describe('Integration Tests', () => {
 
       const check2 = stagnationDetector.check();
       expect(check2.detected).toBe(true);
-      expect(check2.type).toBe('repeated_tool');
+      if (check2.detected) {
+        expect(check2.type).toBe('repeated_tool');
+      }
     });
   });
 });

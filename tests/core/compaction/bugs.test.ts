@@ -31,7 +31,7 @@ describe('Bug 13: compaction summary injected as role:user creates consecutive u
       role: 'assistant',
       content: '[Prior conversation summary] User asked to fix a bug...',
       timestamp: Date.now(),
-    } as AgentMessage;
+    } as unknown as AgentMessage;
 
     const compacted = [summaryMsg, ...tail];
 
@@ -51,7 +51,7 @@ describe('Bug 13: compaction summary injected as role:user creates consecutive u
       role: 'assistant',
       content: '[Prior conversation summary] ...',
       timestamp: 2,
-    } as AgentMessage;
+    } as unknown as AgentMessage;
 
     const compacted = [summaryMsg, ...tail];
 

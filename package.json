@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "clean": "rimraf dist",
     "rebuild": "rimraf dist && tsc",
     "prepublishOnly": "npm run rebuild",

@@ -58,9 +58,10 @@ function makePlan(id: string, states: State[]): PlanCandidate {
 function makeCfg(): RunConfig {
   return {
     model: { id: 'test-model', provider: 'ollama', baseUrl: 'http://localhost/v1' } as RunConfig['model'],
+    models: {} as RunConfig['models'],
     stateMachine: {
       transitionTo: vi.fn(),
-      clone: vi.fn(function () {
+      clone: vi.fn(function (this: unknown) {
         return this;
       }),
       getModelParams: vi.fn(() => ({

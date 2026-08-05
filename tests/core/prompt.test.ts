@@ -7,8 +7,8 @@ import { STATE_REGISTRY } from '../../src/core/state-registry.js';
 const SMALL: ModelParams = { tier: 'SMALL', paramCount: 7, maxRetries: 1, strictPlanning: true };
 const LARGE: ModelParams = { tier: 'LARGE', paramCount: 70, maxRetries: 3, strictPlanning: false };
 
-function prompt(state: State, params: ModelParams = SMALL, extra: Parameters<typeof buildSystemPrompt>[0] = {} as any) {
-  return buildSystemPrompt({ state, task: 'test task', modelParams: params, ...extra });
+function prompt(state: State, params: ModelParams = SMALL) {
+  return buildSystemPrompt({ state, task: 'test task', modelParams: params });
 }
 
 describe('generated Available tools line — cannot drift from allowedTools', () => {

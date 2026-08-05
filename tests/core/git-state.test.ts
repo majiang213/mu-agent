@@ -180,7 +180,7 @@ describe('Gap 83: git guard — still blocks the original forbidden operations',
     const guarded = wrapWithGitGuard(tool);
     const result = (await guarded.execute('id', {
       command: 'git push --force origin main',
-    })) as Record<string, unknown>;
+    })) as unknown as Record<string, unknown>;
     expect(result['terminate']).toBeUndefined();
     expect(Object.prototype.hasOwnProperty.call(result, 'terminate')).toBe(false);
   });
@@ -359,8 +359,9 @@ describe('Gap 83-F4/D2: GIT_OPERATIONS parity (schema union == shared const)', (
   // [...GIT_OPERATIONS].
   it('schema operation union literals equal [...GIT_OPERATIONS]', () => {
     const def = STATE_REGISTRY[State.GIT];
-    const opSchema = (def.completeSchema as { properties: { operation: { anyOf?: Array<{ const?: string }> } } })
-      .properties.operation;
+    const opSchema = (
+      def.completeSchema as unknown as { properties: { operation: { anyOf?: Array<{ const?: string }> } } }
+    ).properties.operation;
     expect(opSchema).toBeDefined();
     expect(Array.isArray(opSchema.anyOf)).toBe(true);
     const literals = (opSchema.anyOf ?? []).map((m) => m.const);
@@ -382,13 +383,13 @@ describe('Gap 83-F4/D2: GIT_OPERATIONS parity (schema union == shared const)', (
     }
   });
 
-  it('GIT_OPERATIONS is a readonly tuple (frozen or `as const`)', () => {
-    // `as const` gives a readonly tuple. Object.isFrozen may be false at
-    // runtime, so assert the type-level immutability indirectly: pushing must
-    // be a type error in strict TS, but at runtime we assert the array is not
-    // trivially mutable by checking it cannot be reassigned via index without
-    // the `as const` readonly protection surfacing. We assert the length and
-    // contents are stable.
+  it('GIT_OPERATIONS is frozen at runtime (Gap 84-D2)', () => {
+    // `as const` is compile-time only; the registry must ALSO be frozen so an
+    // accidental `push`/`splice` at runtime throws instead of silently
+    // corrupting the schema/validator source of truth. Widening cast below is
+    // deliberate: it simulates a mutation the readonly type would reject.
+    expect(Object.isFrozen(GIT_OPERATIONS)).toBe(true);
+    expect(() => (GIT_OPERATIONS as unknown as string[]).push('evil')).toThrow(TypeError);
     expect(GIT_OPERATIONS.length).toBe(11);
     expect(GIT_OPERATIONS).toContain('commit');
     expect(GIT_OPERATIONS).toContain('cherry-pick');

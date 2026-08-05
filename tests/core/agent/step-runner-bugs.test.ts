@@ -128,6 +128,7 @@ function makeCfg(maxRetries = 3): RunConfig {
   };
   return {
     model: {} as RunConfig['model'],
+    models: {} as RunConfig['models'],
     stateMachine: stateMachine as unknown as RunConfig['stateMachine'],
     safetyConfig: {},
     locator: null,

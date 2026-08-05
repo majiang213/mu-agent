@@ -5,9 +5,10 @@ import { gitAllowlistGuidance } from '../tool/safety/git-guard.js';
 /**
  * The single source of truth for valid GIT complete() `operation` values.
  * Shared by the TypeBox schema (below) and complete.ts validation so the two
- * can never drift (Gap 83-F4).
+ * can never drift (Gap 83-F4). Frozen at runtime (Gap 84-D2) — `as const` is
+ * compile-time only; Object.freeze blocks accidental mutation of the registry.
  */
-export const GIT_OPERATIONS = [
+export const GIT_OPERATIONS = Object.freeze([
   'status',
   'commit',
   'branch',
@@ -19,7 +20,7 @@ export const GIT_OPERATIONS = [
   'log',
   'diff',
   'other',
-] as const;
+] as const);
 
 export interface StateDefinition {
   allowedTools: string[];

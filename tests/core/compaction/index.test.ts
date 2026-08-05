@@ -21,7 +21,14 @@ function assistantMsg(text: string): AgentMessage {
     api: 'ollama' as never,
     provider: 'ollama' as never,
     model: 'test',
-    usage: { input: 0, output: 0, cacheRead: 0 },
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason: 'stop',
   } as AgentMessage;
 }
@@ -37,7 +44,14 @@ function assistantToolCallMsg(toolName: string): AgentMessage {
     api: 'ollama' as never,
     provider: 'ollama' as never,
     model: 'test',
-    usage: { input: 0, output: 0, cacheRead: 0 },
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason: 'toolUse',
   } as AgentMessage;
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { join } from 'node:path';
+import type { RunConfig } from '../../../src/core/agent/types.js';
 
 // Mock pi-agent-core Agent to capture constructor options
 vi.mock('@earendil-works/pi-agent-core', () => ({
@@ -7,10 +8,6 @@ vi.mock('@earendil-works/pi-agent-core', () => ({
     const self = { _opts: opts, subscribe: vi.fn(), abort: vi.fn(), steer: vi.fn() };
     return self;
   }),
-}));
-
-vi.mock('@earendil-works/pi-ai/compat', () => ({
-  streamSimple: vi.fn(async () => ({ content: [] })),
 }));
 
 vi.mock('@earendil-works/pi-coding-agent', () => ({
@@ -38,7 +35,7 @@ vi.mock('../../../src/core/compaction/index.js', () => ({
 const { buildStepAgent } = await import('../../../src/core/agent/builder.js');
 const { Agent } = await import('@earendil-works/pi-agent-core');
 
-function makeMinimalCfg(projectRoot: string) {
+function makeMinimalCfg(projectRoot: string): RunConfig {
   return {
     model: {
       id: 'test',
@@ -52,6 +49,7 @@ function makeMinimalCfg(projectRoot: string) {
       contextWindow: 128000,
       maxTokens: 100000,
     },
+    models: { streamSimple: vi.fn(async () => ({ content: [] })) },
     stateMachine: {
       getModelParams: vi.fn(() => ({ tier: 'LARGE', maxRetries: 3, strictPlanning: false, maxFilesPerTask: 5 })),
       transitionTo: vi.fn(),
@@ -74,14 +72,14 @@ function makeMinimalCfg(projectRoot: string) {
     registerAgent: vi.fn(),
     unregisterAgent: vi.fn(),
     lspClient: undefined,
-  } as never;
+  } as unknown as RunConfig;
 }
 
 type BeforeToolCallFn = (ctx: { toolCall: { name: string }; args: unknown }) => Promise<unknown>;
 
 function getCapturedBeforeToolCall(): BeforeToolCallFn {
   expect(vi.mocked(Agent)).toHaveBeenCalledOnce();
-  const opts = vi.mocked(Agent).mock.calls[0][0] as { beforeToolCall?: BeforeToolCallFn };
+  const opts = vi.mocked(Agent).mock.calls[0]![0] as { beforeToolCall?: BeforeToolCallFn };
   expect(opts.beforeToolCall).toBeDefined();
   return opts.beforeToolCall!;
 }
@@ -143,7 +141,7 @@ describe('Gap 84 F1: [GIT GUARD] bash result aborts the step', () => {
 
   function captureAfterToolCall(): { afterToolCall: AfterToolCallFn; agent: { abort: ReturnType<typeof vi.fn> } } {
     expect(vi.mocked(Agent)).toHaveBeenCalledOnce();
-    const opts = vi.mocked(Agent).mock.calls[0][0] as { afterToolCall?: AfterToolCallFn };
+    const opts = vi.mocked(Agent).mock.calls[0]![0] as { afterToolCall?: AfterToolCallFn };
     expect(opts.afterToolCall).toBeDefined();
     const agent = vi.mocked(Agent).mock.results[0]!.value as { abort: ReturnType<typeof vi.fn> };
     return { afterToolCall: opts.afterToolCall!, agent };

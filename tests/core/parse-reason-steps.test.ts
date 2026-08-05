@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { parseDirectives } from '../../src/core/agent/directives.js';
 import { State } from '../../src/core/types.js';
+import type { Step, StepDirective } from '../../src/core/types.js';
+
+/** Narrow StepDirective[] to plain Step[] — these tests only feed plain steps. */
+function plain(directives: StepDirective[]): Step[] {
+  return directives.map((d) => {
+    if (!('state' in d)) throw new Error('expected a plain step, got parallel/subplan');
+    return d;
+  });
+}
 
 describe('parseDirectives (unified directives module)', () => {
   describe('null / missing input', () => {
@@ -38,8 +47,8 @@ describe('parseDirectives (unified directives module)', () => {
       });
       expect(error).toBeNull();
       expect(steps).toHaveLength(1);
-      expect(steps[0]!.state).toBe(State.LOCATE);
-      expect(steps[0]!.focus).toBe('find login function');
+      expect(plain(steps)[0]!.state).toBe(State.LOCATE);
+      expect(plain(steps)[0]!.focus).toBe('find login function');
     });
 
     it('parses a full coding pipeline', () => {
@@ -52,7 +61,7 @@ describe('parseDirectives (unified directives module)', () => {
       });
       expect(error).toBeNull();
       expect(steps).toHaveLength(3);
-      expect(steps.map((s) => s.state)).toEqual([State.LOCATE, State.MODIFY, State.VERIFY]);
+      expect(plain(steps).map((s) => s.state)).toEqual([State.LOCATE, State.MODIFY, State.VERIFY]);
     });
 
     it('parses ANSWER step for chitchat', () => {
@@ -60,7 +69,7 @@ describe('parseDirectives (unified directives module)', () => {
         steps: [{ state: 'ANSWER', focus: 'respond to greeting' }],
       });
       expect(error).toBeNull();
-      expect(steps[0]!.state).toBe(State.ANSWER);
+      expect(plain(steps)[0]!.state).toBe(State.ANSWER);
     });
 
     it('accepts all valid State enum values', () => {
@@ -83,7 +92,7 @@ describe('parseDirectives (unified directives module)', () => {
           steps: [{ state, focus: 'some focus' }],
         });
         expect(error).toBeNull();
-        expect(steps[0]!.state).toBe(state);
+        expect(plain(steps)[0]!.state).toBe(state);
       }
     });
   });
@@ -97,7 +106,7 @@ describe('parseDirectives (unified directives module)', () => {
         ],
       });
       expect(steps).toHaveLength(1);
-      expect(steps[0]!.state).toBe(State.MODIFY);
+      expect(plain(steps)[0]!.state).toBe(State.MODIFY);
       expect(error).toBeNull();
     });
 
@@ -109,7 +118,7 @@ describe('parseDirectives (unified directives module)', () => {
         ],
       });
       expect(steps).toHaveLength(1);
-      expect(steps[0]!.state).toBe(State.MODIFY);
+      expect(plain(steps)[0]!.state).toBe(State.MODIFY);
     });
 
     it('filters out non-object entries', () => {
@@ -117,7 +126,7 @@ describe('parseDirectives (unified directives module)', () => {
         steps: [null, 'string', 42, { state: 'ANSWER', focus: 'valid' }],
       });
       expect(steps).toHaveLength(1);
-      expect(steps[0]!.state).toBe(State.ANSWER);
+      expect(plain(steps)[0]!.state).toBe(State.ANSWER);
     });
 
     it('returns error when all entries are invalid', () => {

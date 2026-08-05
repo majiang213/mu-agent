@@ -5,6 +5,7 @@ import { RunView } from '../../src/tui/run-view.js';
 import type { RunViewHost } from '../../src/tui/run-view.js';
 import { AssistantTurn, HeaderLine, SamplingBlock, SampleTurn, ToolExecutionBlock } from '../../src/tui/blocks.js';
 import { MetricsCollector } from '../../src/tui/metrics.js';
+import { State } from '../../src/core/types.js';
 
 /**
  * Behavioral tests for the per-run view-model — the regex source-greps that
@@ -74,7 +75,7 @@ describe('Bug 24: state_change → DONE clears the current turn', () => {
   it('a message after DONE starts a fresh AssistantTurn instead of appending to the stale one', () => {
     const { runView, insertedLoader } = makeHarness();
     runView.handleEvent({ type: 'message_update', content: 'first' });
-    runView.handleEvent({ type: 'state_change', from: 'REASON', to: 'DONE' });
+    runView.handleEvent({ type: 'state_change', from: State.REASON, to: State.DONE });
     runView.handleEvent({ type: 'message_update', content: 'second' });
 
     const turns = insertedLoader.filter((c) => c instanceof AssistantTurn);

@@ -59,7 +59,7 @@ describe('fetchOllamaModels', () => {
       .mockResolvedValueOnce(makeResponse({ parameters: 'num_ctx 32768\ntemperature 0.1' }));
     const { fetchOllamaModels } = await import('../../src/provider/model-info.js');
     const models = await fetchOllamaModels('http://localhost:11434');
-    expect(models[0].contextLength).toBe(32768);
+    expect(models[0]!.contextLength).toBe(32768);
   });
 
   it('uses fallback 131072 when context cannot be determined', async () => {
@@ -68,7 +68,7 @@ describe('fetchOllamaModels', () => {
       .mockResolvedValueOnce(makeResponse({}));
     const { fetchOllamaModels } = await import('../../src/provider/model-info.js');
     const models = await fetchOllamaModels('http://localhost:11434');
-    expect(models[0].contextLength).toBe(131072);
+    expect(models[0]!.contextLength).toBe(131072);
   });
 });
 
@@ -114,21 +114,21 @@ describe('fetchOpenAICompatModels', () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [{ id: 'vllm-model', max_model_len: 4096 }] }));
     const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
     const models = await fetchOpenAICompatModels('http://custom:8080');
-    expect(models[0].contextLength).toBe(4096);
+    expect(models[0]!.contextLength).toBe(4096);
   });
 
   it('uses fallback 131072 when no context field present', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [{ id: 'unknown-model' }] }));
     const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
     const models = await fetchOpenAICompatModels('http://custom:8080');
-    expect(models[0].contextLength).toBe(131072);
+    expect(models[0]!.contextLength).toBe(131072);
   });
 
   it('sends Authorization header when apiKey provided', async () => {
     mockFetch.mockResolvedValue(makeResponse({ data: [] }));
     const { fetchOpenAICompatModels } = await import('../../src/provider/model-info.js');
     await fetchOpenAICompatModels('http://custom:8080', 'sk-secret');
-    const callArgs = mockFetch.mock.calls[0][1] as RequestInit;
+    const callArgs = mockFetch.mock.calls[0]![1] as RequestInit;
     expect((callArgs.headers as Record<string, string>)['Authorization']).toBe('Bearer sk-secret');
   });
 });

@@ -32,7 +32,7 @@ function makeFakeBashTool(): { tool: AgentTool; calls: string[] } {
 }
 
 // ---- Fake non-bash tool (read) ----
-function makeFakeReadTool(): { tool: AgentTool; calls: number } {
+function makeFakeReadTool(): { tool: AgentTool; calls: { count: number } } {
   const calls = { count: 0 };
   const tool: AgentTool = {
     name: 'read',
@@ -50,7 +50,7 @@ function makeFakeReadTool(): { tool: AgentTool; calls: number } {
 describe('Gap 83: step-runner git guard wiring (real applyStateToolPolicy)', () => {
   it('wraps the bash tool (guarded tool blocks forbidden commands)', async () => {
     const { tool: bash, calls } = makeFakeBashTool();
-    const [guarded] = applyStateToolPolicy([bash]);
+    const guarded = applyStateToolPolicy([bash])[0]!;
     const result = await guarded.execute('id', { command: 'git push --force origin main' });
     const text = result.content.flatMap((c) => (c.type === 'text' && c.text ? [c.text] : [])).join('');
     expect(text.startsWith('[GIT GUARD]')).toBe(true);
@@ -59,7 +59,7 @@ describe('Gap 83: step-runner git guard wiring (real applyStateToolPolicy)', () 
 
   it('wrapped bash tool passes safe commands through to the original execute', async () => {
     const { tool: bash, calls } = makeFakeBashTool();
-    const [guarded] = applyStateToolPolicy([bash]);
+    const guarded = applyStateToolPolicy([bash])[0]!;
     const result = await guarded.execute('id', { command: 'git status' });
     const text = result.content.flatMap((c) => (c.type === 'text' && c.text ? [c.text] : [])).join('');
     expect(text).toBe('executed');
@@ -68,7 +68,7 @@ describe('Gap 83: step-runner git guard wiring (real applyStateToolPolicy)', () 
 
   it('passes non-bash tools through UNWRAPPED (guard is bash-only)', async () => {
     const { tool: read, calls } = makeFakeReadTool();
-    const [passed] = applyStateToolPolicy([read]);
+    const passed = applyStateToolPolicy([read])[0]!;
     // The reference is the SAME object — no wrapping proxy applied.
     expect(passed).toBe(read);
     await passed.execute('id', { filePath: '/x' });
@@ -77,7 +77,7 @@ describe('Gap 83: step-runner git guard wiring (real applyStateToolPolicy)', () 
 
   it('preserves tool identity (name/label/description/parameters) on the wrapped bash tool', () => {
     const { tool: bash } = makeFakeBashTool();
-    const [guarded] = applyStateToolPolicy([bash]);
+    const guarded = applyStateToolPolicy([bash])[0]!;
     expect(guarded.name).toBe('bash');
     expect(guarded.label).toBe('Bash');
     expect(guarded.description).toBe('fake bash');

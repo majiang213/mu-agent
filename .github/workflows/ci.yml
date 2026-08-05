@@ -33,6 +33,10 @@ jobs:
       - name: Build (tsc)
         run: pnpm build
 
+      - name: Typecheck tests
+        # tsconfig.json covers src only; test-file type noise must not drift.
+        run: pnpm typecheck:test
+
       - name: Lint
         run: pnpm lint
 

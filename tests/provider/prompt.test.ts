@@ -6,7 +6,6 @@ import type { ModelParams } from '../../src/core/types.js';
 const SMALL_PARAMS: ModelParams = {
   tier: 'SMALL',
   paramCount: 7,
-  maxFilesPerTask: 2,
   maxRetries: 1,
   strictPlanning: true,
 };
@@ -14,7 +13,6 @@ const SMALL_PARAMS: ModelParams = {
 const LARGE_PARAMS: ModelParams = {
   tier: 'LARGE',
   paramCount: 70,
-  maxFilesPerTask: 8,
   maxRetries: 3,
   strictPlanning: false,
 };
