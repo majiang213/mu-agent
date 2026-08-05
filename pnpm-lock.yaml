@@ -20,9 +20,6 @@ importers:
       '@earendil-works/pi-tui':
         specifier: ^0.83.0
         version: 0.83.0
-      '@sinclair/typebox':
-        specifier: ^0.27.10
-        version: 0.27.10
       better-sqlite3:
         specifier: ^12.10.0
         version: 12.11.1
@@ -41,6 +38,9 @@ importers:
       stopword:
         specifier: ^3.1.5
         version: 3.1.5
+      typebox:
+        specifier: ^1.3.7
+        version: 1.3.7
       vscode-jsonrpc:
         specifier: ^9.0.0
         version: 9.0.1
@@ -680,9 +680,6 @@ packages:
 
   '@silvia-odwyer/photon-node@0.3.4':
     resolution: {integrity: sha1-/8z9eUq7IDskp5PblLynJ0gyZyY=, tarball: http://r.npm.sankuai.com/@silvia-odwyer/photon-node/download/@silvia-odwyer/photon-node-0.3.4.tgz}
-
-  '@sinclair/typebox@0.27.10':
-    resolution: {integrity: sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA==}
 
   '@smithy/core@3.29.1':
     resolution: {integrity: sha1-T5AOGf2A/px3GuiSschMMjhFziE=, tarball: http://r.npm.sankuai.com/@smithy/core/download/@smithy/core-3.29.1.tgz}
@@ -2462,8 +2459,6 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@silvia-odwyer/photon-node@0.3.4': {}
-
-  '@sinclair/typebox@0.27.10': {}
 
   '@smithy/core@3.29.1':
     dependencies:

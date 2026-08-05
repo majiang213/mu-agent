@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { wrapWithGitGuard } from '../../src/tool/safety/git-guard.js';
 import { applyStateToolPolicy } from '../../src/core/agent/step-context.js';

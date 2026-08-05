@@ -1,5 +1,5 @@
-import { Type } from '@sinclair/typebox';
-import { Value } from '@sinclair/typebox/value';
+import { Type } from 'typebox';
+import { Value } from 'typebox/value';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { State } from '../core/types.js';
 import { STATE_REGISTRY } from '../core/state-registry.js';
@@ -17,7 +17,7 @@ function validateCompleteArgs(
 ): string | null {
   if (Value.Check(schema, args)) return null;
   const first = [...Value.Errors(schema, args)][0];
-  const path = first?.path.replace(/^\//, '') ?? '';
+  const path = first?.instancePath.replace(/^\//, '') ?? '';
   const detail = first ? `${path || 'args'}: ${first.message}` : 'invalid arguments';
   const required = STATE_REGISTRY[state]?.reminderFields;
   const hint = required ? `Required fields: ${required}.` : 'See system prompt for required fields.';

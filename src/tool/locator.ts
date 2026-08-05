@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { glob } from 'glob';
 import ts from 'typescript';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { IGNORE_DIRS } from '../core/graph/constants.js';
 import { extractSymbols } from '../core/graph/symbols.js';

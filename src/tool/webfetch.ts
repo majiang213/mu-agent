@@ -1,5 +1,5 @@
 import { NodeHtmlMarkdown } from 'node-html-markdown';
-import { Type } from '@sinclair/typebox';
+import { Type } from 'typebox';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 
 const MAX_CONTENT_LENGTH = 32000;
