@@ -50,6 +50,21 @@ function validateConfig(cfg: Config, source: string): void {
   if (!['ollama', 'custom', 'unsloth'].includes(model.provider)) {
     throw new Error(`${source}: model.provider must be one of: ollama, custom, unsloth`);
   }
+  const ext = cfg.extensions;
+  if (ext) {
+    if (ext.enabled !== undefined && typeof ext.enabled !== 'boolean') {
+      throw new Error(`${source}: extensions.enabled must be a boolean`);
+    }
+    if (ext.paths !== undefined && (!Array.isArray(ext.paths) || ext.paths.some((p) => typeof p !== 'string'))) {
+      throw new Error(`${source}: extensions.paths must be an array of strings`);
+    }
+    if (
+      ext.toolStates !== undefined &&
+      (!Array.isArray(ext.toolStates) || ext.toolStates.some((s) => typeof s !== 'string'))
+    ) {
+      throw new Error(`${source}: extensions.toolStates must be an array of strings`);
+    }
+  }
 }
 
 export function loadConfig(projectRoot?: string): Config {
@@ -75,12 +90,14 @@ export function loadConfig(projectRoot?: string): Config {
 
   const mergedModel = mergeNestedSection(globalPartial.model, projectPartial.model);
   const mergedSafety = mergeNestedSection(globalPartial.safety, projectPartial.safety);
+  const mergedExtensions = mergeNestedSection(globalPartial.extensions, projectPartial.extensions);
 
   const layered: Partial<Config> = {
     ...globalPartial,
     ...projectPartial,
     ...(mergedModel ? { model: mergedModel as Config['model'] } : {}),
     ...(mergedSafety ? { safety: mergedSafety } : {}),
+    ...(mergedExtensions ? { extensions: mergedExtensions } : {}),
   };
 
   const merged = mergeWithDefaults(layered);
@@ -95,12 +112,14 @@ export function saveConfig(updates: Partial<Config>, projectRoot?: string): void
 
   const mergedModel = mergeNestedSection(existing.model, updates.model);
   const mergedSafety = mergeNestedSection(existing.safety, updates.safety);
+  const mergedExtensions = mergeNestedSection(existing.extensions, updates.extensions);
 
   const merged: Partial<Config> = {
     ...existing,
     ...updates,
     ...(mergedModel ? { model: mergedModel as Config['model'] } : {}),
     ...(mergedSafety ? { safety: mergedSafety } : {}),
+    ...(mergedExtensions ? { extensions: mergedExtensions } : {}),
   };
 
   const dir = dirname(projectConfigPath);

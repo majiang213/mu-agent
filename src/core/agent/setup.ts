@@ -1,6 +1,8 @@
 import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import type { Agent, AgentTool } from '@earendil-works/pi-agent-core';
+import { ModelRegistry, SessionManager } from '@earendil-works/pi-coding-agent';
+import type { ExtensionRunner } from '@earendil-works/pi-coding-agent';
 import { astLocatorTool } from '../../tool/locator.js';
 import { SafeModifier } from '../../tool/safety/index.js';
 import { webfetchTool } from '../../tool/webfetch.js';
@@ -12,8 +14,10 @@ import { LspClient } from '../../tool/lsp.js';
 import { CodeGraphLocator } from '../graph/locator.js';
 import { MemoryStore } from '../memory/index.js';
 import { createMemorySearchTool } from '../../tool/memory-search.js';
-import { buildModel, fetchOllamaParamCount, resolveApiKey } from '../../provider/model-info.js';
+import { buildModels, fetchOllamaParamCount, resolveApiKey } from '../../provider/model-info.js';
 import { loadContext } from './context.js';
+import { createExtensionHostState, loadExtensionRunner } from '../extensions/index.js';
+import type { ExtensionHostState } from '../extensions/index.js';
 import type { EnvContext } from '../prompts/agent.js';
 import type { RunConfig } from './types.js';
 
@@ -23,6 +27,8 @@ export interface RunSetup {
   memoryIndex: string;
   memorySearchTool: AgentTool;
   pendingSummaries: Promise<void>;
+  /** Extension load failures (Gap 85-A) — run loop surfaces them as extension_notify. */
+  extensionErrors: string[];
   /** Dispose every subsystem whose lifecycle started here (LSP + memory db). */
   close(): void;
 }
@@ -30,6 +36,26 @@ export interface RunSetup {
 export interface AgentRegistryHooks {
   registerAgent: (a: Agent) => void;
   unregisterAgent: (a: Agent) => void;
+  /**
+   * Model switch requested from inside a run (extension pi.setModel, Gap
+   * 85-C). The app queues it and applies at run end (tier re-probe + HT
+   * reconfigure + contextRatio recalc all happen in the next run's setup).
+   * Returns false when no switch channel exists (tests, headless runs).
+   */
+  onModelSwitchRequest?: (modelId: string, provider: string) => boolean;
+  /**
+   * The run's pi SessionManager (Gap 85-B) — the TUI passes its SessionStore's
+   * manager so extension appendEntry/setSessionName land in the live session.
+   * Absent (tests, headless) → in-memory, non-persisted.
+   */
+  sessionManager?: SessionManager;
+  /**
+   * Shared extension runner + host (Gap 85-D): the TUI owns ONE long-lived
+   * runner (extensions load once per app, slash commands/shortcuts/dialogs
+   * work idle). Absent → per-run load (headless/tests), with close()
+   * invalidating it. A shared runner is NEVER invalidated by a run.
+   */
+  extensions?: { runner?: ExtensionRunner; host: ExtensionHostState };
 }
 
 /**
@@ -48,12 +74,13 @@ export type RunSetupFactory = (config: Config, cwd: string, hooks: AgentRegistry
  */
 export async function buildRunSetup(config: Config, cwd: string, hooks: AgentRegistryHooks): Promise<RunSetup> {
   const contextRatio = config.model.contextRatio ?? DEFAULT_CONTEXT_RATIO;
-  const [paramCount, model] = await Promise.all([
+  const [paramCount, built] = await Promise.all([
     config.model.provider === 'ollama'
       ? fetchOllamaParamCount(config.model.baseUrl, config.model.name)
       : Promise.resolve(config.model.modelSize != null ? config.model.modelSize * 1e9 : null),
-    buildModel(config.model.name, config.model.provider, config.model.baseUrl, contextRatio, config.model.apiKey),
+    buildModels(config.model.name, config.model.provider, config.model.baseUrl, contextRatio, config.model.apiKey),
   ]);
+  const { model, models, runtime: modelRuntime } = built;
 
   const stateMachine = new StateMachineAgent(
     config.model.name,
@@ -85,13 +112,45 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
 
   const locator = new CodeGraphLocator(cwd);
 
-  const memoryStore = MemoryStore.open(cwd, model);
+  const memoryStore = MemoryStore.open(cwd, model, models);
   const pendingSummaries = memoryStore.processPendingSummaries().catch(() => {});
   const memoryIndex = memoryStore.index();
   const memorySearchTool = createMemorySearchTool(memoryStore);
 
+  // Extensions (Gap 85-A): the runner + host live on the RunConfig so every
+  // interception point (builder/tool_call/tool_result/context, observe
+  // forwarding) sees them without new plumbing.
+  // Gap 85-C: real ModelRegistry (ModelRuntime-backed) + providerActions.
+  // Gap 85-D: the TUI passes its long-lived runner+host via hooks.extensions;
+  // headless/tests fall through to a per-run load (invalidated at close).
+  const shared = hooks.extensions;
+  const extensionHost = shared?.host ?? createExtensionHostState();
+  let extensionRunner = shared?.runner;
+  let extensionErrors: string[] = [];
+  if (!shared) {
+    const modelRegistry = new ModelRegistry(modelRuntime);
+    const sessionManager = hooks.sessionManager ?? SessionManager.inMemory(cwd);
+    const loaded = await loadExtensionRunner(
+      config,
+      cwd,
+      extensionHost,
+      () => model,
+      modelRegistry,
+      sessionManager,
+      {
+        registerProvider: (name, pcfg) => modelRuntime.registerProvider(name, pcfg),
+        registerNativeProvider: (p) => modelRuntime.registerNativeProvider(p),
+        unregisterProvider: (name) => modelRuntime.unregisterProvider(name),
+      },
+      hooks.onModelSwitchRequest,
+    );
+    extensionRunner = loaded.runner;
+    extensionErrors = loaded.errors;
+  }
+
   const cfg: RunConfig = {
     model,
+    models,
     stateMachine,
     safetyConfig: config.safety ?? {},
     safeModifier: new SafeModifier(),
@@ -100,11 +159,20 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
     contextRatio,
     apiKey: resolveApiKey(config.model),
     projectRoot: cwd,
-    registerAgent: hooks.registerAgent,
-    unregisterAgent: hooks.unregisterAgent,
+    registerAgent: (a) => {
+      extensionHost.agents.add(a);
+      hooks.registerAgent(a);
+    },
+    unregisterAgent: (a) => {
+      extensionHost.agents.delete(a);
+      hooks.unregisterAgent(a);
+    },
     lspClient,
     locator,
     heavyThinking: config.heavyThinking,
+    ...(extensionRunner ? { extensionRunner } : {}),
+    extensionHost,
+    ...(config.extensions ? { extensionsConfig: config.extensions } : {}),
   };
 
   return {
@@ -113,7 +181,11 @@ export async function buildRunSetup(config: Config, cwd: string, hooks: AgentReg
     memoryIndex,
     memorySearchTool,
     pendingSummaries,
+    extensionErrors,
     close: () => {
+      // Only a per-run-loaded runner is ours to invalidate — the TUI's shared
+      // runner (85-D) outlives any single run.
+      if (!shared) extensionRunner?.invalidate('run ended');
       lspClient.dispose();
       locator.close();
       memoryStore.close();

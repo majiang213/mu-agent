@@ -111,14 +111,15 @@ program
   });
 
 async function pickSession(): Promise<SessionStore | null> {
-  const sessions = SessionStore.list(process.cwd());
+  const sessions = await SessionStore.list(process.cwd());
   if (sessions.length === 0) {
     console.error('No sessions found in .mu-agent/sessions/');
     return null;
   }
 
   const { ProcessTerminal, SelectList, Text, TUI } = await import('@earendil-works/pi-tui');
-  const { selectTheme, C } = await import('./tui/theme.js');
+  const { selectTheme, C, initMuAgentTheme } = await import('./tui/theme.js');
+  await initMuAgentTheme();
   const terminal = new ProcessTerminal();
   const tui = new TUI(terminal);
 
@@ -196,6 +197,8 @@ program
     const { ensureGraphBuilt } = await import('./core/graph/builder.js');
     ensureGraphBuilt(process.cwd());
 
+    const { initMuAgentTheme } = await import('./tui/theme.js');
+    await initMuAgentTheme(config.theme);
     const { createTuiApp } = await import('./tui/app.js');
     const app = createTuiApp({ config, sessionStore });
     app.start();

@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import type { Model } from '@earendil-works/pi-ai';
+import type { Model, Models } from '@earendil-works/pi-ai';
 import { findGitRoot, initMemoryDb } from './db.js';
 import { writeEpisodeSync, formatEpisodeDetail } from './episode.js';
 import { processPendingSummaries as _processPendingSummaries } from './summarizer.js';
@@ -23,6 +23,7 @@ export class MemoryStore {
     private db: Database.Database,
     private projectRoot: string,
     private model?: Model<'openai-completions'>,
+    private models?: Models,
   ) {
     decaySemanticFacts(db, projectRoot);
   }
@@ -34,10 +35,10 @@ export class MemoryStore {
    * sat at the git root while episodes partitioned by the raw cwd, so runs
    * from a subdirectory were invisible to runs from the root.
    */
-  static open(cwd: string, model?: Model<'openai-completions'>): MemoryStore {
+  static open(cwd: string, model?: Model<'openai-completions'>, models?: Models): MemoryStore {
     const root = findGitRoot(cwd);
     const db = initMemoryDb(root);
-    return new MemoryStore(db, root, model);
+    return new MemoryStore(db, root, model, models);
   }
 
   writeEpisodeSync(mission: Mission, allStepResults: ExecutedStep[], finalResult: StateResult): string {
@@ -73,8 +74,8 @@ export class MemoryStore {
   }
 
   async processPendingSummaries(): Promise<void> {
-    if (!this.model) return;
-    await _processPendingSummaries(this.db, this.model, this.projectRoot);
+    if (!this.model || !this.models) return;
+    await _processPendingSummaries(this.db, this.models, this.model, this.projectRoot);
   }
 
   close(): void {

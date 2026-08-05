@@ -79,6 +79,7 @@ function makePlan(id: string, states: State[]): PlanCandidate {
 function makeCfg(heavyThinking?: RunConfig['heavyThinking']): RunConfig {
   return {
     model: { id: 'test-model', provider: 'ollama', baseUrl: 'http://localhost/v1' } as RunConfig['model'],
+    models: {} as RunConfig['models'],
     stateMachine: {
       transitionTo: vi.fn(),
       getModelParams: vi.fn(() => ({

@@ -77,6 +77,15 @@ export class RunView {
     return true;
   }
 
+  /** Extension ui.getToolsExpanded/setToolsExpanded (Gap 85-D). */
+  get toolsExpanded(): boolean {
+    return this.toolBlocks.some((b) => b.expanded);
+  }
+
+  setToolsExpanded(expanded: boolean): void {
+    for (const b of this.toolBlocks) b.setExpanded(expanded);
+  }
+
   /** ctrl+d: sync debug block visibility/expansion with the shell's debugMode. */
   setDebugVisible(visible: boolean): void {
     for (const b of this.debugBlocks) {
@@ -231,6 +240,9 @@ export class RunView {
       const errBlock = new ToolExecutionBlock('PLAN', { analyzerState: event.analyzerState });
       errBlock.setResult(true, event.output.slice(0, 300));
       host.insertBeforeEditor(errBlock);
+    } else if (event.type === 'extension_notify') {
+      const icon = event.level === 'error' ? C.err('✗') : event.level === 'warning' ? C.err('⚠') : C.dim('ℹ');
+      host.insertBeforeEditor(new Text(`\n  ${icon} ${event.message}\n`, 0, 0));
     } else if (event.type === 'sampling_stopped') {
       const labels: Record<typeof event.reason, string> = {
         converged: 'converged',

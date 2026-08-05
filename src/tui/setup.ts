@@ -1,6 +1,6 @@
 import { Input, Loader, ProcessTerminal, SelectList, Text, TUI } from '@earendil-works/pi-tui';
 import type { SelectItem } from '@earendil-works/pi-tui';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { setImmediate } from 'node:timers/promises';
 
@@ -9,14 +9,14 @@ import { graphExists } from '../core/graph/constants.js';
 import { getLspStatuses } from '../tool/lsp-status.js';
 import { fetchOllamaModels, fetchOpenAICompatModels } from '../provider/model-info.js';
 import type { Config } from '../config/types.js';
-import { C, selectTheme } from './theme.js';
+import { C, selectTheme, initMuAgentTheme, listThemes, setMuAgentTheme } from './theme.js';
 
 // ─── SetupWizard ─────────────────────────────────────────────────────────────
 
 export class SetupWizard {
   private tui: TUI;
   private step = 1;
-  private readonly totalSteps = 4;
+  private readonly totalSteps = 5;
   private stepComponents: Text[] = [];
   private graphBuilt: boolean | null = null;
 
@@ -43,9 +43,11 @@ export class SetupWizard {
 
     this.renderHeader();
 
+    await initMuAgentTheme();
     await this.stepModel();
     await this.stepLsp();
     await this.stepGraph();
+    await this.stepTheme();
     this.stepDone();
 
     await setImmediate();
@@ -273,10 +275,54 @@ export class SetupWizard {
     }
   }
 
-  // ─── Step 4: Done ──────────────────────────────────────────────────────────
+  // ─── Step 4: Theme (Gap 87) ────────────────────────────────────────────────
+
+  private async stepTheme(): Promise<void> {
+    this.step = 4;
+    this.renderHeader();
+
+    this.addStepText('\n  ' + C.ok('Theme'));
+
+    const existing = this.loadExistingTheme();
+    const themes = await listThemes();
+    const items: SelectItem[] = [
+      { value: '', label: 'auto', description: 'Detect from terminal background' },
+      ...themes.map((th) => ({ value: th.name, label: th.name, description: th.path ?? 'built-in' })),
+    ];
+    const defaultIdx = Math.max(
+      0,
+      items.findIndex((i) => i.value === (existing ?? '')),
+    );
+    const choice = await this.waitForSelect(items, defaultIdx);
+
+    if (choice && choice.value) {
+      const result = await setMuAgentTheme(choice.value);
+      if (result.success) {
+        saveConfig({ theme: choice.value });
+        this.addStepText(`\n  ${C.ok('✓')} Theme: ${choice.value}`);
+      } else {
+        this.addStepText(`\n  ${C.err('✗')} Theme failed: ${result.error ?? 'unknown'}`);
+      }
+    }
+  }
+
+  private loadExistingTheme(): string | undefined {
+    for (const p of configPaths()) {
+      if (!existsSync(p)) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(p, 'utf-8')) as Partial<Config>;
+        if (typeof parsed.theme === 'string') return parsed.theme;
+      } catch {
+        // ignore malformed file
+      }
+    }
+    return undefined;
+  }
+
+  // ─── Step 5: Done ──────────────────────────────────────────────────────────
 
   private stepDone(): void {
-    this.step = 4;
+    this.step = 5;
     this.renderHeader();
 
     const statuses = getLspStatuses(process.cwd());

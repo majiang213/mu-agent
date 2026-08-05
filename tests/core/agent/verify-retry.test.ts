@@ -8,19 +8,22 @@ vi.mock('../../../src/core/agent/step-runner.js', () => ({
   runStep: vi.fn(),
 }));
 
-// buildModel lives in provider/model-info.ts now (round-4 hygiene).
+// buildModels lives in provider/model-info.ts now (round-4 hygiene; Gap 89: returns {models, model}).
 vi.mock('../../../src/provider/model-info.js', () => ({
-  buildModel: vi.fn(async () => ({
-    id: 'test-model',
-    name: 'test-model',
-    api: 'openai-completions',
-    provider: 'ollama',
-    baseUrl: 'http://localhost:11434/v1',
-    reasoning: false,
-    input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 100000,
+  buildModels: vi.fn(async () => ({
+    models: {},
+    model: {
+      id: 'test-model',
+      name: 'test-model',
+      api: 'openai-completions',
+      provider: 'ollama',
+      baseUrl: 'http://localhost:11434/v1',
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 100000,
+    },
   })),
   fetchOllamaParamCount: vi.fn(async () => null),
   fetchContextLength: vi.fn(async () => 128000),

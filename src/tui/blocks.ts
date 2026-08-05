@@ -26,8 +26,18 @@ export function detectGitBranch(): string {
   }
 }
 
+export interface HintLabels {
+  quit: string;
+  interrupt: string;
+  thinking: string;
+  tools: string;
+  debug: string;
+}
+
 export class HintLine implements Component {
   private debugMode = false;
+  /** Key labels resolved from the keybindings manager (Gap 88) — never hardcoded. */
+  constructor(private readonly labels: HintLabels) {}
   setDebugMode(v: boolean): void {
     this.debugMode = v;
   }
@@ -36,19 +46,19 @@ export class HintLine implements Component {
     const debugLabel = this.debugMode ? C.ok(' [debug on]') : C.dim(' debug');
     const line =
       '  ' +
-      C.hintKey('Ctrl+C') +
+      C.hintKey(this.labels.quit) +
       C.dim(' quit') +
       '  ' +
-      C.hintKey('Esc') +
+      C.hintKey(this.labels.interrupt) +
       C.dim(' interrupt') +
       '  ' +
-      C.hintKey('Ctrl+T') +
+      C.hintKey(this.labels.thinking) +
       C.dim(' thinking') +
       '  ' +
-      C.hintKey('Ctrl+O') +
+      C.hintKey(this.labels.tools) +
       C.dim(' tools') +
       '  ' +
-      C.hintKey('Ctrl+D') +
+      C.hintKey(this.labels.debug) +
       debugLabel;
     return [truncateToWidth(line, width)];
   }
@@ -82,6 +92,11 @@ export class HeaderLine implements Component {
     this.provider = provider;
     this.tier = tier.toLowerCase();
     this.contextWindow = contextWindow;
+  }
+
+  /** Model switch (Gap 85-C): update the header's model name in place. */
+  setModel(model: string): void {
+    this.model = model;
   }
 
   updateTokenStats(promptTokens: number, responseTokens: number, contextTokens: number): void {
@@ -268,7 +283,7 @@ export class LlmOutput implements Component {
     const childLines = this.inner.render(innerWidth);
     const result: string[] = [];
     for (const line of childLines) {
-      result.push(fillLine('  ' + truncateToWidth(line, innerWidth), width, visibleWidth));
+      result.push(fillLine('  ' + truncateToWidth(line, innerWidth), width));
     }
     if (result.length > 0) {
       result.push('');

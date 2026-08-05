@@ -4,11 +4,9 @@ import type { PlanCandidate } from '../../../src/core/heavy/types.js';
 import { State } from '../../../src/core/types.js';
 import type { RunConfig } from '../../../src/core/agent/types.js';
 
-vi.mock('@earendil-works/pi-ai/compat', () => ({
-  completeSimple: vi.fn(),
-}));
-
-import { completeSimple } from '@earendil-works/pi-ai/compat';
+// Gap 89: no module mock — deliberator calls cfg.models.completeSimple, so the
+// fake Models object carries the spy.
+const completeSimpleMock = vi.fn();
 
 function makePlan(id: string, states: State[], whys?: string[]): PlanCandidate {
   return {
@@ -32,6 +30,7 @@ function makeModel() {
 function makeCfg(): RunConfig {
   return {
     model: makeModel(),
+    models: { completeSimple: completeSimpleMock } as unknown as RunConfig['models'],
     stateMachine: {} as RunConfig['stateMachine'],
     safetyConfig: {},
     locator: null,
@@ -110,11 +109,11 @@ describe('deliberate', () => {
     );
     expect(result.type).toBe('selected');
     expect(events).toContain('deliberation_fallback');
-    expect(completeSimple).not.toHaveBeenCalled();
+    expect(completeSimpleMock).not.toHaveBeenCalled();
   });
 
   it('synthesizes steps from JSON response', async () => {
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(makeStepsJson([State.LOCATE, State.MODIFY, State.VERIFY])) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY, State.VERIFY])];
@@ -134,7 +133,7 @@ describe('deliberate', () => {
       { state: State.LOCATE, focus: 'find the bug', why: 'error likely in auth layer' },
       { state: State.MODIFY, focus: 'fix it' },
     ]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithWhy) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
@@ -157,7 +156,7 @@ describe('deliberate', () => {
       { state: State.LOCATE, focus: 'find bug' },
       { subplan: { analyzerState: 'PLAN', focus: 'analyze commits and plan atomic splits' } },
     ]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithSubplan) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [makePlan('plan-0', [State.LOCATE]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
@@ -183,7 +182,7 @@ describe('deliberate', () => {
         ],
       },
     ]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithParallel) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [makePlan('plan-0', [State.LOCATE]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
@@ -213,7 +212,7 @@ describe('deliberate', () => {
   });
 
   it('parses needs_clarification', async () => {
-    vi.mocked(completeSimple).mockResolvedValue(
+    completeSimpleMock.mockResolvedValue(
       makeAssistantMessage('needs_clarification: true\nquestion: Which file should be modified?') as any,
     );
     const plans = [
@@ -228,7 +227,7 @@ describe('deliberate', () => {
   });
 
   it('needs_clarification is ignored when allowClarification=false, falls back to pickShortest', async () => {
-    vi.mocked(completeSimple).mockResolvedValue(
+    completeSimpleMock.mockResolvedValue(
       makeAssistantMessage('needs_clarification: true\nquestion: Which file?') as any,
     );
     const plans = [
@@ -248,7 +247,7 @@ describe('deliberate', () => {
   });
 
   it('falls back to pickShortest when parse completely fails', async () => {
-    vi.mocked(completeSimple).mockResolvedValue(makeAssistantMessage('I cannot decide.') as any);
+    completeSimpleMock.mockResolvedValue(makeAssistantMessage('I cannot decide.') as any);
     const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
@@ -259,7 +258,7 @@ describe('deliberate', () => {
   });
 
   it('falls back to pickShortest when LLM call throws', async () => {
-    vi.mocked(completeSimple).mockRejectedValue(new Error('network error'));
+    completeSimpleMock.mockRejectedValue(new Error('network error'));
     const plans = [makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]), makePlan('plan-1', [State.MODIFY])];
     const events: string[] = [];
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
@@ -281,7 +280,7 @@ describe('deliberate', () => {
   it('refinement stops when judge returns WORSE', async () => {
     const round1Steps = makeStepsJson([State.LOCATE, State.MODIFY, State.VERIFY]);
     const round2Steps = makeStepsJson([State.MODIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(round1Steps) as any)
       .mockResolvedValueOnce(makeAssistantMessage('BETTER') as any)
       .mockResolvedValueOnce(makeAssistantMessage(round2Steps) as any)
@@ -303,7 +302,7 @@ describe('deliberate', () => {
 
   it('refinement stops when judge returns SAME', async () => {
     const round1Steps = makeStepsJson([State.LOCATE, State.MODIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(round1Steps) as any)
       .mockResolvedValueOnce(makeAssistantMessage('SAME') as any);
     const plans = [
@@ -320,7 +319,7 @@ describe('deliberate', () => {
 
   it('buildMemoryCache includes why fields when present', async () => {
     const stepsJson = makeStepsJson([State.LOCATE, State.MODIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [
@@ -328,20 +327,20 @@ describe('deliberate', () => {
       makePlan('plan-1', [State.DIAGNOSE, State.LOCATE]),
     ];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
-    const callArg = vi.mocked(completeSimple).mock.calls[0]![1] as { messages: Array<{ content: string }> };
+    const callArg = completeSimpleMock.mock.calls[0]![1] as { messages: Array<{ content: string }> };
     const userPrompt = callArg.messages[0]!.content;
     expect(userPrompt).toContain('likely in auth middleware');
   });
 
   it('uses deliberationModel when configured', async () => {
     const stepsJson = makeStepsJson([State.MODIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const cfg = { ...makeCfg(), heavyThinking: { deliberationModel: 'qwen2.5:7b-instruct' } };
     const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, cfg);
-    const modelArg = vi.mocked(completeSimple).mock.calls[0]![0] as { id: string };
+    const modelArg = completeSimpleMock.mock.calls[0]![0] as { id: string };
     expect(modelArg.id).toBe('qwen2.5:7b-instruct');
   });
 
@@ -350,7 +349,7 @@ describe('deliberate', () => {
       { state: State.LOCATE, focus: 'find [auth] and [session] modules' },
       { state: State.MODIFY, focus: 'add error handler' },
     ]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsWithBracket) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
@@ -366,7 +365,7 @@ describe('deliberate', () => {
   });
 
   it('allowClarification=false: emits accurate fallback reason when LLM outputs needs_clarification', async () => {
-    vi.mocked(completeSimple).mockResolvedValue(
+    completeSimpleMock.mockResolvedValue(
       makeAssistantMessage('needs_clarification: true\nquestion: Which file?') as any,
     );
     const plans = [
@@ -389,7 +388,7 @@ describe('deliberate', () => {
 
   it('allPlansSimilar: 3 plans where 2 are similar but 1 is different triggers deliberation', async () => {
     const stepsJson = makeStepsJson([State.DIAGNOSE, State.MODIFY, State.VERIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [
@@ -401,7 +400,7 @@ describe('deliberate', () => {
     const result = await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg(), (e) =>
       events.push(e.type),
     );
-    expect(completeSimple).toHaveBeenCalled();
+    expect(completeSimpleMock).toHaveBeenCalled();
     expect(result.type).toBe('selected');
     if (result.type === 'selected') {
       expect(result.result.synthesizedSteps).toHaveLength(3);
@@ -413,7 +412,7 @@ describe('deliberate', () => {
       { state: State.LOCATE, focus: 'find the bug' },
       { state: State.MODIFY, focus: 'fix it' },
     ]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(sharedSteps) as any)
       .mockResolvedValueOnce(makeAssistantMessage(sharedSteps) as any)
       .mockResolvedValueOnce(makeAssistantMessage('BETTER') as any);
@@ -437,7 +436,7 @@ describe('deliberate', () => {
 
   it('buildMemoryCache uses letter labels A B C not plan-0 plan-1', async () => {
     const stepsJson = makeStepsJson([State.MODIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(stepsJson) as any)
       .mockResolvedValue(makeAssistantMessage('SAME') as any);
     const plans = [
@@ -446,7 +445,7 @@ describe('deliberate', () => {
       makePlan('plan-2', [State.MODIFY]),
     ];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
-    const callArg = vi.mocked(completeSimple).mock.calls[0]![1] as { messages: Array<{ content: string }> };
+    const callArg = completeSimpleMock.mock.calls[0]![1] as { messages: Array<{ content: string }> };
     const userPrompt = callArg.messages[0]!.content;
     expect(userPrompt).toContain('--- Plan A ---');
     expect(userPrompt).toContain('--- Plan B ---');
@@ -458,13 +457,13 @@ describe('deliberate', () => {
   it('judge uses temperature=0', async () => {
     const round1 = makeStepsJson([State.LOCATE, State.MODIFY]);
     const round2 = makeStepsJson([State.DIAGNOSE, State.MODIFY]);
-    vi.mocked(completeSimple)
+    completeSimpleMock
       .mockResolvedValueOnce(makeAssistantMessage(round1) as any)
       .mockResolvedValueOnce(makeAssistantMessage(round2) as any)
       .mockResolvedValueOnce(makeAssistantMessage('SAME') as any);
     const plans = [makePlan('plan-0', [State.MODIFY]), makePlan('plan-1', [State.LOCATE, State.MODIFY])];
     await deliberate(plans, { id: 't', description: 'task', state: 'running' }, makeCfg());
-    const allCalls = vi.mocked(completeSimple).mock.calls;
+    const allCalls = completeSimpleMock.mock.calls;
     const judgeCallIdx = allCalls.findIndex((call) => {
       const ctx = call[1] as unknown as Record<string, unknown>;
       return (
@@ -477,7 +476,7 @@ describe('deliberate', () => {
   });
 
   it('LLM call failure falls back to pickShortest, not empty steps', async () => {
-    vi.mocked(completeSimple).mockRejectedValueOnce(new Error('network error'));
+    completeSimpleMock.mockRejectedValueOnce(new Error('network error'));
     const plans = [
       makePlan('plan-0', [State.LOCATE, State.MODIFY, State.VERIFY]),
       makePlan('plan-1', [State.MODIFY, State.VERIFY]),

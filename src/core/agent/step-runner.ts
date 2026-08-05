@@ -12,6 +12,7 @@ import { STATE_REGISTRY } from '../state-registry.js';
 import { parseDirectives } from './directives.js';
 import { forkRunConfig, findOverlappingEdits, applyStateToolPolicy } from './step-context.js';
 import { editedFilesFromArgs, parseEditedFiles } from '../step-outputs.js';
+import { extensionToolsForState } from '../extensions/index.js';
 
 /** Options threaded through step execution (4c — replaces 7-9 positional params). */
 export interface StepRunOptions {
@@ -106,6 +107,11 @@ export async function runStep(
   const readFiles = new Set<string>();
   const memoryTools: AgentTool[] =
     memorySearchTool && STATE_REGISTRY[step.state]?.memorySearchTool === true ? [memorySearchTool] : [];
+  // Gap 85-A: extension-registered tools join the step's tool set only for
+  // allowlisted states (default RESEARCH/DIAGNOSE/REVIEW/ANSWER; REASON/
+  // MODIFY/VERIFY hard-excluded). REASON itself builds its agent in
+  // reason-runner.ts and never receives extension tools.
+  const extTools = extensionToolsForState(cfg.extensionRunner, step.state, cfg.extensionsConfig?.toolStates);
   // One injected collaborator (round-4, candidate 5): tests fake the driver
   // through this seam instead of mocking the module graph.
   const driver = cfg.stepDriver ?? defaultStepDriver;
@@ -114,7 +120,7 @@ export async function runStep(
     initialMessages: [],
     state: step.state,
     cfg: stepCfg,
-    tools: [...allowedTools, completeTool, ...memoryTools],
+    tools: [...allowedTools, completeTool, ...memoryTools, ...extTools],
     readFiles,
     stagnationDetector,
     onLlmText: (text) => {

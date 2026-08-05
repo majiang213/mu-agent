@@ -1,4 +1,8 @@
-import type { Model } from '@earendil-works/pi-ai';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
+import type { Model, Models } from '@earendil-works/pi-ai';
+import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { MU_AGENT_DIR } from '../config/defaults.js';
 
 const FALLBACK_CONTEXT = 131072;
 
@@ -162,22 +166,67 @@ export async function fetchContextLength(
   return fetchOpenAICompatContextLength(baseUrl, modelName, apiKey);
 }
 
+/** Live model list for the selector's refreshModels — ollama /api/tags or the OpenAI-compat /v1/models probe. */
+async function fetchProviderModels(provider: string, baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
+  if (provider === 'ollama') return fetchOllamaModels(baseUrl);
+  return fetchOpenAICompatModels(baseUrl, apiKey);
+}
+
 /**
- * Assemble the pi-ai Model for a run: context length probed dynamically,
- * maxTokens derived from contextRatio. Provider facts live in this module —
- * buildModel moved here from step-runner.ts, where it was a stowaway whose
- * only caller is RunSetup (round-4 hygiene).
+ * Assemble the pi-ai Model + Models collection for a run (Gap 89 → 85-C):
+ * context length probed dynamically, maxTokens derived from contextRatio.
+ * Provider facts live in this module — buildModel moved here from
+ * step-runner.ts, where it was a stowaway whose only caller is RunSetup
+ * (round-4 hygiene).
+ *
+ * Gap 85-C: the Models collection is pi-coding-agent's ModelRuntime (modelsPath
+ * null — config.json stays the single source of truth, no models.json).
+ * The configured provider registers as an extension provider whose apiKey may
+ * use pi's `$ENV_VAR` interpolation (resolved inside the runtime's auth path).
+ * `refreshModels` lists the server's live models (Ollama /api/tags etc.) so
+ * the TUI model selector offers what actually exists.
  */
-export async function buildModel(
+export interface BuiltModel {
+  models: Models;
+  model: Model<'openai-completions'>;
+  runtime: ModelRuntime;
+}
+
+/**
+ * Process-wide runtime (Gap 85-C): the per-run model build AND the idle-time
+ * TUI model selector must see the same provider registry, so the runtime is a
+ * singleton created here. It contains no per-model facts (context window lives
+ * on the per-run Model entry), so a model switch needs no runtime rebuild.
+ */
+let sharedRuntime: ModelRuntime | null = null;
+
+export async function getSharedModelRuntime(): Promise<ModelRuntime> {
+  if (!sharedRuntime) {
+    sharedRuntime = await ModelRuntime.create({
+      // config.json 单真相源（Gap 85-C 决策）— no models.json, credentials to mu-agent dir
+      modelsPath: null,
+      authPath: join(homedir(), MU_AGENT_DIR, 'auth.json'),
+      allowModelNetwork: false,
+    });
+  }
+  return sharedRuntime;
+}
+
+/** Test seam: drop the singleton so a test can rebuild with fresh config. */
+export function resetSharedModelRuntime(): void {
+  sharedRuntime = null;
+}
+
+export async function buildModels(
   modelName: string,
   provider: string,
   baseUrl: string,
   contextRatio: number,
   apiKey?: string,
-): Promise<Model<'openai-completions'>> {
+): Promise<BuiltModel> {
   const apiBase = baseUrl.endsWith('/v1') ? baseUrl : `${baseUrl}/v1`;
   const contextWindow = await fetchContextLength(provider, baseUrl, modelName, apiKey);
-  return {
+  const model: Model<'openai-completions'> = {
     id: modelName,
     name: modelName,
     api: 'openai-completions',
@@ -189,4 +238,43 @@ export async function buildModel(
     contextWindow,
     maxTokens: Math.floor(contextWindow * (1 - contextRatio)),
   };
+  const runtime = await getSharedModelRuntime();
+  runtime.registerProvider(provider, {
+    name: provider,
+    baseUrl: apiBase,
+    // May be '$ENV_VAR' — the runtime resolves interpolation in its auth path
+    // (Gap 85-C: apiKey resolution aligned to pi, resolveApiKey kept only for
+    // the compaction generateSummary path).
+    ...(apiKey ? { apiKey } : {}),
+    api: 'openai-completions',
+    models: [
+      {
+        id: model.id,
+        name: model.name,
+        reasoning: false,
+        input: ['text'],
+        cost: model.cost,
+        contextWindow,
+        maxTokens: model.maxTokens,
+      },
+    ],
+    refreshModels: async () => {
+      const live = await fetchProviderModels(provider, baseUrl, apiKey);
+      return live.map((m) => {
+        const isCurrent = m.name === model.id;
+        return {
+          id: m.name,
+          name: m.name,
+          reasoning: false,
+          input: ['text' as const],
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          // Live siblings carry their probed context length when the fetcher
+          // provides one (ollama does), a conservative default otherwise.
+          contextWindow: isCurrent ? contextWindow : (m.contextLength ?? 32768),
+          maxTokens: isCurrent ? model.maxTokens : Math.floor((m.contextLength ?? 32768) * (1 - contextRatio)),
+        };
+      });
+    },
+  });
+  return { models: runtime, model, runtime };
 }

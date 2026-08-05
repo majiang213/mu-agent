@@ -18,6 +18,16 @@ export const DEFAULT_SAMPLING_TEMPERATURE = 0.7;
  */
 export const DEFAULT_MAX_FILES_PER_TASK = 5;
 
+/**
+ * States extension-registered tools may enter by default (Gap 85-A).
+ * REASON/MODIFY/VERIFY are NEVER eligible — EXTENSION_TOOL_BLACKLIST enforces
+ * that even when the user lists them in config.
+ */
+export const DEFAULT_EXTENSION_TOOL_STATES = ['RESEARCH', 'DIAGNOSE', 'REVIEW', 'ANSWER'] as const;
+
+/** Hard exclusion for extension tools — small-model discipline + checkpoint integrity. */
+export const EXTENSION_TOOL_BLACKLIST = ['REASON', 'MODIFY', 'VERIFY'] as const;
+
 export const DEFAULT_CONFIG: Config = {
   model: {
     provider: 'ollama',

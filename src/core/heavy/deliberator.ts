@@ -1,4 +1,3 @@
-import { completeSimple } from '@earendil-works/pi-ai/compat';
 import type { Model } from '@earendil-works/pi-ai';
 import type { RunConfig, ExecutionEvent, Mission } from '../agent/types.js';
 import type { StepDirective } from '../types.js';
@@ -62,10 +61,10 @@ async function runSingleDeliberation(
 
   let raw: string;
   try {
-    const result = await completeSimple(
+    const result = await cfg.models.completeSimple(
       deliberationModel,
       { systemPrompt: DELIBERATION_SYSTEM, messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }] },
-      { temperature: cfg.temperature, apiKey: cfg.apiKey },
+      { temperature: cfg.temperature },
     );
     raw = result.content
       .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
@@ -102,8 +101,8 @@ async function judgeRefinement(
   mission: Mission,
   bestSteps: StepDirective[],
   newSteps: StepDirective[],
+  models: RunConfig['models'],
   deliberationModel: Model<'openai-completions'>,
-  apiKey: string,
 ): Promise<'BETTER' | 'WORSE' | 'SAME'> {
   const userPrompt = `Task: ${mission.description}
 
@@ -114,10 +113,10 @@ New plan:
 ${formatStepsForJudge(newSteps)}`;
 
   try {
-    const result = await completeSimple(
+    const result = await models.completeSimple(
       deliberationModel,
       { systemPrompt: JUDGE_SYSTEM, messages: [{ role: 'user', content: userPrompt, timestamp: Date.now() }] },
-      { temperature: 0, apiKey },
+      { temperature: 0 },
     );
     const raw = result.content
       .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
@@ -197,7 +196,7 @@ export async function deliberate(
 
     const newSteps = nextOutcome.result.synthesizedSteps;
 
-    const verdict = await judgeRefinement(mission, bestSteps, newSteps, deliberationModel, cfg.apiKey);
+    const verdict = await judgeRefinement(mission, bestSteps, newSteps, cfg.models, deliberationModel);
 
     if (verdict === 'WORSE' || verdict === 'SAME') {
       onEvent?.({ type: 'deliberation_refinement', round, verdict });

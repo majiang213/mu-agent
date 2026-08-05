@@ -1,5 +1,7 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { SessionManager, ExtensionRunner } from '@earendil-works/pi-coding-agent';
+import type { ExtensionHostState } from '../extensions/index.js';
 import type { Config } from '../../config/types.js';
 import { State } from '../types.js';
 import type { StateResult, ExecutedStep } from '../types.js';
@@ -60,7 +62,15 @@ export class ReactAgent {
     config: Config,
     onEvent?: (event: ExecutionEvent) => void,
     initialMessages?: AgentMessage[],
-    options?: { cwd?: string },
+    options?: {
+      cwd?: string;
+      onModelSwitchRequest?: (modelId: string, provider: string) => boolean;
+      sessionManager?: SessionManager;
+      /** Shared long-lived extension runner+host (Gap 85-D, TUI-owned). */
+      extensions?: { runner?: ExtensionRunner; host: ExtensionHostState };
+      /** Called once after setup with the run's probed model (extension ctx.getModel freshness, Gap 85-D). */
+      onModelBuilt?: (model: import('@earendil-works/pi-ai').Model<'openai-completions'>) => void;
+    },
   ): Promise<StateResult> {
     const baseMission: Mission = {
       id: `task-${Date.now()}`,
@@ -76,9 +86,28 @@ export class ReactAgent {
     const setup = await this.setupFactory(config, cwd, {
       registerAgent: (a: Agent) => this.registerAgent(a),
       unregisterAgent: (a) => this._activeAgents.delete(a),
+      ...(options?.onModelSwitchRequest ? { onModelSwitchRequest: options.onModelSwitchRequest } : {}),
+      ...(options?.sessionManager ? { sessionManager: options.sessionManager } : {}),
+      ...(options?.extensions ? { extensions: options.extensions } : {}),
     });
     this._memoryStore = setup.memoryStore;
     const { cfg, memoryIndex, memorySearchTool } = setup;
+    options?.onModelBuilt?.(cfg.model);
+
+    // Gap 85-A: extension notify sink + session lifecycle events. The sink is
+    // assigned here (not in setup) because the run loop owns onEvent.
+    if (cfg.extensionHost) {
+      cfg.extensionHost.notify = (message, level) => onEvent?.({ type: 'extension_notify', message, level });
+    }
+    for (const err of setup.extensionErrors ?? []) {
+      onEvent?.({ type: 'extension_notify', message: `[extensions] failed to load: ${err}`, level: 'error' });
+    }
+    const extRunner = cfg.extensionRunner;
+    if (extRunner?.hasHandlers('session_start')) {
+      // Gap 85-B: real resume semantics — a run seeded with prior messages IS a resume.
+      const reason = (initialMessages?.length ?? 0) > 0 ? 'resume' : 'startup';
+      void extRunner.emit({ type: 'session_start', reason }).catch(() => {});
+    }
 
     onEvent?.({
       type: 'session_info',
@@ -183,6 +212,9 @@ export class ReactAgent {
       }
       throw err;
     } finally {
+      if (cfg.extensionRunner?.hasHandlers('session_shutdown')) {
+        await cfg.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' }).catch(() => {});
+      }
       setup.close();
       await setup.pendingSummaries;
       this._isRunning = false;

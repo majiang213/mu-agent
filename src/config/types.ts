@@ -35,9 +35,30 @@ export interface HeavyThinkingConfig {
   deliberationModel?: string;
 }
 
+/**
+ * User extension system (Gap 85-A). Discovery: `<project>/.mu-agent/extensions/`
+ * + `~/.mu-agent/extensions/` + `paths`. `.pi/extensions` is NOT scanned
+ * implicitly — bridge pi extensions by listing them in `paths`.
+ */
+export interface ExtensionsConfig {
+  /** Master switch, default true (zero cost when no extension dirs exist). */
+  enabled?: boolean;
+  /** Extra extension files/dirs (relative paths resolve against project root). */
+  paths?: string[];
+  /**
+   * States that receive extension-registered tools. Default:
+   * RESEARCH/DIAGNOSE/REVIEW/ANSWER. REASON/MODIFY/VERIFY are hard-excluded
+   * (small-model discipline + no checkpoint bypass) even if listed.
+   */
+  toolStates?: string[];
+}
+
 export interface Config {
   $schema?: string;
   model: ModelConfig;
   safety?: SafetyConfig;
   heavyThinking?: HeavyThinkingConfig;
+  extensions?: ExtensionsConfig;
+  /** pi theme name (Gap 87): "dark" | "light" | a theme file name from ~/.mu-agent/themes. Default: terminal auto-detect. */
+  theme?: string;
 }

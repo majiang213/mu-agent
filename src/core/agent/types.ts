@@ -1,9 +1,11 @@
 import type { Agent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
-import type { Model } from '@earendil-works/pi-ai';
+import type { Model, Models } from '@earendil-works/pi-ai';
+import type { ExtensionRunner } from '@earendil-works/pi-coding-agent';
 import type { StateMachineAgent } from './state-machine.js';
 import type { StagnationDetector } from '../cognitive/index.js';
 import type { EnvContext } from '../prompts/agent.js';
-import type { SafetyConfig, HeavyThinkingConfig } from '../../config/types.js';
+import type { SafetyConfig, HeavyThinkingConfig, ExtensionsConfig } from '../../config/types.js';
+import type { ExtensionHostState } from '../extensions/stubs.js';
 import type { SafeModifier } from '../../tool/safety/index.js';
 import type { LspClient } from '../../tool/lsp.js';
 import type { CodeGraphLocator } from '../graph/locator.js';
@@ -50,7 +52,9 @@ export type ExecutionEvent =
   | { type: 'sampling_stopped'; reason: 'converged' | 'max_count' | 'max_rounds' | 'no_new_info' }
   | { type: 'subplan_start'; analyzerState: string; focus: string }
   | { type: 'subplan_complete'; subStepCount: number }
-  | { type: 'plan_parse_error'; analyzerState: string; output: string };
+  | { type: 'plan_parse_error'; analyzerState: string; output: string }
+  /** Extension subsystem message: load errors, handler failures, unsupported-API warnings (Gap 85-A). */
+  | { type: 'extension_notify'; message: string; level: 'info' | 'warning' | 'error' };
 
 export interface Mission {
   id: string;
@@ -125,6 +129,8 @@ export interface StepAgentDriver {
 export interface RunConfig {
   // ── immutable services ──
   model: Model<'openai-completions'>;
+  /** pi-ai Models collection (Gap 89) — all LLM calls go models.streamSimple/completeSimple. */
+  models: Models;
   stateMachine: StateMachineAgent;
   safeModifier: SafeModifier;
   lspClient?: LspClient;
@@ -144,6 +150,16 @@ export interface RunConfig {
   apiKey: string;
   projectRoot: string;
   heavyThinking?: HeavyThinkingConfig;
+  /**
+   * Loaded extension runner (Gap 85-A) — undefined when extensions are
+   * disabled or none were discovered. All interception points short-circuit
+   * on undefined/hasHandlers, so the zero-extension run costs nothing.
+   */
+  extensionRunner?: ExtensionRunner;
+  /** Live host state shared with the extension runtime (abort fan-out, system prompt, notify sink). */
+  extensionHost?: ExtensionHostState;
+  /** Resolved extensions config (toolStates allowlist for extension tools). */
+  extensionsConfig?: ExtensionsConfig;
   /** Test seam: replace runStep's build+drive collaborator (default: defaultStepDriver). */
   stepDriver?: StepAgentDriver;
   // ── hooks ──

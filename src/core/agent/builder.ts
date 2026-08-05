@@ -1,6 +1,7 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { AgentEvent, AgentMessage, AgentTool } from '@earendil-works/pi-agent-core';
-import { streamSimple } from '@earendil-works/pi-ai/compat';
+import type { TextContent, ImageContent } from '@earendil-works/pi-ai';
+import type { CustomToolCallEvent, ToolResultEvent } from '@earendil-works/pi-coding-agent';
 
 import { runEditPostCheck } from '../../tool/safety/modification.js';
 import { resolveProjectPath } from '../../tool/safety/paths.js';
@@ -30,6 +31,9 @@ export function buildStepAgent(
   readFiles?: Set<string>,
 ): Agent {
   let agentRef: Agent | null = null;
+  // Extensions read ctx.getSystemPrompt() at call time (Gap 85-A).
+  if (cfg.extensionHost) cfg.extensionHost.systemPrompt = systemPrompt;
+  const runner = cfg.extensionRunner;
 
   const agent = new Agent({
     initialState: {
@@ -53,7 +57,7 @@ export function buildStepAgent(
       if (!(opts as { signal?: AbortSignal })?.signal?.aborted) {
         onEvent?.({ type: 'turn_start', systemPrompt: agentCtx.systemPrompt ?? '', userPrompt: userPromptText });
       }
-      return streamSimple(m, agentCtx, { ...opts, apiKey: cfg.apiKey, temperature: cfg.temperature });
+      return cfg.models.streamSimple(m, agentCtx, { ...opts, temperature: cfg.temperature });
     },
     getApiKey: () => cfg.apiKey,
     beforeToolCall: async (toolCtx) => {
@@ -98,6 +102,44 @@ export function buildStepAgent(
           }
         }
       }
+      // Gap 85-A: extension tool_call interception (block + in-place input
+      // mutation — toolCtx.args is the SAME object execute() receives, so
+      // handler mutations land, pi-compatible). complete() is observe-only
+      // (decision ①): handlers get a CLONE, so neither block nor mutation can
+      // cut the state machine exit; attempts are warned, not honored.
+      if (runner?.hasHandlers('tool_call')) {
+        const isComplete = toolName === 'complete';
+        const event: CustomToolCallEvent = {
+          type: 'tool_call',
+          toolCallId: toolCtx.toolCall.id,
+          toolName,
+          input: isComplete
+            ? structuredClone(toolCtx.args as Record<string, unknown>)
+            : (toolCtx.args as Record<string, unknown>),
+        };
+        try {
+          const result = await runner.emitToolCall(event);
+          if (result?.block) {
+            if (isComplete) {
+              cfg.extensionHost?.notify?.(
+                '[extensions] tool_call block on complete() ignored (state exit protected)',
+                'warning',
+              );
+            } else {
+              return { block: true, reason: result.reason ?? 'Blocked by extension' };
+            }
+          }
+        } catch (e) {
+          // Fail-closed (decision ④): a throwing handler blocks the call —
+          // except complete(), whose exit protection outranks fail-closed.
+          const msg = e instanceof Error ? e.message : String(e);
+          if (isComplete) {
+            cfg.extensionHost?.notify?.(`[extensions] tool_call handler threw on complete(): ${msg}`, 'warning');
+          } else {
+            return { block: true, reason: `[extensions] tool_call handler failed: ${msg}` };
+          }
+        }
+      }
       return undefined;
     },
     afterToolCall: async (toolCtx) => {
@@ -123,6 +165,8 @@ export function buildStepAgent(
           return toolCtx.result;
         }
       }
+      let workingResult = toolCtx.result as
+        { content?: Array<TextContent | ImageContent>; details?: unknown } | undefined;
       if (
         cfg.lspClient &&
         (toolCtx.toolCall.name === 'edit' || toolCtx.toolCall.name === 'write') &&
@@ -133,25 +177,68 @@ export function buildStepAgent(
         if (filePath) {
           const errors = await cfg.lspClient.touchFile(filePath);
           if (errors.length > 0) {
-            const existing = toolCtx.result.content ?? [{ type: 'text' as const, text: 'ok' }];
+            const existing = workingResult?.content ?? [{ type: 'text' as const, text: 'ok' }];
             const lspText = errors.join('\n');
-            const existingText = existing
-              .flatMap((c) => (c.type === 'text' && c.text ? [c.text as string] : []))
-              .join('');
-            return {
+            const existingText = existing.flatMap((c) => (c.type === 'text' ? [c.text] : [])).join('');
+            workingResult = {
+              ...workingResult,
               content: [{ type: 'text' as const, text: `${existingText}\n${lspText}` }],
             };
           }
         }
       }
-      return undefined;
+      // Gap 85-A: extension tool_result interception (content/details rewrite).
+      // Handler errors are isolated inside emitToolResult. complete() rewrites
+      // are ignored — the exit protocol's result is harness-owned (decision ①).
+      if (runner?.hasHandlers('tool_result')) {
+        const isComplete = toolCtx.toolCall.name === 'complete';
+        const event = {
+          type: 'tool_result',
+          toolCallId: toolCtx.toolCall.id,
+          toolName: toolCtx.toolCall.name,
+          input: toolCtx.args as Record<string, unknown>,
+          content: workingResult?.content ?? [],
+          isError: toolCtx.isError,
+          details: workingResult?.details,
+        } as ToolResultEvent;
+        const rewritten = await runner.emitToolResult(event);
+        if (rewritten) {
+          if (isComplete) {
+            cfg.extensionHost?.notify?.(
+              '[extensions] tool_result rewrite on complete() ignored (state exit protected)',
+              'warning',
+            );
+          } else {
+            workingResult = {
+              ...workingResult,
+              ...(rewritten.content !== undefined ? { content: rewritten.content } : {}),
+              ...(rewritten.details !== undefined ? { details: rewritten.details } : {}),
+            };
+          }
+        }
+      }
+      return workingResult === toolCtx.result ? undefined : workingResult;
     },
     transformContext: async (messages) => {
       const latestSteerIdx = messages.findLastIndex((m) => m.role === 'steer');
       const result =
         latestSteerIdx < 0 ? messages : messages.filter((m, i) => m.role !== 'steer' || i === latestSteerIdx);
       const inLoopBudget = Math.floor(cfg.model.contextWindow * cfg.contextRatio);
-      return compactLoopMessages(result, inLoopBudget);
+      const compacted = compactLoopMessages(result, inLoopBudget);
+      // Gap 85-A: extension context event — handlers see (and may replace) the
+      // FINAL message list the LLM call receives. Fail-open: a broken context
+      // handler must not kill the turn (pi isolates handler errors the same way).
+      if (runner?.hasHandlers('context')) {
+        try {
+          return await runner.emitContext(compacted);
+        } catch (e) {
+          cfg.extensionHost?.notify?.(
+            `[extensions] context handler failed: ${e instanceof Error ? e.message : String(e)}`,
+            'warning',
+          );
+        }
+      }
+      return compacted;
     },
     convertToLlm: (messages) => {
       return messages.flatMap((m) => {
@@ -186,8 +273,58 @@ export function subscribeStepEvents(
   const pendingModifyPaths = new Map<string, string>();
   let stagnationWarnings = 0;
 
+  // Gap 85-A: forward pi-agent-core's observation events to extension
+  // handlers. hasHandlers short-circuits every emit, so a run without
+  // extensions (or without a handler for that event) pays nothing. emit()
+  // isolates handler errors internally; the trailing catch is paranoia for
+  // runner-level failures — observation must never break a step.
+  const extRunner = cfg.extensionRunner;
+  let turnIndex = 0;
+  const emitObserve = (event: Parameters<NonNullable<typeof extRunner>['emit']>[0]): void => {
+    if (!extRunner?.hasHandlers(event.type)) return;
+    void extRunner.emit(event).catch(() => {});
+  };
+
   agent.subscribe((event: AgentEvent) => {
+    if (event.type === 'agent_start') {
+      emitObserve({ type: 'agent_start' });
+    }
+
+    if (event.type === 'agent_end') {
+      emitObserve({ type: 'agent_end', messages: event.messages });
+    }
+
+    if (event.type === 'turn_start') {
+      turnIndex++;
+      emitObserve({ type: 'turn_start', turnIndex, timestamp: Date.now() });
+    }
+
+    if (event.type === 'message_start') {
+      emitObserve({ type: 'message_start', message: event.message });
+    }
+
+    if (event.type === 'message_end') {
+      // message_end has a dedicated emitter (excluded from generic emit).
+      if (extRunner?.hasHandlers('message_end')) {
+        void extRunner.emitMessageEnd({ type: 'message_end', message: event.message }).catch(() => {});
+      }
+    }
+
+    if (event.type === 'message_update') {
+      emitObserve({
+        type: 'message_update',
+        message: event.message,
+        assistantMessageEvent: event.assistantMessageEvent,
+      });
+    }
+
     if (event.type === 'tool_execution_start') {
+      emitObserve({
+        type: 'tool_execution_start',
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        args: event.args,
+      });
       onEvent?.({
         type: 'tool_execution_start',
         tool: event.toolName,
@@ -216,6 +353,13 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'tool_execution_end') {
+      emitObserve({
+        type: 'tool_execution_end',
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        result: event.result,
+        isError: event.isError,
+      });
       const rawOutput =
         event.result &&
         typeof event.result === 'object' &&
@@ -283,6 +427,12 @@ export function subscribeStepEvents(
     }
 
     if (event.type === 'turn_end') {
+      emitObserve({
+        type: 'turn_end',
+        turnIndex,
+        message: event.message,
+        toolResults: event.toolResults,
+      });
       const msg = event.message;
       if (msg && 'content' in msg && Array.isArray(msg.content)) {
         const parts = msg.content as Array<{ type: string; text?: string; thinking?: string }>;

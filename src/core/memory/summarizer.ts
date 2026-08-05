@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3';
-import type { Model } from '@earendil-works/pi-ai';
+import type { Model, Models } from '@earendil-works/pi-ai';
 import { buildSearchableContent, parseStructuredSummary } from './episode.js';
-import { resolveApiKey } from '../../provider/model-info.js';
 
 export interface LLMSummary {
   description: string;
@@ -41,9 +40,9 @@ export function applyEpisodeSummary(db: Database.Database, episodeId: string, su
 
 async function generateEpisodeSummary(
   row: { episode_id: string; user_input: string; result_summary: string },
+  models: Models,
   model: Model<'openai-completions'>,
 ): Promise<LLMSummary> {
-  const { completeSimple } = await import('@earendil-works/pi-ai/compat');
   let context = row.user_input;
   const s = parseStructuredSummary(row.result_summary);
   if (s) {
@@ -52,13 +51,13 @@ async function generateEpisodeSummary(
     if (s.error_summary) context += `\nError: ${s.error_summary}`;
   }
 
-  const result = await completeSimple(
+  const result = await models.completeSimple(
     model,
     {
       systemPrompt: `You are a coding assistant. Summarize this task in one sentence (≤120 chars), then list 3-5 search keywords.\nOutput format (JSON): {"description": "...", "keywords": ["...", "..."]}`,
       messages: [{ role: 'user', content: context, timestamp: Date.now() }],
     },
-    { temperature: 0.1, apiKey: resolveApiKey(model) || undefined },
+    { temperature: 0.1 },
   );
 
   try {
@@ -78,6 +77,7 @@ async function generateEpisodeSummary(
 
 export async function processPendingSummaries(
   db: Database.Database,
+  models: Models,
   model: Model<'openai-completions'>,
   projectRoot: string,
 ): Promise<void> {
@@ -109,7 +109,7 @@ export async function processPendingSummaries(
 
   for (const row of pending) {
     try {
-      const summary = await generateEpisodeSummary(row, model);
+      const summary = await generateEpisodeSummary(row, models, model);
       applyEpisodeSummary(db, row.episode_id, summary);
     } catch (err) {
       console.warn(
